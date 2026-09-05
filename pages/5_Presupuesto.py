@@ -3,9 +3,6 @@ import streamlit as st
 import db
 import utils
 
-st.set_page_config(page_title="Presupuesto", page_icon="📊", layout="wide")
-utils.check_password()
-
 st.title("📊 Presupuesto — próximas 13 semanas")
 st.caption("Así ves de inmediato en qué semana futura pega cada factura o letra nueva que registras.")
 
