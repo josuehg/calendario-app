@@ -74,6 +74,15 @@ def get_vendor_by_name(name):
     return res.data[0] if res.data else None
 
 
+def get_vendor_by_ruc(ruc):
+    ruc = (ruc or "").strip()
+    if not ruc:
+        return None
+    sb = get_client()
+    res = sb.table("vendors").select("*").eq("ruc", ruc).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
 def save_vendor(data: dict):
     """Crea o actualiza un proveedor (upsert por nombre)."""
     sb = get_client()
@@ -83,6 +92,19 @@ def save_vendor(data: dict):
 def delete_vendor(vendor_id):
     sb = get_client()
     return sb.table("vendors").delete().eq("id", vendor_id).execute()
+
+
+# ---------- ajustes ----------
+
+def get_settings():
+    sb = get_client()
+    res = sb.table("app_settings").select("*").eq("id", 1).limit(1).execute()
+    return res.data[0] if res.data else {"track_contado": True}
+
+
+def save_settings(data: dict):
+    sb = get_client()
+    return sb.table("app_settings").update(data).eq("id", 1).execute()
 
 
 # ---------- facturas ----------
