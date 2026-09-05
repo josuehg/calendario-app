@@ -5,7 +5,8 @@ import utils
 invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
-events = utils.get_payment_events(invoices, letras, canje_facturas)
+track_contado = db.get_settings().get("track_contado", True)
+events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado)
 stats = utils.compute_stats(events)
 
 st.title("🗓️ Calendario Maestro de Pagos")
