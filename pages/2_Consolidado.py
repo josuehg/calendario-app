@@ -3,9 +3,6 @@ import pandas as pd
 import db
 import utils
 
-st.set_page_config(page_title="Consolidado", page_icon="📋", layout="wide")
-utils.check_password()
-
 st.title("📋 Consolidado de facturas")
 
 invoices = db.list_invoices()
