@@ -4,6 +4,25 @@ import utils
 
 st.title("⚙️ Configuración")
 
+# ---------- enfoque contado/crédito ----------
+st.subheader("Enfoque del sistema")
+settings = db.get_settings()
+track_contado = st.toggle(
+    "Registrar y mostrar compras al contado",
+    value=settings.get("track_contado", True),
+    help=(
+        "Si lo apagas, las compras al contado se siguen registrando y ves todas en "
+        "Consolidado, pero dejan de aparecer en Resumen, Calendario y Presupuesto — "
+        "así esas vistas quedan enfocadas solo en las cuentas por pagar (crédito)."
+    ),
+)
+if track_contado != settings.get("track_contado", True):
+    db.save_settings({"track_contado": track_contado})
+    st.success("Guardado.")
+    st.rerun()
+
+st.divider()
+
 # ---------- sucursales y PIN ----------
 st.subheader("Sucursales y PIN de acceso")
 st.caption(
