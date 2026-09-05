@@ -27,11 +27,62 @@ def get_branches():
     return names if names else DEFAULT_BRANCHES
 
 
-def save_branches(names):
-    """Reemplaza la lista completa de sucursales, en orden."""
+def get_branches_full():
+    """Devuelve [{id, name, pin}, ...] para la página de Configuración."""
+    sb = get_client()
+    res = sb.table("branches").select("id, name, pin").order("id").execute()
+    return res.data
+
+
+def save_branches(rows):
+    """Reemplaza la lista completa de sucursales, en orden.
+    rows: lista de dicts {name, pin}. pin vacío se guarda como None."""
     sb = get_client()
     sb.table("branches").delete().neq("id", 0).execute()
-    sb.table("branches").insert([{"name": n} for n in names if n.strip()]).execute()
+    payload = [
+        {"name": r["name"].strip(), "pin": (r.get("pin") or "").strip() or None}
+        for r in rows if r["name"].strip()
+    ]
+    if payload:
+        sb.table("branches").insert(payload).execute()
+
+
+def find_branch_by_pin(pin):
+    """Devuelve el nombre de la sucursal cuyo PIN coincide, o None."""
+    pin = (pin or "").strip()
+    if not pin:
+        return None
+    sb = get_client()
+    res = sb.table("branches").select("name, pin").execute()
+    for r in res.data:
+        if r.get("pin") and r["pin"] == pin:
+            return r["name"]
+    return None
+
+
+# ---------- proveedores ----------
+
+def get_vendors():
+    sb = get_client()
+    res = sb.table("vendors").select("*").order("name").execute()
+    return res.data
+
+
+def get_vendor_by_name(name):
+    sb = get_client()
+    res = sb.table("vendors").select("*").eq("name", name).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def save_vendor(data: dict):
+    """Crea o actualiza un proveedor (upsert por nombre)."""
+    sb = get_client()
+    return sb.table("vendors").upsert(data, on_conflict="name").execute()
+
+
+def delete_vendor(vendor_id):
+    sb = get_client()
+    return sb.table("vendors").delete().eq("id", vendor_id).execute()
 
 
 # ---------- facturas ----------
