@@ -6,6 +6,7 @@ calendario y el presupuesto.
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
+import db
 
 TERM_OPTIONS = [30, 45, 60, 75, 90]
 WEEKS_AHEAD = 13
@@ -17,24 +18,36 @@ MONTHS_ES = [
 
 # ---------- acceso ----------
 
-def check_password():
-    """Muestra un campo de clave y detiene la app hasta que sea correcta.
-    Protege el enlace público de la app con una sola clave compartida."""
-    if st.session_state.get("_authed"):
-        return True
+def authenticate():
+    """
+    Pide un PIN de acceso y detiene la app hasta que sea válido.
+    - Si coincide con el PIN de administrador (APP_PASSWORD en secrets): acceso total.
+    - Si coincide con el PIN de alguna sucursal (tabla branches): acceso limitado
+      a esa sucursal, ya identificada — no hace falta elegirla en un menú.
+    Devuelve {"role": "admin" | "branch", "branch": str | None}.
+    """
+    if st.session_state.get("auth_role"):
+        return {"role": st.session_state["auth_role"], "branch": st.session_state.get("auth_branch")}
 
-    configured = st.secrets.get("APP_PASSWORD")
-    if not configured:
-        return True  # si no se configuró clave, no se bloquea (útil en desarrollo)
+    admin_pin = st.secrets.get("APP_PASSWORD")
 
     st.title("🗓️ Calendario Maestro de Pagos")
-    pwd = st.text_input("Clave de acceso", type="password")
-    if pwd:
-        if pwd == configured:
-            st.session_state["_authed"] = True
+    st.caption("Ingresa tu PIN de acceso.")
+    with st.form("login_form"):
+        pin = st.text_input("PIN", type="password")
+        submitted = st.form_submit_button("Entrar", type="primary")
+
+    if submitted:
+        if admin_pin and pin == admin_pin:
+            st.session_state["auth_role"] = "admin"
+            st.session_state["auth_branch"] = None
             st.rerun()
-        else:
-            st.error("Clave incorrecta.")
+        branch = db.find_branch_by_pin(pin)
+        if branch:
+            st.session_state["auth_role"] = "branch"
+            st.session_state["auth_branch"] = branch
+            st.rerun()
+        st.error("PIN incorrecto.")
     st.stop()
 
 
