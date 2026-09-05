@@ -4,9 +4,6 @@ import streamlit as st
 import db
 import utils
 
-st.set_page_config(page_title="Calendario", page_icon="📅", layout="wide")
-utils.check_password()
-
 st.title("📅 Calendario maestro de pagos")
 
 invoices = db.list_invoices()
