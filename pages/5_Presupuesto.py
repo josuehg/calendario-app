@@ -9,7 +9,8 @@ st.caption("Así ves de inmediato en qué semana futura pega cada factura o letr
 invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
-events = utils.get_payment_events(invoices, letras, canje_facturas)
+track_contado = db.get_settings().get("track_contado", True)
+events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado)    
 buckets = utils.weekly_buckets(events)
 today = utils.today_str()
 
