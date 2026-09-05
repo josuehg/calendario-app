@@ -3,9 +3,6 @@ import streamlit as st
 import db
 import utils
 
-st.set_page_config(page_title="Canjear a Letras", page_icon="🔁", layout="wide")
-utils.check_password()
-
 st.title("🔁 Canjear facturas a letras")
 st.caption("Selecciona una o varias facturas a crédito y agrúpalas en una o varias letras — no necesitan coincidir 1 a 1.")
 
