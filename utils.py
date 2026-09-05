@@ -86,13 +86,15 @@ def money(n):
 
 # ---------- eventos de pago (calendario / presupuesto) ----------
 
-def get_payment_events(invoices, letras, canje_facturas):
+def get_payment_events(invoices, letras, canje_facturas, track_contado=True):
     """
     Devuelve una lista de eventos de pago futuros/pendientes:
     - una factura 'pendiente' (no canjeada) aporta un evento en su due_date.
     - cada letra 'pendiente' de un canje aporta un evento en su fecha_vencimiento,
       representando a TODAS las facturas agrupadas en ese canje.
     Las facturas 'pagada' o 'canjeada' no generan evento por sí mismas.
+    Si track_contado es False, las facturas al contado se excluyen (siguen
+    registradas y visibles en Consolidado, solo no aparecen en estas vistas).
     """
     today = today_str()
     inv_by_id = {i["id"]: i for i in invoices}
@@ -107,6 +109,8 @@ def get_payment_events(invoices, letras, canje_facturas):
     events = []
 
     for inv in invoices:
+        if not track_contado and inv["doc_type"] == "contado":
+            continue
         if inv["status"] == "pendiente":
             events.append({
                 "date": inv["due_date"],
