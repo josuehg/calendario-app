@@ -9,7 +9,8 @@ st.title("📅 Calendario maestro de pagos")
 invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
-events = utils.get_payment_events(invoices, letras, canje_facturas)
+track_contado = db.get_settings().get("track_contado", True)
+events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado)    
 
 today = date.today()
 if "cal_year" not in st.session_state:
