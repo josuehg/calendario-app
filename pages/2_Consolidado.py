@@ -35,8 +35,9 @@ if not rows:
     st.info("No hay facturas con estos filtros.")
 else:
     df = pd.DataFrame(rows)
-    df_view = df[["issue_date", "branch", "vendor", "invoice_number", "doc_type", "amount", "due_date", "status"]].copy()
-    df_view.columns = ["Emisión", "Sucursal", "Proveedor", "N° Factura", "Tipo", "Monto (S/)", "Vence", "Estado"]
+    df["document_type"] = df.get("document_type", "Factura")
+    df_view = df[["issue_date", "branch", "vendor", "document_type", "invoice_number", "doc_type", "amount", "due_date", "status"]].copy()
+    df_view.columns = ["Emisión", "Sucursal", "Proveedor", "Tipo Doc.", "N° Documento", "Tipo", "Monto (S/)", "Vence", "Estado"]
     df_view["Vencida"] = [
         (r["status"] != "pagada" and r["due_date"] < today) for r in rows
     ]
