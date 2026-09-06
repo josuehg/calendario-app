@@ -62,7 +62,7 @@ else:
         selected_ids = [options[l] for l in selected_labels]
         if st.button("Canjear seleccionadas a letras →", type="primary", disabled=not selected_ids):
             st.session_state["canje_preselect"] = selected_ids
-            st.switch_page("pages/3_Canjear_a_Letras.py")
+            st.switch_page("views/3_Canjear_a_Letras.py")
 
     st.divider()
     st.subheader("Marcar pago directo o eliminar")
