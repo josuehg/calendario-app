@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 import streamlit as st
 import db
 import utils
@@ -9,12 +11,19 @@ auth_branch = st.session_state.get("auth_branch")
 
 DOCUMENT_TYPES = ["Factura", "Boleta", "Nota de compra", "Otro"]
 
+# Mensaje de éxito del último registro (se muestra tras el st.rerun).
+done = st.session_state.pop("nf_done", None)
+if done:
+    st.success(done)
+
+# ---------- sucursal ----------
 if auth_role == "branch":
     st.text_input("Sucursal", value=auth_branch, disabled=True)
     branch = auth_branch
 else:
     branch = st.selectbox("Sucursal", db.get_branches() + ["Oficina central"])
 
+# ---------- proveedor ----------
 st.markdown("**Proveedor**")
 query = st.text_input(
     "Buscar proveedor por RUC o nombre",
@@ -24,10 +33,10 @@ query = st.text_input(
 
 matched_vendor = None
 vendor_name = None
+vendor_ruc = None
 doc_type = None
 term_days = None
 is_new_vendor = False
-new_vendor_ruc = ""
 
 q = query.strip()
 if q:
@@ -55,6 +64,7 @@ if q:
         ruc_txt = f" · RUC {matched_vendor['ruc']}" if matched_vendor.get("ruc") else ""
         st.success(f"Proveedor: **{matched_vendor['name']}**{ruc_txt}")
         vendor_name = matched_vendor["name"]
+        vendor_ruc = matched_vendor.get("ruc")
         doc_type = matched_vendor["doc_type"]
         term_days = matched_vendor["term_days"]
         if doc_type == "credito":
@@ -62,22 +72,20 @@ if q:
         else:
             st.info("Este proveedor trabaja al **contado**.")
     else:
-        st.warning("No se encontró ningún proveedor con esos datos. Regístralo como nuevo proveedor:")
+        st.warning("No se encontró ningún proveedor con esos datos. Regístralo como proveedor nuevo:")
         is_new_vendor = True
         colA, colB = st.columns(2)
-        with colA:
-            vendor_name = st.text_input(
-                "Nombre del proveedor",
-                value=("" if q.isdigit() else query),
-                key="nf_new_vendor_name",
-            )
-        with colB:
-            new_vendor_ruc = st.text_input(
-                "RUC (opcional)",
-                value=(q if q.isdigit() else ""),
-                key="nf_new_vendor_ruc",
-                max_chars=11,
-            )
+        vendor_name = colA.text_input(
+            "Nombre del proveedor nuevo",
+            value=("" if q.isdigit() else query),
+            key="nf_new_vendor_name",
+        )
+        vendor_ruc = colB.text_input(
+            "RUC (11 dígitos)",
+            value=(q if q.isdigit() else ""),
+            key="nf_new_vendor_ruc",
+            max_chars=11,
+        )
         st.caption(
             "Se guarda al contado por defecto — el administrador puede reclasificarlo "
             "luego en Configuración si trabaja a crédito."
@@ -86,6 +94,7 @@ if q:
 else:
     st.caption("Escribe el RUC o el nombre del proveedor para buscarlo. Si no existe, podrás crearlo aquí mismo.")
 
+# ---------- datos del documento ----------
 col1, col2 = st.columns(2)
 with col1:
     document_type = st.selectbox("Tipo de documento", DOCUMENT_TYPES, key="nf_doc_type_sel")
@@ -95,67 +104,146 @@ with col2:
     issue_date = st.date_input("Fecha de emisión", value=None, key="nf_issue_date")
     notes = st.text_area("Notas (opcional)", height=68, key="nf_notes")
 
+# ---------- vencimiento: solo si el proveedor es a crédito ----------
+due_date = None
+if doc_type == "credito":
+    computed_due = issue_date + timedelta(days=term_days) if (issue_date and term_days) else None
+    # Se siembra una sola vez con la fecha sugerida; luego la sucursal puede
+    # ajustarla a mano, y el botón ↻ la vuelve a poner en emisión + plazo.
+    if "nf_due_date" not in st.session_state:
+        st.session_state["nf_due_date"] = computed_due or issue_date or date.today()
+    dc1, dc2 = st.columns([3, 1])
+    due_date = dc1.date_input("Fecha de vencimiento", key="nf_due_date")
+    if computed_due and dc2.button(
+        "↻ Recalcular", use_container_width=True, help=f"Usar emisión + {term_days} días"
+    ):
+        st.session_state["nf_due_date"] = computed_due
+        st.rerun()
+    if term_days:
+        dc1.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
+
+# ---------- registrar (con confirmación) ----------
 if st.button("Registrar factura", type="primary"):
-    if not vendor_name or not vendor_name.strip() or not invoice_number.strip() or amount <= 0 or not issue_date:
-        st.error("Completa proveedor, N° de documento, monto y fecha de emisión.")
+    faltan = []
+    vn = (vendor_name or "").strip()
+    ruc_clean = (vendor_ruc or "").strip()
+    if not vn:
+        faltan.append("nombre del proveedor")
+    if not invoice_number.strip():
+        faltan.append("N° de documento")
+    if amount <= 0:
+        faltan.append("monto")
+    if not issue_date:
+        faltan.append("fecha de emisión")
+    if doc_type == "credito" and not due_date:
+        faltan.append("fecha de vencimiento")
+
+    if faltan:
+        st.error("Completa: " + ", ".join(faltan) + ".")
+    elif is_new_vendor and not (ruc_clean.isdigit() and len(ruc_clean) == 11):
+        st.error("El RUC debe tener exactamente 11 dígitos.")
+    elif doc_type == "credito" and due_date and issue_date and due_date < issue_date:
+        st.error("La fecha de vencimiento no puede ser anterior a la de emisión.")
     else:
-        vendor_name = vendor_name.strip()
-        can_submit = True
+        proceed = True
+        resolved_name, resolved_doc_type, resolved_term = vn, doc_type, term_days
+        vendor_is_new = is_new_vendor
 
         if is_new_vendor:
-            all_current_vendors = db.get_vendors()
-            name_l = vendor_name.lower()
-            ruc_clean = new_vendor_ruc.strip() or None
-
-            name_match = next((v for v in all_current_vendors if v["name"].strip().lower() == name_l), None)
-            ruc_match = (
-                next((v for v in all_current_vendors if (v.get("ruc") or "") == ruc_clean), None)
-                if ruc_clean else None
-            )
-
+            existing = db.get_vendors()
+            name_match = next((v for v in existing if v["name"].strip().lower() == vn.lower()), None)
+            ruc_match = next((v for v in existing if (v.get("ruc") or "") == ruc_clean), None)
             if name_match:
-                # Ya existe un proveedor con ese nombre — se usa su configuración
-                # en vez de crear un duplicado.
-                vendor_name = name_match["name"]
-                doc_type = name_match["doc_type"]
-                term_days = name_match["term_days"]
+                # Ya existe con ese nombre — se usa su configuración, no se duplica.
+                resolved_name = name_match["name"]
+                resolved_doc_type = name_match["doc_type"]
+                resolved_term = name_match["term_days"]
+                vendor_is_new = False
             elif ruc_match:
                 st.error(f"El RUC {ruc_clean} ya pertenece a **{ruc_match['name']}**. Búscalo por ese nombre o RUC arriba.")
-                can_submit = False
-            else:
-                try:
-                    db.create_vendor({
-                        "name": vendor_name,
-                        "ruc": ruc_clean,
-                        "doc_type": "contado",
-                        "term_days": None,
-                    })
-                except Exception:
-                    st.error("No se pudo registrar el proveedor: el nombre o el RUC ya está en uso.")
-                    can_submit = False
+                proceed = False
 
-        if can_submit:
-            issue_date_str = issue_date.isoformat()
-            due_date_str = (
-                utils.add_days(issue_date_str, term_days)
-                if doc_type == "credito" and term_days
-                else issue_date_str
+        if proceed:
+            final_due = (
+                due_date.isoformat()
+                if resolved_doc_type == "credito" and due_date
+                else issue_date.isoformat()
             )
-            db.create_invoice({
+            st.session_state["nf_pending"] = {
                 "branch": branch,
-                "vendor": vendor_name,
+                "vendor": resolved_name,
+                "ruc": ruc_clean or None,
+                "is_new_vendor": vendor_is_new,
                 "invoice_number": invoice_number.strip(),
                 "document_type": document_type,
-                "doc_type": doc_type,
-                "amount": amount,
-                "issue_date": issue_date_str,
-                "term_days": term_days,
-                "due_date": due_date_str,
-                "status": "pendiente",
+                "doc_type": resolved_doc_type,
+                "term_days": resolved_term,
+                "amount": float(amount),
+                "issue_date": issue_date.isoformat(),
+                "due_date": final_due,
                 "notes": notes.strip(),
-            })
-            tipo_txt = "contado" if doc_type == "contado" else f"crédito a {term_days} días"
-            st.success(f"{document_type} registrado ({vendor_name} · {tipo_txt}). Vence el {utils.fmt_short(due_date_str)}.")
-            for k in ["nf_query", "nf_new_vendor_name", "nf_new_vendor_ruc", "nf_invoice_number", "nf_amount", "nf_notes"]:
-                st.session_state.pop(k, None)
+            }
             st.rerun()
+
+# ---------- diálogo: resumen para confirmar ----------
+if st.session_state.get("nf_pending"):
+    p = st.session_state["nf_pending"]
+
+    @st.dialog("Confirmar registro")
+    def _confirm_dialog():
+        tipo_txt = "Contado" if p["doc_type"] == "contado" else f"Crédito · {p['term_days']} días"
+        filas = [
+            ("Sucursal", p["branch"]),
+            ("Proveedor", p["vendor"] + ("  · 🆕 nuevo" if p["is_new_vendor"] else "")),
+            ("RUC", p["ruc"] or "—"),
+            ("Tipo de documento", p["document_type"]),
+            ("N° de documento", p["invoice_number"]),
+            ("Monto", utils.money(p["amount"])),
+            ("Emisión", utils.fmt_short(p["issue_date"])),
+            ("Condición", tipo_txt),
+            ("Vencimiento", utils.fmt_short(p["due_date"])),
+        ]
+        if p["notes"]:
+            filas.append(("Notas", p["notes"]))
+        st.table({"Campo": [f[0] for f in filas], "Valor": [f[1] for f in filas]})
+
+        b1, b2 = st.columns(2)
+        if b1.button("Confirmar y guardar", type="primary", use_container_width=True):
+            if p["is_new_vendor"]:
+                try:
+                    db.create_vendor(
+                        {"name": p["vendor"], "ruc": p["ruc"], "doc_type": "contado", "term_days": None}
+                    )
+                except Exception:
+                    st.error("No se pudo registrar el proveedor: el nombre o el RUC ya está en uso.")
+                    return
+            db.create_invoice({
+                "branch": p["branch"],
+                "vendor": p["vendor"],
+                "invoice_number": p["invoice_number"],
+                "document_type": p["document_type"],
+                "doc_type": p["doc_type"],
+                "amount": p["amount"],
+                "issue_date": p["issue_date"],
+                "term_days": p["term_days"],
+                "due_date": p["due_date"],
+                "status": "pendiente",
+                "notes": p["notes"],
+            })
+            tipo_msg = "contado" if p["doc_type"] == "contado" else f"crédito a {p['term_days']} días"
+            st.session_state["nf_done"] = (
+                f"{p['document_type']} registrada ({p['vendor']} · {tipo_msg}). "
+                f"Vence el {utils.fmt_short(p['due_date'])}."
+            )
+            for k in [
+                "nf_query", "nf_new_vendor_name", "nf_new_vendor_ruc", "nf_invoice_number",
+                "nf_amount", "nf_notes", "nf_issue_date", "nf_due_date", "nf_doc_type_sel",
+            ]:
+                st.session_state.pop(k, None)
+            st.session_state["nf_pending"] = None
+            st.rerun()
+        if b2.button("Volver a editar", use_container_width=True):
+            st.session_state["nf_pending"] = None
+            st.rerun()
+
+    _confirm_dialog()
