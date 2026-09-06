@@ -68,6 +68,10 @@ search = top1.text_input(
     placeholder="🔎 Buscar proveedor por nombre o RUC",
 )
 if top2.button("➕ Nuevo proveedor", use_container_width=True):
+    # Limpia cualquier resto de un diálogo anterior (p. ej. si se cerró con la
+    # "X" en vez del botón Cancelar) para que los campos no salgan con datos viejos.
+    for k in ["vd_name", "vd_ruc", "vd_doctype", "vd_term", "_confirm_del_vendor"]:
+        st.session_state.pop(k, None)
     st.session_state["_vendor_dialog"] = {"mode": "new", "data": None}
     st.rerun()
 
@@ -90,6 +94,8 @@ if vendors:
                     st.markdown("⚪ Contado")
             with c3:
                 if st.button("Editar", key=f"edit_vendor_{v['id']}", use_container_width=True):
+                    for k in ["vd_name", "vd_ruc", "vd_doctype", "vd_term", "_confirm_del_vendor"]:
+                        st.session_state.pop(k, None)
                     st.session_state["_vendor_dialog"] = {"mode": "edit", "data": v}
                     st.rerun()
 elif search:
