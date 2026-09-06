@@ -48,7 +48,7 @@ with tab_var:
                     "name": gv_name.strip(),
                     "category": gv_cat,
                     "branch": None if gv_branch == GENERAL else gv_branch,
-                    "amount": float(gv_amount),
+                    "amount": utils.round2(gv_amount),
                     "due_date": gv_due.isoformat(),
                     "status": "pendiente",
                     "notes": gv_notes.strip() or None,
@@ -122,7 +122,7 @@ with tab_fijo:
                         "name": name.strip(),
                         "category": cat,
                         "branch": None if branch == GENERAL else branch,
-                        "amount": float(amount),
+                        "amount": utils.round2(amount),
                         "pay_day": int(pay_day),
                         "active": bool(active),
                         "start_month": start.replace(day=1).isoformat(),
@@ -177,7 +177,7 @@ with tab_prox:
 
     if not rows:
         st.caption("No hay gastos con esos filtros.")
-    total = sum(float(e["amount"]) for e in rows)
+    total = utils.dsum(e["amount"] for e in rows)
     if rows:
         st.markdown(f"**{len(rows)} gasto(s) · {utils.money(total)}**")
 
@@ -209,7 +209,7 @@ with tab_prox:
                                          value=float(mng["amount"]), key="gx_mng_amount")
             if abs(new_amount - float(mng["amount"])) > 0.001:
                 if st.button("Guardar nuevo monto"):
-                    db.update_expense(mng["id"], {"amount": float(new_amount)})
+                    db.update_expense(mng["id"], {"amount": utils.round2(new_amount)})
                     st.session_state["_gx_manage"] = None
                     st.session_state["gx_msg"] = "Monto actualizado."
                     st.rerun()

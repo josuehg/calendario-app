@@ -72,9 +72,16 @@ class FakeDB:
         return row
 
     def update_vendor(self, vid, data):
+        new_name = (data.get("name") or "").strip()
+        prev = None
         for v in self.vendors:
             if v["id"] == vid:
+                prev = v["name"]
                 v.update(data)
+        if prev and new_name and prev != new_name:
+            for i in self.invoices:
+                if i.get("vendor") == prev:
+                    i["vendor"] = new_name
 
     def delete_vendor(self, vid):
         self.vendors[:] = [v for v in self.vendors if v["id"] != vid]

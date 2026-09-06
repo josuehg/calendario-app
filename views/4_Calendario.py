@@ -22,9 +22,10 @@ if "cal_year" not in st.session_state:
 by_date = {}
 for e in events:
     by_date.setdefault(e["date"], {"amount": 0.0, "count": 0, "items": []})
-    by_date[e["date"]]["amount"] += e["amount"]
     by_date[e["date"]]["count"] += 1
     by_date[e["date"]]["items"].append(e)
+for _info in by_date.values():
+    _info["amount"] = utils.dsum(i["amount"] for i in _info["items"])
 
 c1, c2, c3 = st.columns([1, 2, 1])
 if c1.button("← Anterior"):
