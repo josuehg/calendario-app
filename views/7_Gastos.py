@@ -52,6 +52,7 @@ with tab_var:
                     "due_date": gv_due.isoformat(),
                     "status": "pendiente",
                     "notes": gv_notes.strip() or None,
+                    "registered_by": utils.current_actor(),
                 })
                 st.session_state["gx_msg"] = f"Gasto variable registrado: {gv_name.strip()} · {utils.money(gv_amount)}."
                 st.rerun()
@@ -186,7 +187,11 @@ with tab_prox:
             c1, c2, c3, c4 = st.columns([3, 1.4, 1.5, 1.3])
             tag = {"pendiente": "", "pagado": "  · ✅ pagado", "omitido": "  · ⏭️ omitido"}[e["status"]]
             c1.markdown(f"**{e['name']}**{tag}")
-            c1.caption(f"{'Fijo' if e['kind'] == 'fijo' else 'Variable'} · {e['category']} · {e.get('branch') or 'General'}")
+            meta = f"{'Fijo' if e['kind'] == 'fijo' else 'Variable'} · {e['category']} · {e.get('branch') or 'General'}"
+            meta += f" · registró: {e.get('registered_by') or '—'}"
+            if e["status"] == "pagado" and e.get("paid_by"):
+                meta += f" · pagó: {e['paid_by']}"
+            c1.caption(meta)
             c2.markdown(utils.money(e["amount"]))
             venc = utils.fmt_short(e["due_date"])
             c3.markdown(f"🔴 {venc}" if e["status"] == "pendiente" and e["due_date"] < today else f"📅 {venc}")
@@ -212,7 +217,7 @@ with tab_prox:
             pay_date = st.date_input("Fecha de pago", value=date.today(), key="gx_mng_paydate")
             b1, b2 = st.columns(2)
             if b1.button("✅ Marcar pagado", type="primary", use_container_width=True):
-                db.set_expense_status(mng["id"], "pagado", pay_date.isoformat())
+                db.set_expense_status(mng["id"], "pagado", pay_date.isoformat(), paid_by=utils.current_actor())
                 st.session_state["_gx_manage"] = None
                 st.session_state["gx_msg"] = f"Gasto pagado: {mng['name']}."
                 st.rerun()

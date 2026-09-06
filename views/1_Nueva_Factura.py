@@ -296,6 +296,7 @@ if st.session_state.get("nf_pending"):
                 "due_date": p["due_date"],
                 "status": "pendiente",
                 "notes": p["notes"],
+                "registered_by": utils.current_actor(),
             })
             tipo_msg = "contado" if p["doc_type"] == "contado" else f"crédito a {p['term_days']} días"
             st.session_state["nf_done"] = (

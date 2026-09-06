@@ -50,10 +50,11 @@ if st.session_state.get("_show_pay_dialog"):
             st.rerun()
         if col_b.button("Confirmar pago", type="primary"):
             fecha_str = (fecha or __import__("datetime").date.today()).isoformat()
+            actor = utils.current_actor()
             if e["kind"] == "letra":
-                db.mark_letra_paid(e["ref_id"], fecha_str)
+                db.mark_letra_paid(e["ref_id"], fecha_str, paid_by=actor)
             else:
-                db.mark_invoice_paid(e["ref_id"], fecha_str)
+                db.mark_invoice_paid(e["ref_id"], fecha_str, paid_by=actor)
             st.session_state["_show_pay_dialog"] = False
             st.rerun()
 

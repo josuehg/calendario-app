@@ -83,7 +83,7 @@ if st.button("Confirmar canje", type="primary"):
             {"numero": l["numero"], "monto": l["monto"], "fecha_vencimiento": l["fecha_vencimiento"].isoformat()}
             for l in letras_data
         ]
-        db.create_canje(selected_ids, letras_payload)
+        db.create_canje(selected_ids, letras_payload, created_by=utils.current_actor())
         st.session_state["canje_selected_ids"] = []
         st.session_state["canje_letra_ids"] = []
         st.success(f"Canje registrado: {len(selected_ids)} factura(s) → {len(letras_payload)} letra(s).")

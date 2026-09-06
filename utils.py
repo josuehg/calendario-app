@@ -53,6 +53,14 @@ def authenticate():
     st.stop()
 
 
+def current_actor():
+    """Quién está usando la app ahora, para los campos de auditoría:
+    el nombre de la sucursal, o 'Administrador'."""
+    if st.session_state.get("auth_role") == "branch":
+        return st.session_state.get("auth_branch") or "Sucursal"
+    return "Administrador"
+
+
 # ---------- fechas y moneda ----------
 
 def today_str():
@@ -209,6 +217,7 @@ def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_
                 "amount": f["amount"],
                 "due_date": date(y, mo, day).isoformat(),
                 "status": "pendiente",
+                "registered_by": "Gasto fijo (automático)",
                 "notes": f.get("notes"),
             })
     return rows

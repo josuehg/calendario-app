@@ -55,6 +55,8 @@ create table if not exists invoices (
   status text not null default 'pendiente' check (status in ('pendiente', 'canjeada', 'pagada')),
   notes text,
   paid_at date,                          -- solo cuando se paga directo, sin pasar por canje
+  registered_by text,                    -- sucursal o 'Administrador' que registró
+  paid_by text,                          -- quién marcó el pago
   created_at timestamptz not null default now()
 );
 
@@ -62,6 +64,7 @@ create table if not exists invoices (
 create table if not exists canjes (
   id uuid primary key default gen_random_uuid(),
   notes text,
+  created_by text,
   created_at timestamptz not null default now()
 );
 
@@ -79,7 +82,8 @@ create table if not exists letras (
   monto numeric(12,2) not null check (monto > 0),
   fecha_vencimiento date not null,
   estado text not null default 'pendiente' check (estado in ('pendiente', 'pagada')),
-  fecha_pago date
+  fecha_pago date,
+  paid_by text
 );
 
 -- Categorías de gasto (lista fija editable desde Configuración)
@@ -122,6 +126,8 @@ create table if not exists expenses (
   due_date date not null,
   status text not null default 'pendiente' check (status in ('pendiente', 'pagado', 'omitido')),
   paid_at date,
+  registered_by text,
+  paid_by text,
   notes text,
   created_at timestamptz not null default now()
 );
