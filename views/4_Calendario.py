@@ -6,11 +6,13 @@ import utils
 
 st.title("📅 Calendario maestro de pagos")
 
+db.ensure_expense_instances()
 invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
+expenses = db.list_expenses()
 track_contado = db.get_settings().get("track_contado", True)
-events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado)    
+events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado, expenses)
 
 today = date.today()
 if "cal_year" not in st.session_state:
@@ -89,7 +91,10 @@ if st.session_state.get("_cal_day"):
     @st.dialog(f"Pagos del {utils.fmt_long(ds)}")
     def _day_dialog():
         for e in day_events:
-            st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
+            if e["kind"] == "expense":
+                st.write(f"**{e['vendor']}** · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
+            else:
+                st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
         if st.button("Cerrar"):
             st.session_state["_cal_day"] = None
             st.rerun()

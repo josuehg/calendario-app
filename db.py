@@ -2,6 +2,9 @@
 Capa de acceso a datos — todas las consultas a Supabase viven aquí para que
 las páginas de Streamlit no repitan lógica de base de datos.
 """
+import calendar as _cal
+from datetime import date
+
 import streamlit as st
 from supabase import create_client, Client
 
@@ -200,3 +203,138 @@ def mark_letra_paid(letra_id: str, fecha_pago: str):
     return sb.table("letras").update(
         {"estado": "pagada", "fecha_pago": fecha_pago}
     ).eq("id", letra_id).execute()
+
+
+# ---------- categorías de gasto ----------
+
+def list_expense_categories():
+    sb = get_client()
+    res = sb.table("expense_categories").select("*").order("sort_order").order("name").execute()
+    return res.data
+
+
+def add_expense_category(name: str):
+    sb = get_client()
+    return sb.table("expense_categories").insert({"name": name.strip(), "sort_order": 50}).execute()
+
+
+def rename_expense_category(cat_id: int, new_name: str):
+    """Renombra la categoría y arrastra el cambio a los gastos ya guardados
+    (category se guarda como texto en fixed_expenses y expenses)."""
+    sb = get_client()
+    old = sb.table("expense_categories").select("name").eq("id", cat_id).limit(1).execute().data
+    new_name = new_name.strip()
+    sb.table("expense_categories").update({"name": new_name}).eq("id", cat_id).execute()
+    if old:
+        prev = old[0]["name"]
+        sb.table("fixed_expenses").update({"category": new_name}).eq("category", prev).execute()
+        sb.table("expenses").update({"category": new_name}).eq("category", prev).execute()
+
+
+def delete_expense_category(cat_id: int):
+    sb = get_client()
+    return sb.table("expense_categories").delete().eq("id", cat_id).execute()
+
+
+# ---------- gastos fijos (plantillas recurrentes) ----------
+
+def list_fixed_expenses(active_only: bool = False):
+    sb = get_client()
+    q = sb.table("fixed_expenses").select("*").order("name")
+    if active_only:
+        q = q.eq("active", True)
+    return q.execute().data
+
+
+def create_fixed_expense(data: dict):
+    sb = get_client()
+    return sb.table("fixed_expenses").insert(data).execute()
+
+
+def update_fixed_expense(fx_id: int, data: dict):
+    sb = get_client()
+    return sb.table("fixed_expenses").update(data).eq("id", fx_id).execute()
+
+
+def delete_fixed_expense(fx_id: int):
+    """Borra la plantilla. Las instancias ya generadas quedan (con
+    fixed_expense_id en null por el ON DELETE SET NULL)."""
+    sb = get_client()
+    return sb.table("fixed_expenses").delete().eq("id", fx_id).execute()
+
+
+# ---------- gastos concretos ----------
+
+def list_expenses():
+    sb = get_client()
+    res = sb.table("expenses").select("*").order("due_date").execute()
+    return res.data
+
+
+def create_expense(data: dict):
+    sb = get_client()
+    return sb.table("expenses").insert(data).execute()
+
+
+def update_expense(expense_id: str, data: dict):
+    sb = get_client()
+    return sb.table("expenses").update(data).eq("id", expense_id).execute()
+
+
+def delete_expense(expense_id: str):
+    sb = get_client()
+    return sb.table("expenses").delete().eq("id", expense_id).execute()
+
+
+def set_expense_status(expense_id: str, status: str, paid_at: str | None = None):
+    return update_expense(expense_id, {"status": status, "paid_at": paid_at})
+
+
+def ensure_expense_instances(months_ahead: int = 3):
+    """Genera las filas de 'expenses' que faltan para cada gasto fijo activo,
+    desde el mes actual hasta months_ahead meses adelante. Idempotente: solo
+    inserta lo que no existe (además del índice único como red de seguridad).
+    Se llama al abrir Gastos, Calendario y Presupuesto — no hay cron."""
+    fixed = list_fixed_expenses(active_only=True)
+    if not fixed:
+        return
+    existing = {
+        (e["fixed_expense_id"], e["period"])
+        for e in list_expenses()
+        if e.get("fixed_expense_id")
+    }
+    today = date.today()
+    to_insert = []
+    for f in fixed:
+        start = date.fromisoformat(f["start_month"]).replace(day=1) if f.get("start_month") else None
+        end = date.fromisoformat(f["end_month"]).replace(day=1) if f.get("end_month") else None
+        for k in range(months_ahead + 1):
+            y = today.year + (today.month - 1 + k) // 12
+            mo = (today.month - 1 + k) % 12 + 1
+            first = date(y, mo, 1)
+            if start and first < start:
+                continue
+            if end and first > end:
+                continue
+            period = f"{y:04d}-{mo:02d}"
+            if (f["id"], period) in existing:
+                continue
+            day = min(int(f["pay_day"]), _cal.monthrange(y, mo)[1])
+            to_insert.append({
+                "kind": "fijo",
+                "fixed_expense_id": f["id"],
+                "period": period,
+                "name": f["name"],
+                "category": f["category"],
+                "branch": f.get("branch"),
+                "amount": f["amount"],
+                "due_date": date(y, mo, day).isoformat(),
+                "status": "pendiente",
+                "notes": f.get("notes"),
+            })
+    if to_insert:
+        try:
+            get_client().table("expenses").insert(to_insert).execute()
+        except Exception:
+            # carrera con otra sesión: el índice único ya cubrió el hueco
+            pass

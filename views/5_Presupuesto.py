@@ -4,13 +4,15 @@ import db
 import utils
 
 st.title("📊 Presupuesto — próximas 13 semanas")
-st.caption("Así ves de inmediato en qué semana futura pega cada factura o letra nueva que registras.")
+st.caption("En qué semana futura pega cada factura, letra o gasto (fijo y variable) pendiente.")
 
+db.ensure_expense_instances()
 invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
+expenses = db.list_expenses()
 track_contado = db.get_settings().get("track_contado", True)
-events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado)    
+events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado, expenses)
 buckets = utils.weekly_buckets(events)
 today = utils.today_str()
 
