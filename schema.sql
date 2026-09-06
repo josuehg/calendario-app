@@ -74,16 +74,20 @@ create table if not exists canje_facturas (
   primary key (canje_id, invoice_id)
 );
 
--- Letras resultantes de un canje
+-- Letras: salen de un canje (canje_id) o se registran sueltas ya programadas
+-- (canje_id null, con su propio vendor/branch).
 create table if not exists letras (
   id uuid primary key default gen_random_uuid(),
-  canje_id uuid not null references canjes(id) on delete cascade,
+  canje_id uuid references canjes(id) on delete cascade,
   numero text,
   monto numeric(12,2) not null check (monto > 0),
   fecha_vencimiento date not null,
   estado text not null default 'pendiente' check (estado in ('pendiente', 'pagada')),
   fecha_pago date,
-  paid_by text
+  paid_by text,
+  vendor text,
+  branch text,
+  notes text
 );
 
 -- Categorías de gasto (lista fija editable desde Configuración)

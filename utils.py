@@ -153,17 +153,25 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
     for l in letras:
         if l["estado"] != "pendiente":
             continue
-        grouped = canje_invoices.get(l["canje_id"], [])
-        vendors = ", ".join(sorted(set(i["vendor"] for i in grouped))) or "—"
-        branches = ", ".join(sorted(set(i["branch"] for i in grouped))) or "—"
-        facturas = ", ".join(i["invoice_number"] for i in grouped) or "—"
+        grouped = canje_invoices.get(l.get("canje_id"), [])
+        if grouped:
+            vendors = ", ".join(sorted(set(i["vendor"] for i in grouped))) or "—"
+            branches = ", ".join(sorted(set(i["branch"] for i in grouped))) or "—"
+            facturas = ", ".join(i["invoice_number"] for i in grouped) or "—"
+            label = f"Letra {l.get('numero') or '—'} ({len(grouped)} factura(s))"
+        else:
+            # letra suelta ya programada: usa sus propios datos
+            vendors = l.get("vendor") or "—"
+            branches = l.get("branch") or "—"
+            facturas = "—"
+            label = f"Letra {l.get('numero') or '—'} (programada)"
         events.append({
             "date": l["fecha_vencimiento"],
             "amount": float(l["monto"]),
             "vendor": vendors,
             "branch": branches,
             "invoice_number": facturas,
-            "label": f"Letra {l.get('numero') or '—'} ({len(grouped)} factura(s))",
+            "label": label,
             "overdue": l["fecha_vencimiento"] < today,
             "kind": "letra",
             "ref_id": l["id"],
