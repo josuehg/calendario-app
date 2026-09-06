@@ -34,6 +34,19 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## 2b. Correr los tests (antes de cada push)
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Los tests usan una base de datos en memoria (`tests/fake_db.py`), no tocan
+Supabase ni necesitan secretos. Cubren las utilidades puras, el flujo de
+registro de documentos, la generación de gastos fijos y que **todas** las
+páginas rendericen sin error. GitHub Actions los corre solo en cada push y
+pull request (`.github/workflows/tests.yml`).
+
 ## 3. Desplegar en Streamlit Community Cloud (gratis)
 
 1. Sube esta carpeta completa a un repositorio de GitHub (puede ser

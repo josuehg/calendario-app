@@ -3,7 +3,9 @@ Utilidades compartidas: fechas, formato de moneda, control de acceso simple,
 y la lógica que convierte facturas + letras en "eventos de pago" para el
 calendario y el presupuesto.
 """
+import calendar as _cal
 from datetime import date, timedelta
+
 import pandas as pd
 import streamlit as st
 import db
@@ -162,6 +164,54 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
 
     events.sort(key=lambda e: e["date"])
     return events
+
+
+# ---------- generación de gastos fijos recurrentes ----------
+
+def due_day_for_month(year, month, pay_day):
+    """El día de pago, recortado al último día del mes (pay_day 31 en febrero
+    -> 28 o 29)."""
+    return min(int(pay_day), _cal.monthrange(year, month)[1])
+
+
+def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_ahead=3):
+    """Filas de 'expenses' que faltan para cada gasto fijo activo, desde el mes
+    de 'today' hasta months_ahead meses adelante. Pura (sin BD) para poder
+    testearla; db.ensure_expense_instances la usa y luego inserta."""
+    existing = {
+        (e["fixed_expense_id"], e["period"])
+        for e in existing_expenses
+        if e.get("fixed_expense_id")
+    }
+    rows = []
+    for f in active_fixed:
+        start = date.fromisoformat(f["start_month"]).replace(day=1) if f.get("start_month") else None
+        end = date.fromisoformat(f["end_month"]).replace(day=1) if f.get("end_month") else None
+        for k in range(months_ahead + 1):
+            y = today.year + (today.month - 1 + k) // 12
+            mo = (today.month - 1 + k) % 12 + 1
+            first = date(y, mo, 1)
+            if start and first < start:
+                continue
+            if end and first > end:
+                continue
+            period = f"{y:04d}-{mo:02d}"
+            if (f["id"], period) in existing:
+                continue
+            day = due_day_for_month(y, mo, f["pay_day"])
+            rows.append({
+                "kind": "fijo",
+                "fixed_expense_id": f["id"],
+                "period": period,
+                "name": f["name"],
+                "category": f["category"],
+                "branch": f.get("branch"),
+                "amount": f["amount"],
+                "due_date": date(y, mo, day).isoformat(),
+                "status": "pendiente",
+                "notes": f.get("notes"),
+            })
+    return rows
 
 
 def compute_stats(events):

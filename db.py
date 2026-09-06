@@ -2,7 +2,6 @@
 Capa de acceso a datos — todas las consultas a Supabase viven aquí para que
 las páginas de Streamlit no repitan lógica de base de datos.
 """
-import calendar as _cal
 from datetime import date
 
 import streamlit as st
@@ -294,47 +293,17 @@ def ensure_expense_instances(months_ahead: int = 3):
     """Genera las filas de 'expenses' que faltan para cada gasto fijo activo,
     desde el mes actual hasta months_ahead meses adelante. Idempotente: solo
     inserta lo que no existe (además del índice único como red de seguridad).
-    Se llama al abrir Gastos, Calendario y Presupuesto — no hay cron."""
+    Se llama al abrir Gastos, Calendario y Presupuesto — no hay cron.
+    La lógica pura vive en utils.fixed_expense_rows_to_create (testeable)."""
+    import utils  # local: evita el import circular utils <-> db
+
     fixed = list_fixed_expenses(active_only=True)
     if not fixed:
         return
-    existing = {
-        (e["fixed_expense_id"], e["period"])
-        for e in list_expenses()
-        if e.get("fixed_expense_id")
-    }
-    today = date.today()
-    to_insert = []
-    for f in fixed:
-        start = date.fromisoformat(f["start_month"]).replace(day=1) if f.get("start_month") else None
-        end = date.fromisoformat(f["end_month"]).replace(day=1) if f.get("end_month") else None
-        for k in range(months_ahead + 1):
-            y = today.year + (today.month - 1 + k) // 12
-            mo = (today.month - 1 + k) % 12 + 1
-            first = date(y, mo, 1)
-            if start and first < start:
-                continue
-            if end and first > end:
-                continue
-            period = f"{y:04d}-{mo:02d}"
-            if (f["id"], period) in existing:
-                continue
-            day = min(int(f["pay_day"]), _cal.monthrange(y, mo)[1])
-            to_insert.append({
-                "kind": "fijo",
-                "fixed_expense_id": f["id"],
-                "period": period,
-                "name": f["name"],
-                "category": f["category"],
-                "branch": f.get("branch"),
-                "amount": f["amount"],
-                "due_date": date(y, mo, day).isoformat(),
-                "status": "pendiente",
-                "notes": f.get("notes"),
-            })
-    if to_insert:
+    rows = utils.fixed_expense_rows_to_create(fixed, list_expenses(), date.today(), months_ahead)
+    if rows:
         try:
-            get_client().table("expenses").insert(to_insert).execute()
+            get_client().table("expenses").insert(rows).execute()
         except Exception:
             # carrera con otra sesión: el índice único ya cubrió el hueco
             pass
