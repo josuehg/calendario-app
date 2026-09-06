@@ -213,6 +213,23 @@ def mark_letra_paid(letra_id: str, fecha_pago: str, paid_by: str | None = None):
     ).eq("id", letra_id).execute()
 
 
+def create_letra(data: dict):
+    """Registra una letra ya programada, sin canje (canje_id queda null).
+    data: {numero, monto, fecha_vencimiento, vendor, branch, notes}."""
+    sb = get_client()
+    return sb.table("letras").insert({**data, "estado": "pendiente"}).execute()
+
+
+def update_letra(letra_id: str, data: dict):
+    sb = get_client()
+    return sb.table("letras").update(data).eq("id", letra_id).execute()
+
+
+def delete_letra(letra_id: str):
+    sb = get_client()
+    return sb.table("letras").delete().eq("id", letra_id).execute()
+
+
 # ---------- categorías de gasto ----------
 
 def list_expense_categories():

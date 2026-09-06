@@ -141,6 +141,20 @@ class FakeDB:
             if l["id"] == lid:
                 l.update({"estado": "pagada", "fecha_pago": fecha_pago, "paid_by": paid_by})
 
+    def create_letra(self, data):
+        row = {"id": self._nid("letra"), "canje_id": None, "estado": "pendiente",
+               "vendor": None, "branch": None, "notes": None, **data}
+        self.letras.append(row)
+        return row
+
+    def update_letra(self, lid, data):
+        for l in self.letras:
+            if l["id"] == lid:
+                l.update(data)
+
+    def delete_letra(self, lid):
+        self.letras[:] = [l for l in self.letras if l["id"] != lid]
+
     # ---- categorías de gasto ----
     def list_expense_categories(self):
         return [dict(c) for c in sorted(self.expense_categories, key=lambda c: (c["sort_order"], c["name"]))]
