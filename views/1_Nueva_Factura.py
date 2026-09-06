@@ -106,19 +106,30 @@ with col2:
 
 # ---------- vencimiento: solo si el proveedor es a crédito ----------
 due_date = None
+
+
+def _recalc_due_date():
+    """Vuelve a poner el vencimiento en emisión + plazo. Corre como callback
+    (antes del rerun) para no tocar la key del widget ya instanciado."""
+    computed = st.session_state.get("_nf_computed_due")
+    if computed:
+        st.session_state["nf_due_date"] = computed
+
+
 if doc_type == "credito":
     computed_due = issue_date + timedelta(days=term_days) if (issue_date and term_days) else None
+    st.session_state["_nf_computed_due"] = computed_due
     # Se siembra una sola vez con la fecha sugerida; luego la sucursal puede
     # ajustarla a mano, y el botón ↻ la vuelve a poner en emisión + plazo.
     if "nf_due_date" not in st.session_state:
         st.session_state["nf_due_date"] = computed_due or issue_date or date.today()
     dc1, dc2 = st.columns([3, 1])
     due_date = dc1.date_input("Fecha de vencimiento", key="nf_due_date")
-    if computed_due and dc2.button(
-        "↻ Recalcular", use_container_width=True, help=f"Usar emisión + {term_days} días"
-    ):
-        st.session_state["nf_due_date"] = computed_due
-        st.rerun()
+    if computed_due:
+        dc2.button(
+            "↻ Recalcular", use_container_width=True, on_click=_recalc_due_date,
+            help=f"Usar emisión + {term_days} días",
+        )
     if term_days:
         dc1.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
 
