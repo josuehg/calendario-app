@@ -69,6 +69,33 @@ def test_expenses_feed_calendar_and_budget_not_resumen(run_view, db):
     assert metrics.get("Total pendiente") == "S/ 0.00"
 
 
+def test_edit_fixed_expense_dialog_shows_end_date(run_view, db):
+    db.create_fixed_expense({
+        "name": "Cuota préstamo", "category": "Servicios", "branch": None,
+        "amount": 900.0, "pay_day": 10, "start_month": "2026-09-01", "end_month": "2028-08-01",
+    })
+    at = run_view(VIEW, role="admin")
+    for b in at.button:
+        if b.key and b.key.startswith("fx_edit_"):
+            b.click().run()
+            break
+    # el checkbox de "termina en algún mes" debe salir marcado y la fecha visible
+    chk = [c for c in at.checkbox if c.key == "fx_endon"]
+    assert chk and chk[0].value is True
+    assert any(d.key == "fx_end" for d in at.date_input)
+
+
+def test_remove_end_date_makes_it_indefinite(db):
+    fx = db.create_fixed_expense({
+        "name": "Alquiler", "category": "Alquiler", "branch": None,
+        "amount": 3000.0, "pay_day": 5, "end_month": "2026-10-01",
+    })
+    db.update_fixed_expense(fx["id"], {"end_month": None})
+    db.ensure_expense_instances()
+    periods = sorted({e["period"] for e in db.expenses})
+    assert len(periods) == 4  # vuelve a generar mes actual + 3, sin tope
+
+
 def test_rename_category_cascades(db):
     db.create_fixed_expense({
         "name": "Alquiler local", "category": "Alquiler", "branch": None,
