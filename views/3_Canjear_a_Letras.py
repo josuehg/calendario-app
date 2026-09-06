@@ -172,6 +172,10 @@ with tab_todas:
 with tab_canje:
     st.caption("Selecciona una o varias facturas a crédito y agrúpalas en una o varias letras — no necesitan coincidir 1 a 1.")
 
+    _canje_done = st.session_state.pop("_canje_done", None)
+    if _canje_done:
+        st.success(_canje_done)
+
     if "canje_selected_ids" not in st.session_state:
         st.session_state["canje_selected_ids"] = st.session_state.pop("canje_preselect", [])
     if "canje_letra_ids" not in st.session_state:
@@ -233,17 +237,69 @@ with tab_canje:
                         + (" — no coincide con el total de las facturas seleccionadas." if mismatch else ""))
 
             st.divider()
-            if st.button("Confirmar canje", type="primary"):
+            if st.button("Revisar y confirmar canje", type="primary"):
                 if any(not l["fecha_vencimiento"] or not l["monto"] or l["monto"] <= 0 for l in letras_data):
                     st.error("Cada letra necesita un monto mayor a 0 y una fecha de vencimiento.")
                 else:
-                    letras_payload = [
-                        {"numero": l["numero"], "monto": utils.round2(l["monto"]),
-                         "fecha_vencimiento": l["fecha_vencimiento"].isoformat()}
-                        for l in letras_data
-                    ]
-                    db.create_canje(selected_ids, letras_payload, created_by=utils.current_actor())
-                    st.session_state["canje_selected_ids"] = []
-                    st.session_state["canje_letra_ids"] = []
-                    st.success(f"Canje registrado: {len(selected_ids)} factura(s) → {len(letras_payload)} letra(s).")
-                    st.balloons()
+                    st.session_state["_canje_pending"] = {
+                        "invoice_ids": selected_ids,
+                        "invoices": [
+                            {"vendor": i["vendor"], "invoice_number": i["invoice_number"],
+                             "branch": i["branch"], "amount": float(i["amount"])}
+                            for i in selected_invoices
+                        ],
+                        "total_facturas": total_facturas,
+                        "letras": [
+                            {"numero": l["numero"], "monto": utils.round2(l["monto"]),
+                             "fecha_vencimiento": l["fecha_vencimiento"].isoformat()}
+                            for l in letras_data
+                        ],
+                        "total_letras": total_letras,
+                    }
+                    st.rerun()
+
+# ---------- diálogo: resumen del canje antes de guardarlo ----------
+if st.session_state.get("_canje_pending"):
+    cp = st.session_state["_canje_pending"]
+
+    @st.dialog("Confirmar canje")
+    def _canje_confirm_dialog():
+        st.markdown(f"**{len(cp['invoices'])} factura(s) → {len(cp['letras'])} letra(s)**")
+
+        st.markdown("**Facturas incluidas**")
+        st.table({
+            "Proveedor": [i["vendor"] for i in cp["invoices"]],
+            "N° · Sucursal": [f"{i['invoice_number']} · {i['branch']}" for i in cp["invoices"]],
+            "Monto": [utils.money(i["amount"]) for i in cp["invoices"]],
+        })
+        st.caption(f"Total facturas: **{utils.money(cp['total_facturas'])}**")
+
+        st.markdown("**Letras a generar**")
+        st.table({
+            "N°": [l["numero"] or "—" for l in cp["letras"]],
+            "Vence": [utils.fmt_short(l["fecha_vencimiento"]) for l in cp["letras"]],
+            "Monto": [utils.money(l["monto"]) for l in cp["letras"]],
+        })
+        diff = utils.round2(cp["total_letras"] - cp["total_facturas"])
+        if abs(diff) > 0.009:
+            st.warning(
+                f"Las letras suman {utils.money(cp['total_letras'])} — "
+                f"{utils.money(abs(diff))} {'más' if diff > 0 else 'menos'} que las facturas."
+            )
+        st.caption("Al confirmar, esas facturas quedan marcadas como **canjeadas**.")
+
+        b1, b2 = st.columns(2)
+        if b1.button("Confirmar y guardar", type="primary", width="stretch"):
+            db.create_canje(cp["invoice_ids"], cp["letras"], created_by=utils.current_actor())
+            st.session_state["_canje_pending"] = None
+            st.session_state["canje_selected_ids"] = []
+            st.session_state["canje_letra_ids"] = []
+            st.session_state["_canje_done"] = (
+                f"Canje registrado: {len(cp['invoice_ids'])} factura(s) → {len(cp['letras'])} letra(s)."
+            )
+            st.rerun()
+        if b2.button("Volver a editar", width="stretch"):
+            st.session_state["_canje_pending"] = None
+            st.rerun()
+
+    _canje_confirm_dialog()
