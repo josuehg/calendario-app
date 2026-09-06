@@ -60,7 +60,7 @@ with tab_var:
 # ============================ GASTOS FIJOS ============================
 with tab_fijo:
     if st.button("➕ Nuevo gasto fijo"):
-        for k in ["fx_name", "fx_cat", "fx_branch", "fx_amount", "fx_day", "fx_start", "fx_end", "fx_notes", "fx_active"]:
+        for k in ["fx_name", "fx_cat", "fx_branch", "fx_amount", "fx_day", "fx_start", "fx_endon", "fx_end", "fx_notes", "fx_active"]:
             st.session_state.pop(k, None)
         st.session_state["_fx_dialog"] = {"data": None}
         st.rerun()
@@ -77,7 +77,7 @@ with tab_fijo:
             c2.markdown(utils.money(f["amount"]))
             c3.markdown(f"Día {f['pay_day']} de cada mes")
             if c4.button("Editar", key=f"fx_edit_{f['id']}"):
-                for k in ["fx_name", "fx_cat", "fx_branch", "fx_amount", "fx_day", "fx_start", "fx_end", "fx_notes", "fx_active"]:
+                for k in ["fx_name", "fx_cat", "fx_branch", "fx_amount", "fx_day", "fx_start", "fx_endon", "fx_end", "fx_notes", "fx_active"]:
                     st.session_state.pop(k, None)
                 st.session_state["_fx_dialog"] = {"data": f}
                 st.rerun()
@@ -105,10 +105,18 @@ with tab_fijo:
                                       value=int(ed["pay_day"]) if ed else 1, key="fx_day")
             c5, c6 = st.columns(2)
             start = c5.date_input("Aplica desde", value=date.fromisoformat(ed["start_month"]) if ed and ed.get("start_month") else date.today(), key="fx_start")
-            end_on = c6.checkbox("Tiene fecha de fin", value=bool(ed and ed.get("end_month")), key="fx_endon")
+            end_on = c6.checkbox(
+                "El gasto termina en algún mes", value=bool(ed and ed.get("end_month")), key="fx_endon",
+                help="Actívalo solo si el gasto se acaba: un préstamo a 24 cuotas, un alquiler con fin de contrato. "
+                     "Para alquileres y planilla que siguen indefinidamente, déjalo apagado. NO es una fecha límite de pago.",
+            )
             end = None
             if end_on:
-                end = c6.date_input("Hasta (incluye ese mes)", value=date.fromisoformat(ed["end_month"]) if ed and ed.get("end_month") else date.today(), key="fx_end")
+                end = c6.date_input(
+                    "Mes de la última vez que se paga", key="fx_end",
+                    value=date.fromisoformat(ed["end_month"]) if ed and ed.get("end_month") else date.today(),
+                )
+                c6.caption("Solo cuenta el mes; ese mes se incluye.")
             notes = st.text_input("Notas (opcional)", value=(ed.get("notes") or "") if ed else "", key="fx_notes")
             active = st.toggle("Activo (se genera cada mes)", value=ed["active"] if ed else True, key="fx_active")
 
