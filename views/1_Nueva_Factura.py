@@ -4,7 +4,7 @@ import streamlit as st
 import db
 import utils
 
-st.title("🧾 Registrar factura")
+st.title("🧾 Registro de documentos de compra")
 
 auth_role = st.session_state.get("auth_role")
 auth_branch = st.session_state.get("auth_branch")
@@ -27,11 +27,26 @@ def _clear_form():
     st.session_state.pop("nf_done", None)
 
 
+def _is_duplicate(vendor, inv_number):
+    """True si ya hay un documento con ese N° para ese proveedor (cualquier
+    sucursal). Devuelve el registro existente o None."""
+    v = (vendor or "").strip().lower()
+    n = (inv_number or "").strip().lower()
+    return next(
+        (
+            i for i in db.list_invoices()
+            if (i.get("vendor") or "").strip().lower() == v
+            and (i.get("invoice_number") or "").strip().lower() == n
+        ),
+        None,
+    )
+
+
 # Mensaje de éxito del último registro (se muestra tras el st.rerun).
 done = st.session_state.pop("nf_done", None)
 if done:
     st.success(done)
-    st.button("➕ Registrar otra factura", type="primary", on_click=_clear_form)
+    st.button("➕ Registrar otro documento", type="primary", on_click=_clear_form)
     st.divider()
 
 # ---------- sucursal ----------
@@ -153,13 +168,13 @@ if doc_type == "credito":
 
 # ---------- registrar / limpiar ----------
 if done:
-    # Recién se guardó una factura: los campos siguen a la vista para repasar.
-    # Para cargar otra se usa el botón "➕ Registrar otra factura" de arriba.
-    st.caption("Factura guardada. Pulsa **➕ Registrar otra factura** arriba para cargar la siguiente.")
+    # Recién se guardó un documento: los campos siguen a la vista para repasar.
+    # Para cargar otro se usa el botón "➕ Registrar otro documento" de arriba.
+    st.caption("Documento guardado. Pulsa **➕ Registrar otro documento** arriba para cargar el siguiente.")
     st.stop()
 
 rc1, rc2 = st.columns(2)
-trigger_register = rc1.button("Registrar factura", type="primary", use_container_width=True)
+trigger_register = rc1.button("Registrar documento", type="primary", use_container_width=True)
 rc2.button("🧹 Limpiar campos", use_container_width=True, on_click=_clear_form)
 
 if trigger_register:
@@ -200,6 +215,16 @@ if trigger_register:
                 vendor_is_new = False
             elif ruc_match:
                 st.error(f"El RUC {ruc_clean} ya pertenece a **{ruc_match['name']}**. Búscalo por ese nombre o RUC arriba.")
+                proceed = False
+
+        if proceed:
+            dup = _is_duplicate(resolved_name, invoice_number)
+            if dup:
+                st.error(
+                    f"Ya está registrado el documento N° **{dup['invoice_number']}** de "
+                    f"**{resolved_name}** (sucursal {dup['branch']}, emitido "
+                    f"{utils.fmt_short(dup['issue_date'])}). No se registró de nuevo."
+                )
                 proceed = False
 
         if proceed:
@@ -248,6 +273,14 @@ if st.session_state.get("nf_pending"):
 
         b1, b2 = st.columns(2)
         if b1.button("Confirmar y guardar", type="primary", use_container_width=True):
+            dup = _is_duplicate(p["vendor"], p["invoice_number"])
+            if dup:
+                st.error(
+                    f"Mientras confirmabas, ya se registró el documento N° "
+                    f"**{dup['invoice_number']}** de **{p['vendor']}**. No se guardó otra vez."
+                )
+                st.session_state["nf_pending"] = None
+                return
             if p["is_new_vendor"]:
                 try:
                     db.create_vendor(
@@ -271,11 +304,11 @@ if st.session_state.get("nf_pending"):
             })
             tipo_msg = "contado" if p["doc_type"] == "contado" else f"crédito a {p['term_days']} días"
             st.session_state["nf_done"] = (
-                f"{p['document_type']} registrada ({p['vendor']} · {tipo_msg}). "
-                f"Vence el {utils.fmt_short(p['due_date'])}."
+                f"Registrado: {p['document_type']} N° {p['invoice_number']} de {p['vendor']} "
+                f"({tipo_msg}). Vence el {utils.fmt_short(p['due_date'])}."
             )
             # Los campos quedan a la vista para repasar; se vacían al pulsar
-            # "➕ Registrar otra factura".
+            # "➕ Registrar otro documento".
             st.session_state["nf_pending"] = None
             st.rerun()
         if b2.button("Volver a editar", use_container_width=True):
