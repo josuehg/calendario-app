@@ -97,11 +97,13 @@ with tab_todas:
                 venc = utils.fmt_short(l["fecha_vencimiento"])
                 cc3.markdown(f"🔴 {venc}" if l["estado"] == "pendiente" and l["fecha_vencimiento"] < today else f"📅 {venc}")
                 if cc4.button("Gestionar", key=f"lt_mng_{l['id']}", width="stretch"):
+                    st.session_state.pop("_canje_pending", None)
                     st.session_state["_letra_manage"] = l
                     st.rerun()
 
+    # Solo un diálogo a la vez: si el resumen del canje está abierto, cede.
     mng = st.session_state.get("_letra_manage")
-    if mng:
+    if mng and not st.session_state.get("_canje_pending"):
         de_canje = bool(mng.get("canje_id"))
 
         @st.dialog(f"Letra {mng.get('numero') or ''}")
@@ -241,6 +243,7 @@ with tab_canje:
                 if any(not l["fecha_vencimiento"] or not l["monto"] or l["monto"] <= 0 for l in letras_data):
                     st.error("Cada letra necesita un monto mayor a 0 y una fecha de vencimiento.")
                 else:
+                    st.session_state.pop("_letra_manage", None)
                     st.session_state["_canje_pending"] = {
                         "invoice_ids": selected_ids,
                         "invoices": [

@@ -52,6 +52,18 @@ def test_delete_dialog_warns_for_canjeada(run_view, db):
     assert "canjeada" in warns and "letra" in warns
 
 
+def test_consolidado_two_stale_dialog_flags_dont_crash(run_view, db):
+    db.create_invoice({
+        "branch": "Sucursal 1", "vendor": "X", "invoice_number": "F-1",
+        "document_type": "Factura", "doc_type": "contado", "amount": 100.0,
+        "issue_date": "2026-09-01", "due_date": "2026-09-01", "status": "pendiente",
+    })
+    iid = db.invoices[0]["id"]
+    at = run_view("views/2_Consolidado.py", role="admin",
+                  _edit_inv=db.invoices[0], _direct_pay_id=iid, _confirm_delete_id=iid)
+    assert not at.exception
+
+
 def test_db_delete_invoice(db):
     inv = db.create_invoice({
         "branch": "Sucursal 1", "vendor": "X", "invoice_number": "F-1",

@@ -5,6 +5,17 @@ import utils
 
 st.title("📋 Consolidado de facturas")
 
+# Streamlit no permite dos diálogos en el mismo run: al abrir uno se limpian
+# los otros gates, y abajo se elige uno solo con elif.
+_CO_DIALOGS = ["_edit_inv", "_direct_pay_id", "_confirm_delete_id"]
+
+
+def _co_open(which, value):
+    for k in _CO_DIALOGS:
+        st.session_state.pop(k, None)
+    st.session_state[which] = value
+
+
 invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
@@ -77,14 +88,14 @@ else:
             meta += f" · pagó: {r['paid_by']}" + (f" ({utils.fmt_short(r['paid_at'])})" if r.get("paid_at") else "")
         cols[0].caption(meta)
         if cols[1].button("Editar", key=f"edit_{r['id']}", width="stretch"):
-            st.session_state["_edit_inv"] = r
+            _co_open("_edit_inv", r)
             st.rerun()
         if r["status"] == "pendiente":
             if cols[2].button("Pagar", key=f"pay_{r['id']}", width="stretch"):
-                st.session_state["_direct_pay_id"] = r["id"]
+                _co_open("_direct_pay_id", r["id"])
                 st.rerun()
         if cols[3].button("Eliminar", key=f"del_{r['id']}", width="stretch"):
-            st.session_state["_confirm_delete_id"] = r["id"]
+            _co_open("_confirm_delete_id", r["id"])
             st.rerun()
 
 if st.session_state.get("_edit_inv"):
@@ -148,7 +159,7 @@ if st.session_state.get("_edit_inv"):
 
     _edit_inv_dialog()
 
-if st.session_state.get("_direct_pay_id"):
+elif st.session_state.get("_direct_pay_id"):
     inv_id = st.session_state["_direct_pay_id"]
 
     @st.dialog("Marcar como pagada")
@@ -166,7 +177,7 @@ if st.session_state.get("_direct_pay_id"):
 
     _direct_pay_dialog()
 
-if st.session_state.get("_confirm_delete_id"):
+elif st.session_state.get("_confirm_delete_id"):
     inv_id = st.session_state["_confirm_delete_id"]
 
     _inv_del = next((x for x in invoices if x["id"] == inv_id), None)
