@@ -76,3 +76,27 @@ def test_delete_standalone_letra(db):
                          "vendor": "P", "branch": "Sucursal 1"})
     db.delete_letra(l["id"])
     assert db.letras == []
+
+
+def test_canje_shows_summary_before_saving(run_view, db):
+    db.invoices.append({"id": "i1", "vendor": "Prov A", "invoice_number": "F-1", "branch": "Sucursal 1",
+                        "doc_type": "credito", "amount": 400.0, "due_date": "2026-10-01",
+                        "issue_date": "2026-09-01", "status": "pendiente"})
+    at = run_view("views/3_Canjear_a_Letras.py", role="admin")
+    # seleccionar la factura
+    at.multiselect[0].select(
+        "Prov A · Fact. F-1 · Sucursal 1 · S/ 400.00 · vence 01/10/26"
+    ).run()
+    # fecha de la letra 1
+    for di in at.date_input:
+        if di.key and di.key.startswith("fecha_"):
+            di.set_value(date(2026, 11, 1)).run()
+    click(at, "Revisar y confirmar canje")
+    assert not at.exception
+    assert at.session_state["_canje_pending"] is not None      # abrió resumen, no guardó
+    assert db.canjes == []
+    click(at, "Confirmar y guardar")
+    assert not at.exception
+    assert len(db.canjes) == 1
+    assert db.invoices[0]["status"] == "canjeada"
+    assert len(db.list_letras()) == 1
