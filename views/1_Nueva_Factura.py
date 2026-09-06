@@ -158,7 +158,7 @@ if doc_type == "credito":
     due_date = dc1.date_input("Fecha de vencimiento", key=K("nf_due_date"))
     if computed_due:
         dc2.button(
-            "↻ Recalcular", use_container_width=True, on_click=_recalc_due_date,
+            "↻ Recalcular", width="stretch", on_click=_recalc_due_date,
             help=f"Usar emisión + {term_days} días",
         )
     if term_days:
@@ -170,8 +170,8 @@ if done:
     st.stop()
 
 rc1, rc2 = st.columns(2)
-trigger_register = rc1.button("Registrar documento", type="primary", use_container_width=True)
-rc2.button("🧹 Limpiar campos", use_container_width=True, on_click=_clear_form)
+trigger_register = rc1.button("Registrar documento", type="primary", width="stretch")
+rc2.button("🧹 Limpiar campos", width="stretch", on_click=_clear_form)
 
 if trigger_register:
     faltan = []
@@ -267,7 +267,7 @@ if st.session_state.get("nf_pending"):
         st.table({"Campo": [f[0] for f in filas], "Valor": [f[1] for f in filas]})
 
         b1, b2 = st.columns(2)
-        if b1.button("Confirmar y guardar", type="primary", use_container_width=True):
+        if b1.button("Confirmar y guardar", type="primary", width="stretch"):
             dup = _is_duplicate(p["vendor"], p["invoice_number"])
             if dup:
                 st.error(
@@ -307,7 +307,7 @@ if st.session_state.get("nf_pending"):
             # "➕ Registrar otro documento" (que sube el nonce).
             st.session_state["nf_pending"] = None
             st.rerun()
-        if b2.button("Volver a editar", use_container_width=True):
+        if b2.button("Volver a editar", width="stretch"):
             st.session_state["nf_pending"] = None
             st.rerun()
 

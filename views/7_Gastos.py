@@ -114,7 +114,7 @@ with tab_fijo:
 
             st.divider()
             b1, b2 = st.columns(2)
-            if b1.button("Guardar", type="primary", use_container_width=True):
+            if b1.button("Guardar", type="primary", width="stretch"):
                 if not name.strip() or amount <= 0:
                     st.error("Ponle nombre y un monto mayor a 0.")
                 else:
@@ -136,7 +136,7 @@ with tab_fijo:
                     st.session_state["_fx_dialog"] = None
                     st.session_state["gx_msg"] = f"Gasto fijo guardado: {name.strip()}."
                     st.rerun()
-            if b2.button("Cancelar", use_container_width=True):
+            if b2.button("Cancelar", width="stretch"):
                 st.session_state["_fx_dialog"] = None
                 st.rerun()
 
@@ -196,7 +196,7 @@ with tab_prox:
             venc = utils.fmt_short(e["due_date"])
             c3.markdown(f"🔴 {venc}" if e["status"] == "pendiente" and e["due_date"] < today else f"📅 {venc}")
             if e["status"] == "pendiente":
-                if c4.button("Gestionar", key=f"gx_mng_{e['id']}", use_container_width=True):
+                if c4.button("Gestionar", key=f"gx_mng_{e['id']}", width="stretch"):
                     st.session_state["_gx_manage"] = e
                     st.rerun()
 
@@ -216,19 +216,19 @@ with tab_prox:
             st.divider()
             pay_date = st.date_input("Fecha de pago", value=date.today(), key="gx_mng_paydate")
             b1, b2 = st.columns(2)
-            if b1.button("✅ Marcar pagado", type="primary", use_container_width=True):
+            if b1.button("✅ Marcar pagado", type="primary", width="stretch"):
                 db.set_expense_status(mng["id"], "pagado", pay_date.isoformat(), paid_by=utils.current_actor())
                 st.session_state["_gx_manage"] = None
                 st.session_state["gx_msg"] = f"Gasto pagado: {mng['name']}."
                 st.rerun()
             if mng["kind"] == "fijo":
-                if b2.button("⏭️ Omitir este mes", use_container_width=True):
+                if b2.button("⏭️ Omitir este mes", width="stretch"):
                     db.set_expense_status(mng["id"], "omitido")
                     st.session_state["_gx_manage"] = None
                     st.session_state["gx_msg"] = f"Gasto omitido este mes: {mng['name']}."
                     st.rerun()
             else:
-                if b2.button("🗑️ Eliminar", use_container_width=True):
+                if b2.button("🗑️ Eliminar", width="stretch"):
                     db.delete_expense(mng["id"])
                     st.session_state["_gx_manage"] = None
                     st.session_state["gx_msg"] = "Gasto variable eliminado."

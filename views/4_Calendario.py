@@ -71,7 +71,7 @@ for week in weeks:
                     f"<div style='font-family:monospace;font-size:12.5px;font-weight:600;color:{color}'>{utils.money(info['amount'])}</div>"
                     f"<div style='font-size:11px;color:gray'>{info['count']} pago(s)</div>"
                     f"</div>", unsafe_allow_html=True)
-                if st.button("Ver", key=f"day_{ds}", use_container_width=True):
+                if st.button("Ver", key=f"day_{ds}", width="stretch"):
                     st.session_state["_cal_day"] = ds
                     st.rerun()
             else:
