@@ -1,17 +1,20 @@
 # Calendario Maestro de Pagos
 
 Sistema de cuentas por pagar para una cadena de 6 sucursales: registro de
-facturas, canje de facturas a letras (varias facturas pueden agruparse en
-una o varias letras), calendario mensual de vencimientos y presupuesto
-semanal a 90 días.
+documentos de compra, canje de facturas a letras (varias facturas pueden
+agruparse en una o varias letras), gastos fijos recurrentes y variables,
+calendario mensual de vencimientos y presupuesto semanal a 90 días.
 
 ## 1. Crear la base de datos (Supabase, gratis)
 
 1. Entra a [supabase.com](https://supabase.com) y crea una cuenta gratuita.
 2. Crea un proyecto nuevo (elige una contraseña de base de datos, guárdala).
 3. Ve a **SQL Editor > New query**, pega el contenido completo de
-   `schema.sql` (en esta misma carpeta) y presiona **Run**. Esto crea las
-   tablas de facturas, canjes y letras.
+   `schema.sql` (en esta misma carpeta) y presiona **Run**. Esto crea todas
+   las tablas.
+   - Si ya tenías la base creada con una versión anterior, corre en su lugar
+     los archivos `migracion_*.sql` que falten (son aditivos y no borran
+     datos).
 4. Ve a **Project Settings > API**. Copia:
    - **Project URL** → será tu `SUPABASE_URL`
    - **service_role key** (no la "anon" key) → será tu `SUPABASE_SERVICE_KEY`

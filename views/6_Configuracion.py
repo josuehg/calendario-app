@@ -53,6 +53,43 @@ with st.form("branches_form"):
 
 st.divider()
 
+# ---------- categorías de gasto ----------
+st.subheader("Categorías de gasto")
+st.caption(
+    "Se usan en el módulo **Gastos** para clasificar los gastos fijos y variables. "
+    "Al renombrar una, el cambio se aplica también a los gastos ya registrados."
+)
+
+gcats = db.list_expense_categories()
+for c in gcats:
+    cc1, cc2, cc3 = st.columns([3, 1, 1])
+    new_name = cc1.text_input(
+        f"cat_{c['id']}", value=c["name"], label_visibility="collapsed", key=f"cat_name_{c['id']}"
+    )
+    if cc2.button("Guardar", key=f"cat_save_{c['id']}", use_container_width=True):
+        if new_name.strip() and new_name.strip() != c["name"]:
+            db.rename_expense_category(c["id"], new_name.strip())
+            st.success("Categoría renombrada.")
+            st.rerun()
+    if cc3.button("Eliminar", key=f"cat_del_{c['id']}", use_container_width=True):
+        db.delete_expense_category(c["id"])
+        st.success("Categoría eliminada.")
+        st.rerun()
+
+with st.form("cat_add_form", clear_on_submit=True):
+    ac1, ac2 = st.columns([3, 1])
+    add_name = ac1.text_input("Nueva categoría", label_visibility="collapsed", placeholder="Nombre de la categoría")
+    if ac2.form_submit_button("➕ Agregar", use_container_width=True) and add_name.strip():
+        existing = [c["name"].lower() for c in gcats]
+        if add_name.strip().lower() in existing:
+            st.error("Ya existe una categoría con ese nombre.")
+        else:
+            db.add_expense_category(add_name.strip())
+            st.success("Categoría agregada.")
+            st.rerun()
+
+st.divider()
+
 # ---------- proveedores ----------
 st.subheader("Proveedores: contado o crédito")
 st.caption(

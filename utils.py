@@ -86,12 +86,14 @@ def money(n):
 
 # ---------- eventos de pago (calendario / presupuesto) ----------
 
-def get_payment_events(invoices, letras, canje_facturas, track_contado=True):
+def get_payment_events(invoices, letras, canje_facturas, track_contado=True, expenses=None):
     """
     Devuelve una lista de eventos de pago futuros/pendientes:
     - una factura 'pendiente' (no canjeada) aporta un evento en su due_date.
     - cada letra 'pendiente' de un canje aporta un evento en su fecha_vencimiento,
       representando a TODAS las facturas agrupadas en ese canje.
+    - si se pasa 'expenses', cada gasto 'pendiente' aporta un evento en su
+      due_date (los 'pagado' y 'omitido' no).
     Las facturas 'pagada' o 'canjeada' no generan evento por sí mismas.
     Si track_contado es False, las facturas al contado se excluyen (siguen
     registradas y visibles en Consolidado, solo no aparecen en estas vistas).
@@ -141,6 +143,21 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True):
             "overdue": l["fecha_vencimiento"] < today,
             "kind": "letra",
             "ref_id": l["id"],
+        })
+
+    for x in (expenses or []):
+        if x.get("status") != "pendiente":
+            continue
+        events.append({
+            "date": x["due_date"],
+            "amount": float(x["amount"]),
+            "vendor": x["name"],
+            "branch": x.get("branch") or "General",
+            "invoice_number": "",
+            "label": f"Gasto {x['kind']} · {x['category']}",
+            "overdue": x["due_date"] < today,
+            "kind": "expense",
+            "ref_id": x["id"],
         })
 
     events.sort(key=lambda e: e["date"])

@@ -82,8 +82,56 @@ create table if not exists letras (
   fecha_pago date
 );
 
+-- Categorías de gasto (lista fija editable desde Configuración)
+create table if not exists expense_categories (
+  id serial primary key,
+  name text not null unique,
+  sort_order int not null default 0
+);
+insert into expense_categories (name, sort_order) values
+  ('Alquiler', 1), ('Servicios', 2), ('Planilla', 3), ('Impuestos', 4),
+  ('Mantenimiento', 5), ('Transporte', 6), ('Otros', 99)
+on conflict (name) do nothing;
+
+-- Plantillas de gasto fijo recurrente. El sistema genera una fila en
+-- "expenses" por cada mes a partir de estas.
+create table if not exists fixed_expenses (
+  id serial primary key,
+  name text not null,
+  category text not null,
+  branch text,                       -- null = general / oficina central
+  amount numeric(12,2) not null check (amount > 0),
+  pay_day int not null check (pay_day between 1 and 31),
+  active boolean not null default true,
+  start_month date,
+  end_month date,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+-- Gastos concretos: instancias mensuales de los fijos + los variables.
+create table if not exists expenses (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('fijo', 'variable')),
+  fixed_expense_id int references fixed_expenses(id) on delete set null,
+  period text,                       -- 'YYYY-MM' para instancias de gasto fijo
+  name text not null,
+  category text not null,
+  branch text,
+  amount numeric(12,2) not null check (amount > 0),
+  due_date date not null,
+  status text not null default 'pendiente' check (status in ('pendiente', 'pagado', 'omitido')),
+  paid_at date,
+  notes text,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists idx_invoices_status on invoices(status);
 create index if not exists idx_invoices_due_date on invoices(due_date);
 create index if not exists idx_letras_estado on letras(estado);
 create index if not exists idx_letras_fecha on letras(fecha_vencimiento);
 create index if not exists idx_canje_facturas_invoice on canje_facturas(invoice_id);
+create unique index if not exists uq_expenses_fixed_period
+  on expenses (fixed_expense_id, period) where fixed_expense_id is not null;
+create index if not exists idx_expenses_status on expenses(status);
+create index if not exists idx_expenses_due_date on expenses(due_date);
