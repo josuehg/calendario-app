@@ -83,10 +83,20 @@ def get_vendor_by_ruc(ruc):
     return res.data[0] if res.data else None
 
 
-def save_vendor(data: dict):
-    """Crea o actualiza un proveedor (upsert por nombre)."""
+def create_vendor(data: dict):
+    """Crea un proveedor nuevo. Lanza una excepción si el nombre o el RUC
+    ya existen (restricción unique en la base de datos) — quien llama debe
+    validar antes con get_vendors()/get_vendor_by_ruc() para dar un mensaje
+    claro, y puede envolver esto en try/except como respaldo."""
     sb = get_client()
-    return sb.table("vendors").upsert(data, on_conflict="name").execute()
+    return sb.table("vendors").insert(data).execute()
+
+
+def update_vendor(vendor_id, data: dict):
+    """Actualiza un proveedor existente por id (no por nombre, para que
+    renombrarlo no cree una fila duplicada)."""
+    sb = get_client()
+    return sb.table("vendors").update(data).eq("id", vendor_id).execute()
 
 
 def delete_vendor(vendor_id):
