@@ -30,7 +30,7 @@ selected_ids = [options[l] for l in selected_labels]
 st.session_state["canje_selected_ids"] = selected_ids
 
 selected_invoices = [i for i in pendientes_credito if i["id"] in selected_ids]
-total_facturas = sum(float(i["amount"]) for i in selected_invoices)
+total_facturas = utils.dsum(i["amount"] for i in selected_invoices)
 
 if not selected_invoices:
     st.warning("Selecciona al menos una factura para continuar.")
@@ -68,7 +68,7 @@ if st.button("+ Agregar letra"):
     st.session_state[f"monto_{new_id}"] = 0.0
     st.rerun()
 
-total_letras = sum(l["monto"] or 0 for l in letras_data)
+total_letras = utils.dsum(l["monto"] or 0 for l in letras_data)
 mismatch = abs(total_letras - total_facturas) > 0.009
 color = ":red" if mismatch else ":green"
 st.markdown(f"Total asignado a letras: {color}[**{utils.money(total_letras)}**] de **{utils.money(total_facturas)}**"
@@ -80,7 +80,7 @@ if st.button("Confirmar canje", type="primary"):
         st.error("Cada letra necesita un monto mayor a 0 y una fecha de vencimiento.")
     else:
         letras_payload = [
-            {"numero": l["numero"], "monto": l["monto"], "fecha_vencimiento": l["fecha_vencimiento"].isoformat()}
+            {"numero": l["numero"], "monto": utils.round2(l["monto"]), "fecha_vencimiento": l["fecha_vencimiento"].isoformat()}
             for l in letras_data
         ]
         db.create_canje(selected_ids, letras_payload, created_by=utils.current_actor())

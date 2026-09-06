@@ -5,6 +5,7 @@ calendario y el presupuesto.
 """
 import calendar as _cal
 from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 import streamlit as st
@@ -89,9 +90,22 @@ def start_of_week(date_str):
     return (d - timedelta(days=d.weekday())).isoformat()
 
 
+def round2(n):
+    """Redondea a 2 decimales con half-up (como contabilidad), evitando la
+    deriva binaria de float. Devuelve float para que el resto del código y la
+    serialización a JSON/Supabase no cambien."""
+    return float(Decimal(str(n or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def dsum(values):
+    """Suma montos en Decimal y devuelve un float ya redondeado a 2 decimales.
+    Úsalo para totales que se comparan o se muestran."""
+    total = sum((Decimal(str(v or 0)) for v in values), Decimal("0"))
+    return float(total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 def money(n):
-    n = float(n or 0)
-    return "S/ " + f"{n:,.2f}"
+    return "S/ " + f"{round2(n):,.2f}"
 
 
 # ---------- eventos de pago (calendario / presupuesto) ----------
@@ -226,16 +240,12 @@ def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_
 def compute_stats(events):
     today = today_str()
     week_end = add_days(today, 6)
-    stats = {"total_pendiente": 0.0, "hoy": 0.0, "esta_semana": 0.0, "vencido": 0.0}
-    for e in events:
-        stats["total_pendiente"] += e["amount"]
-        if e["date"] == today:
-            stats["hoy"] += e["amount"]
-        if today <= e["date"] <= week_end:
-            stats["esta_semana"] += e["amount"]
-        if e["date"] < today:
-            stats["vencido"] += e["amount"]
-    return stats
+    return {
+        "total_pendiente": dsum(e["amount"] for e in events),
+        "hoy": dsum(e["amount"] for e in events if e["date"] == today),
+        "esta_semana": dsum(e["amount"] for e in events if today <= e["date"] <= week_end),
+        "vencido": dsum(e["amount"] for e in events if e["date"] < today),
+    }
 
 
 def weekly_buckets(events, weeks_ahead=WEEKS_AHEAD):
@@ -245,13 +255,15 @@ def weekly_buckets(events, weeks_ahead=WEEKS_AHEAD):
     for i in range(weeks_ahead):
         ws = add_days(ws0, i * 7)
         we = add_days(ws, 6)
-        buckets.append({"start": ws, "end": we, "amount": 0.0, "count": 0})
+        buckets.append({"start": ws, "end": we, "amount": 0.0, "count": 0, "_items": []})
     for e in events:
         for b in buckets:
             if b["start"] <= e["date"] <= b["end"]:
-                b["amount"] += e["amount"]
+                b["_items"].append(e["amount"])
                 b["count"] += 1
                 break
+    for b in buckets:
+        b["amount"] = dsum(b.pop("_items"))
     return buckets
 
 

@@ -237,7 +237,7 @@ if trigger_register:
                 "document_type": document_type,
                 "doc_type": resolved_doc_type,
                 "term_days": resolved_term,
-                "amount": float(amount),
+                "amount": utils.round2(amount),
                 "issue_date": issue_date.isoformat(),
                 "due_date": final_due,
                 "notes": notes.strip(),

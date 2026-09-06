@@ -96,9 +96,18 @@ def create_vendor(data: dict):
 
 def update_vendor(vendor_id, data: dict):
     """Actualiza un proveedor existente por id (no por nombre, para que
-    renombrarlo no cree una fila duplicada)."""
+    renombrarlo no cree una fila duplicada). Si cambia el nombre, arrastra
+    el cambio a las facturas ya registradas (guardan el nombre como texto)."""
     sb = get_client()
-    return sb.table("vendors").update(data).eq("id", vendor_id).execute()
+    new_name = (data.get("name") or "").strip()
+    prev = None
+    if new_name:
+        cur = sb.table("vendors").select("name").eq("id", vendor_id).limit(1).execute().data
+        prev = cur[0]["name"] if cur else None
+    res = sb.table("vendors").update(data).eq("id", vendor_id).execute()
+    if prev and new_name and prev != new_name:
+        sb.table("invoices").update({"vendor": new_name}).eq("vendor", prev).execute()
+    return res
 
 
 def delete_vendor(vendor_id):
