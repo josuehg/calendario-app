@@ -11,10 +11,28 @@ auth_branch = st.session_state.get("auth_branch")
 
 DOCUMENT_TYPES = ["Factura", "Boleta", "Nota de compra", "Otro"]
 
+# Campos del formulario que se vacían al limpiar o tras guardar.
+FORM_KEYS = [
+    "nf_query", "nf_new_vendor_name", "nf_new_vendor_ruc", "nf_invoice_number",
+    "nf_amount", "nf_notes", "nf_issue_date", "nf_due_date", "nf_doc_type_sel",
+]
+
+
+def _clear_form():
+    """Vacía el formulario. Como callback (on_click) corre antes del rerun,
+    así se puede borrar la key de un widget sin romper Streamlit."""
+    for k in FORM_KEYS:
+        st.session_state.pop(k, None)
+    st.session_state.pop("nf_pending", None)
+    st.session_state.pop("nf_done", None)
+
+
 # Mensaje de éxito del último registro (se muestra tras el st.rerun).
 done = st.session_state.pop("nf_done", None)
 if done:
     st.success(done)
+    st.button("➕ Registrar otra factura", type="primary", on_click=_clear_form)
+    st.divider()
 
 # ---------- sucursal ----------
 if auth_role == "branch":
@@ -133,8 +151,18 @@ if doc_type == "credito":
     if term_days:
         dc1.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
 
-# ---------- registrar (con confirmación) ----------
-if st.button("Registrar factura", type="primary"):
+# ---------- registrar / limpiar ----------
+if done:
+    # Recién se guardó una factura: los campos siguen a la vista para repasar.
+    # Para cargar otra se usa el botón "➕ Registrar otra factura" de arriba.
+    st.caption("Factura guardada. Pulsa **➕ Registrar otra factura** arriba para cargar la siguiente.")
+    st.stop()
+
+rc1, rc2 = st.columns(2)
+trigger_register = rc1.button("Registrar factura", type="primary", use_container_width=True)
+rc2.button("🧹 Limpiar campos", use_container_width=True, on_click=_clear_form)
+
+if trigger_register:
     faltan = []
     vn = (vendor_name or "").strip()
     ruc_clean = (vendor_ruc or "").strip()
@@ -246,11 +274,8 @@ if st.session_state.get("nf_pending"):
                 f"{p['document_type']} registrada ({p['vendor']} · {tipo_msg}). "
                 f"Vence el {utils.fmt_short(p['due_date'])}."
             )
-            for k in [
-                "nf_query", "nf_new_vendor_name", "nf_new_vendor_ruc", "nf_invoice_number",
-                "nf_amount", "nf_notes", "nf_issue_date", "nf_due_date", "nf_doc_type_sel",
-            ]:
-                st.session_state.pop(k, None)
+            # Los campos quedan a la vista para repasar; se vacían al pulsar
+            # "➕ Registrar otra factura".
             st.session_state["nf_pending"] = None
             st.rerun()
         if b2.button("Volver a editar", use_container_width=True):
