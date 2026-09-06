@@ -48,7 +48,7 @@ else:
         df_view.drop(columns=["Vencida"]).style.apply(
             lambda s: ["background-color: #f8e6e6" if v else "" for v in df_view["Vencida"]], axis=0
         ),
-        use_container_width=True, hide_index=True,
+        width="stretch", hide_index=True,
     )
 
     st.divider()

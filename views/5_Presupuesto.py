@@ -30,7 +30,7 @@ fig.update_layout(
     yaxis_title="Monto (S/)", xaxis_title="Semana (inicio)",
     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width="stretch")
 
 st.divider()
 for b in buckets:

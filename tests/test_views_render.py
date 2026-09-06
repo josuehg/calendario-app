@@ -29,6 +29,18 @@ def test_branch_only_sees_registro(run_view):
     assert not at.exception
 
 
+def test_no_deprecated_use_container_width():
+    """use_container_width está deprecado — Streamlit lo quita pronto. Usar width."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    hits = [
+        p.name for p in list((root / "views").glob("*.py")) + [root / "app.py"]
+        if "use_container_width" in p.read_text(encoding="utf-8")
+    ]
+    assert not hits, f"use_container_width sigue en {hits}; reemplazar por width='stretch'"
+
+
 def test_app_nav_admin_vs_branch(run_view):
     """app.py: sucursal -> 1 página con nav oculto; admin -> todas."""
     at = run_view("app.py", role="branch", branch="Sucursal 1")

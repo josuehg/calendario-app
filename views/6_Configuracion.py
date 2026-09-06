@@ -66,12 +66,12 @@ for c in gcats:
     new_name = cc1.text_input(
         f"cat_{c['id']}", value=c["name"], label_visibility="collapsed", key=f"cat_name_{c['id']}"
     )
-    if cc2.button("Guardar", key=f"cat_save_{c['id']}", use_container_width=True):
+    if cc2.button("Guardar", key=f"cat_save_{c['id']}", width="stretch"):
         if new_name.strip() and new_name.strip() != c["name"]:
             db.rename_expense_category(c["id"], new_name.strip())
             st.success("Categoría renombrada.")
             st.rerun()
-    if cc3.button("Eliminar", key=f"cat_del_{c['id']}", use_container_width=True):
+    if cc3.button("Eliminar", key=f"cat_del_{c['id']}", width="stretch"):
         db.delete_expense_category(c["id"])
         st.success("Categoría eliminada.")
         st.rerun()
@@ -79,7 +79,7 @@ for c in gcats:
 with st.form("cat_add_form", clear_on_submit=True):
     ac1, ac2 = st.columns([3, 1])
     add_name = ac1.text_input("Nueva categoría", label_visibility="collapsed", placeholder="Nombre de la categoría")
-    if ac2.form_submit_button("➕ Agregar", use_container_width=True) and add_name.strip():
+    if ac2.form_submit_button("➕ Agregar", width="stretch") and add_name.strip():
         existing = [c["name"].lower() for c in gcats]
         if add_name.strip().lower() in existing:
             st.error("Ya existe una categoría con ese nombre.")
@@ -104,7 +104,7 @@ search = top1.text_input(
     "Buscar proveedor", label_visibility="collapsed",
     placeholder="🔎 Buscar proveedor por nombre o RUC",
 )
-if top2.button("➕ Nuevo proveedor", use_container_width=True):
+if top2.button("➕ Nuevo proveedor", width="stretch"):
     # Limpia cualquier resto de un diálogo anterior (p. ej. si se cerró con la
     # "X" en vez del botón Cancelar) para que los campos no salgan con datos viejos.
     for k in ["vd_name", "vd_ruc", "vd_doctype", "vd_term", "_confirm_del_vendor"]:
@@ -130,7 +130,7 @@ if vendors:
                 else:
                     st.markdown("⚪ Contado")
             with c3:
-                if st.button("Editar", key=f"edit_vendor_{v['id']}", use_container_width=True):
+                if st.button("Editar", key=f"edit_vendor_{v['id']}", width="stretch"):
                     for k in ["vd_name", "vd_ruc", "vd_doctype", "vd_term", "_confirm_del_vendor"]:
                         st.session_state.pop(k, None)
                     st.session_state["_vendor_dialog"] = {"mode": "edit", "data": v}
@@ -172,7 +172,7 @@ if dialog_state:
 
         st.divider()
         b1, b2 = st.columns(2)
-        if b1.button("Guardar", type="primary", use_container_width=True):
+        if b1.button("Guardar", type="primary", width="stretch"):
             name_clean = name.strip()
             ruc_clean = ruc.strip() or None
             name_l = name_clean.lower()
@@ -206,7 +206,7 @@ if dialog_state:
                         st.session_state.pop(k, None)
                     st.success("Proveedor guardado.")
                     st.rerun()
-        if b2.button("Cancelar", use_container_width=True):
+        if b2.button("Cancelar", width="stretch"):
             st.session_state["_vendor_dialog"] = None
             st.session_state.pop("_confirm_del_vendor", None)
             st.rerun()
@@ -220,13 +220,13 @@ if dialog_state:
             else:
                 st.warning("¿Seguro que quieres eliminar este proveedor? Esta acción no se puede deshacer.")
                 d1, d2 = st.columns(2)
-                if d1.button("Sí, eliminar", type="primary", use_container_width=True):
+                if d1.button("Sí, eliminar", type="primary", width="stretch"):
                     db.delete_vendor(editing["id"])
                     st.session_state["_vendor_dialog"] = None
                     st.session_state.pop("_confirm_del_vendor", None)
                     st.success("Proveedor eliminado.")
                     st.rerun()
-                if d2.button("No, cancelar", use_container_width=True):
+                if d2.button("No, cancelar", width="stretch"):
                     st.session_state["_confirm_del_vendor"] = False
                     st.rerun()
 
