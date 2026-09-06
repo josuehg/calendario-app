@@ -11,25 +11,35 @@ auth_branch = st.session_state.get("auth_branch")
 
 DOCUMENT_TYPES = ["Factura", "Boleta", "Nota de compra", "Otro"]
 
-# Campos del formulario que se vacían al limpiar o tras guardar.
-FORM_KEYS = [
-    "nf_query", "nf_new_vendor_name", "nf_new_vendor_ruc", "nf_invoice_number",
-    "nf_amount", "nf_notes", "nf_issue_date", "nf_due_date", "nf_doc_type_sel",
-]
+# Para "limpiar" el formulario no se borran keys de widgets (poco fiable en el
+# navegador): se cambia el sufijo `nonce` de TODAS las keys, así en el siguiente
+# render los widgets son nuevos y arrancan vacíos. Método a prueba de balas.
+nonce = st.session_state.get("nf_nonce", 0)
+
+
+def K(name: str) -> str:
+    return f"{name}__{nonce}"
 
 
 def _clear_form():
-    """Vacía el formulario. Como callback (on_click) corre antes del rerun,
-    así se puede borrar la key de un widget sin romper Streamlit."""
-    for k in FORM_KEYS:
-        st.session_state.pop(k, None)
+    """Callback de 'Limpiar campos' / 'Registrar otro documento'."""
+    st.session_state["nf_nonce"] = st.session_state.get("nf_nonce", 0) + 1
     st.session_state.pop("nf_pending", None)
     st.session_state.pop("nf_done", None)
 
 
+def _recalc_due_date():
+    """Vuelve a poner el vencimiento en emisión + plazo (callback: corre antes
+    del rerun, antes de instanciar el widget)."""
+    n = st.session_state.get("nf_nonce", 0)
+    computed = st.session_state.get("_nf_computed_due")
+    if computed:
+        st.session_state[f"nf_due_date__{n}"] = computed
+
+
 def _is_duplicate(vendor, inv_number):
-    """True si ya hay un documento con ese N° para ese proveedor (cualquier
-    sucursal). Devuelve el registro existente o None."""
+    """Devuelve el documento existente con ese N° para ese proveedor (cualquier
+    sucursal), o None."""
     v = (vendor or "").strip().lower()
     n = (inv_number or "").strip().lower()
     return next(
@@ -54,13 +64,13 @@ if auth_role == "branch":
     st.text_input("Sucursal", value=auth_branch, disabled=True)
     branch = auth_branch
 else:
-    branch = st.selectbox("Sucursal", db.get_branches() + ["Oficina central"])
+    branch = st.selectbox("Sucursal", db.get_branches() + ["Oficina central"], key=K("nf_branch"))
 
 # ---------- proveedor ----------
 st.markdown("**Proveedor**")
 query = st.text_input(
     "Buscar proveedor por RUC o nombre",
-    key="nf_query",
+    key=K("nf_query"),
     placeholder="Ej: 20123456789 o 'Droguería Norte'",
 )
 
@@ -89,7 +99,7 @@ if q:
         choice = st.selectbox(
             "Se encontraron varios proveedores, elige el correcto:",
             list(options.keys()),
-            key=f"nf_vendor_choice_{q}",
+            key=K(f"nf_vendor_choice_{q}"),
         )
         matched_vendor = options[choice]
 
@@ -111,12 +121,12 @@ if q:
         vendor_name = colA.text_input(
             "Nombre del proveedor nuevo",
             value=("" if q.isdigit() else query),
-            key="nf_new_vendor_name",
+            key=K("nf_new_vendor_name"),
         )
         vendor_ruc = colB.text_input(
             "RUC (11 dígitos)",
             value=(q if q.isdigit() else ""),
-            key="nf_new_vendor_ruc",
+            key=K("nf_new_vendor_ruc"),
             max_chars=11,
         )
         st.caption(
@@ -130,34 +140,22 @@ else:
 # ---------- datos del documento ----------
 col1, col2 = st.columns(2)
 with col1:
-    document_type = st.selectbox("Tipo de documento", DOCUMENT_TYPES, key="nf_doc_type_sel")
-    invoice_number = st.text_input("N° de documento", placeholder="F001-00123", key="nf_invoice_number")
-    amount = st.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f", key="nf_amount")
+    document_type = st.selectbox("Tipo de documento", DOCUMENT_TYPES, key=K("nf_doc_type_sel"))
+    invoice_number = st.text_input("N° de documento", placeholder="F001-00123", key=K("nf_invoice_number"))
+    amount = st.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f", key=K("nf_amount"))
 with col2:
-    issue_date = st.date_input("Fecha de emisión", value=None, key="nf_issue_date")
-    notes = st.text_area("Notas (opcional)", height=68, key="nf_notes")
+    issue_date = st.date_input("Fecha de emisión", value=None, key=K("nf_issue_date"))
+    notes = st.text_area("Notas (opcional)", height=68, key=K("nf_notes"))
 
 # ---------- vencimiento: solo si el proveedor es a crédito ----------
 due_date = None
-
-
-def _recalc_due_date():
-    """Vuelve a poner el vencimiento en emisión + plazo. Corre como callback
-    (antes del rerun) para no tocar la key del widget ya instanciado."""
-    computed = st.session_state.get("_nf_computed_due")
-    if computed:
-        st.session_state["nf_due_date"] = computed
-
-
 if doc_type == "credito":
     computed_due = issue_date + timedelta(days=term_days) if (issue_date and term_days) else None
     st.session_state["_nf_computed_due"] = computed_due
-    # Se siembra una sola vez con la fecha sugerida; luego la sucursal puede
-    # ajustarla a mano, y el botón ↻ la vuelve a poner en emisión + plazo.
-    if "nf_due_date" not in st.session_state:
-        st.session_state["nf_due_date"] = computed_due or issue_date or date.today()
+    if K("nf_due_date") not in st.session_state:
+        st.session_state[K("nf_due_date")] = computed_due or issue_date or date.today()
     dc1, dc2 = st.columns([3, 1])
-    due_date = dc1.date_input("Fecha de vencimiento", key="nf_due_date")
+    due_date = dc1.date_input("Fecha de vencimiento", key=K("nf_due_date"))
     if computed_due:
         dc2.button(
             "↻ Recalcular", use_container_width=True, on_click=_recalc_due_date,
@@ -168,8 +166,6 @@ if doc_type == "credito":
 
 # ---------- registrar / limpiar ----------
 if done:
-    # Recién se guardó un documento: los campos siguen a la vista para repasar.
-    # Para cargar otro se usa el botón "➕ Registrar otro documento" de arriba.
     st.caption("Documento guardado. Pulsa **➕ Registrar otro documento** arriba para cargar el siguiente.")
     st.stop()
 
@@ -208,7 +204,6 @@ if trigger_register:
             name_match = next((v for v in existing if v["name"].strip().lower() == vn.lower()), None)
             ruc_match = next((v for v in existing if (v.get("ruc") or "") == ruc_clean), None)
             if name_match:
-                # Ya existe con ese nombre — se usa su configuración, no se duplica.
                 resolved_name = name_match["name"]
                 resolved_doc_type = name_match["doc_type"]
                 resolved_term = name_match["term_days"]
@@ -308,7 +303,7 @@ if st.session_state.get("nf_pending"):
                 f"({tipo_msg}). Vence el {utils.fmt_short(p['due_date'])}."
             )
             # Los campos quedan a la vista para repasar; se vacían al pulsar
-            # "➕ Registrar otro documento".
+            # "➕ Registrar otro documento" (que sube el nonce).
             st.session_state["nf_pending"] = None
             st.rerun()
         if b2.button("Volver a editar", use_container_width=True):
