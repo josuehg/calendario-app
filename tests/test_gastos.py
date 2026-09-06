@@ -69,6 +69,18 @@ def test_expenses_feed_calendar_and_budget_not_resumen(run_view, db):
     assert metrics.get("Total pendiente") == "S/ 0.00"
 
 
+def test_two_stale_dialog_flags_do_not_crash(run_view, db):
+    """Regresión: si quedan marcados los dos gates de diálogo (uno se cerró
+    haciendo clic afuera), la página no debe reventar con
+    StreamlitInvalidLayoutContextError — se muestra uno solo."""
+    fx = db.create_fixed_expense({"name": "Alquiler", "category": "Alquiler", "branch": None,
+                                  "amount": 3000.0, "pay_day": 5})
+    db.ensure_expense_instances()
+    exp = db.list_expenses()[0]
+    at = run_view(VIEW, role="admin", _fx_dialog={"data": fx}, _gx_manage=exp)
+    assert not at.exception
+
+
 def test_edit_fixed_expense_dialog_shows_end_date(run_view, db):
     db.create_fixed_expense({
         "name": "Cuota préstamo", "category": "Servicios", "branch": None,
