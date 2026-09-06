@@ -103,8 +103,8 @@ class FakeDB:
     def delete_invoice(self, iid):
         self.invoices[:] = [i for i in self.invoices if i["id"] != iid]
 
-    def mark_invoice_paid(self, iid, paid_at):
-        self.update_invoice(iid, {"status": "pagada", "paid_at": paid_at})
+    def mark_invoice_paid(self, iid, paid_at, paid_by=None):
+        self.update_invoice(iid, {"status": "pagada", "paid_at": paid_at, "paid_by": paid_by})
 
     # ---- canjes / letras ----
     def list_canjes(self):
@@ -116,9 +116,9 @@ class FakeDB:
     def list_letras(self):
         return [dict(l) for l in sorted(self.letras, key=lambda l: l["fecha_vencimiento"])]
 
-    def create_canje(self, invoice_ids, letras, notes=""):
+    def create_canje(self, invoice_ids, letras, notes="", created_by=None):
         cid = self._nid("canje")
-        self.canjes.append({"id": cid, "notes": notes})
+        self.canjes.append({"id": cid, "notes": notes, "created_by": created_by})
         for iid in invoice_ids:
             self.canje_facturas.append({"canje_id": cid, "invoice_id": iid})
             self.update_invoice(iid, {"status": "canjeada"})
@@ -129,10 +129,10 @@ class FakeDB:
             })
         return cid
 
-    def mark_letra_paid(self, lid, fecha_pago):
+    def mark_letra_paid(self, lid, fecha_pago, paid_by=None):
         for l in self.letras:
             if l["id"] == lid:
-                l.update({"estado": "pagada", "fecha_pago": fecha_pago})
+                l.update({"estado": "pagada", "fecha_pago": fecha_pago, "paid_by": paid_by})
 
     # ---- categorías de gasto ----
     def list_expense_categories(self):
@@ -196,8 +196,8 @@ class FakeDB:
     def delete_expense(self, eid):
         self.expenses[:] = [e for e in self.expenses if e["id"] != eid]
 
-    def set_expense_status(self, eid, status, paid_at=None):
-        self.update_expense(eid, {"status": status, "paid_at": paid_at})
+    def set_expense_status(self, eid, status, paid_at=None, paid_by=None):
+        self.update_expense(eid, {"status": status, "paid_at": paid_at, "paid_by": paid_by})
 
     def ensure_expense_instances(self, months_ahead=3):
         import utils

@@ -35,9 +35,12 @@ if not rows:
     st.info("No hay facturas con estos filtros.")
 else:
     df = pd.DataFrame(rows)
-    df["document_type"] = df.get("document_type", "Factura")
-    df_view = df[["issue_date", "branch", "vendor", "document_type", "invoice_number", "doc_type", "amount", "due_date", "status"]].copy()
-    df_view.columns = ["Emisión", "Sucursal", "Proveedor", "Tipo Doc.", "N° Documento", "Tipo", "Monto (S/)", "Vence", "Estado"]
+    for col, default in [("document_type", "Factura"), ("registered_by", "—")]:
+        if col not in df.columns:
+            df[col] = default
+    df["registered_by"] = df["registered_by"].fillna("—")
+    df_view = df[["issue_date", "branch", "vendor", "document_type", "invoice_number", "doc_type", "amount", "due_date", "status", "registered_by"]].copy()
+    df_view.columns = ["Emisión", "Sucursal", "Proveedor", "Tipo Doc.", "N° Documento", "Tipo", "Monto (S/)", "Vence", "Estado", "Registrado por"]
     df_view["Vencida"] = [
         (r["status"] != "pagada" and r["due_date"] < today) for r in rows
     ]
@@ -69,6 +72,10 @@ else:
     for r in rows:
         cols = st.columns([3, 1.5, 1.3, 1.3])
         cols[0].write(f"**{r['vendor']}** · Fact. {r['invoice_number']} · {r['branch']} · {utils.money(r['amount'])}")
+        meta = f"Registró: {r.get('registered_by') or '—'}"
+        if r["status"] == "pagada" and r.get("paid_by"):
+            meta += f"  ·  Pagó: {r['paid_by']}" + (f" ({utils.fmt_short(r['paid_at'])})" if r.get("paid_at") else "")
+        cols[0].caption(meta)
         if r["status"] == "pendiente":
             if cols[1].button("Marcar pagada", key=f"pay_{r['id']}"):
                 st.session_state["_direct_pay_id"] = r["id"]
@@ -91,7 +98,7 @@ if st.session_state.get("_direct_pay_id"):
             st.rerun()
         if c2.button("Confirmar", type="primary"):
             fecha_str = (fecha or __import__("datetime").date.today()).isoformat()
-            db.mark_invoice_paid(inv_id, fecha_str)
+            db.mark_invoice_paid(inv_id, fecha_str, paid_by=utils.current_actor())
             st.session_state["_direct_pay_id"] = None
             st.rerun()
 

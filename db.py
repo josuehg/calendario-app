@@ -142,8 +142,8 @@ def delete_invoice(invoice_id: str):
     return sb.table("invoices").delete().eq("id", invoice_id).execute()
 
 
-def mark_invoice_paid(invoice_id: str, paid_at: str):
-    return update_invoice(invoice_id, {"status": "pagada", "paid_at": paid_at})
+def mark_invoice_paid(invoice_id: str, paid_at: str, paid_by: str | None = None):
+    return update_invoice(invoice_id, {"status": "pagada", "paid_at": paid_at, "paid_by": paid_by})
 
 
 # ---------- canjes y letras ----------
@@ -164,14 +164,14 @@ def list_letras():
     return res.data
 
 
-def create_canje(invoice_ids: list, letras: list, notes: str = ""):
+def create_canje(invoice_ids: list, letras: list, notes: str = "", created_by: str | None = None):
     """
     invoice_ids: lista de ids de facturas incluidas en el canje.
     letras: lista de dicts {numero, monto, fecha_vencimiento}.
     Marca las facturas incluidas como 'canjeada'.
     """
     sb = get_client()
-    canje_res = sb.table("canjes").insert({"notes": notes}).execute()
+    canje_res = sb.table("canjes").insert({"notes": notes, "created_by": created_by}).execute()
     canje_id = canje_res.data[0]["id"]
 
     sb.table("canje_facturas").insert(
@@ -197,10 +197,10 @@ def create_canje(invoice_ids: list, letras: list, notes: str = ""):
     return canje_id
 
 
-def mark_letra_paid(letra_id: str, fecha_pago: str):
+def mark_letra_paid(letra_id: str, fecha_pago: str, paid_by: str | None = None):
     sb = get_client()
     return sb.table("letras").update(
-        {"estado": "pagada", "fecha_pago": fecha_pago}
+        {"estado": "pagada", "fecha_pago": fecha_pago, "paid_by": paid_by}
     ).eq("id", letra_id).execute()
 
 
@@ -285,8 +285,8 @@ def delete_expense(expense_id: str):
     return sb.table("expenses").delete().eq("id", expense_id).execute()
 
 
-def set_expense_status(expense_id: str, status: str, paid_at: str | None = None):
-    return update_expense(expense_id, {"status": status, "paid_at": paid_at})
+def set_expense_status(expense_id: str, status: str, paid_at: str | None = None, paid_by: str | None = None):
+    return update_expense(expense_id, {"status": status, "paid_at": paid_at, "paid_by": paid_by})
 
 
 def ensure_expense_instances(months_ahead: int = 3):
