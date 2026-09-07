@@ -4,7 +4,7 @@ import streamlit as st
 import db
 import utils
 
-st.title("📅 Calendario maestro de pagos")
+st.title("📅 Calendario de pagos")
 
 db.ensure_expense_instances()
 invoices = db.list_invoices()

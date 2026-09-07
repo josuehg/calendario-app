@@ -9,7 +9,7 @@ track_contado = db.get_settings().get("track_contado", True)
 events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado)
 stats = utils.compute_stats(events)
 
-st.title("🗓️ Calendario Maestro de Pagos")
+st.title("🗓️ Control Compras")
 st.caption("Consolidado de facturas y letras · 6 sucursales")
 
 c1, c2, c3, c4 = st.columns(4)

@@ -1,4 +1,4 @@
--- Calendario Maestro de Pagos — esquema de base de datos (Supabase / Postgres)
+-- Control Compras — esquema de base de datos (Supabase / Postgres)
 -- Ejecuta este script completo en: Supabase > tu proyecto > SQL Editor > New query > Run
 --
 -- Si ya tenías una base creada con una versión anterior de este archivo,

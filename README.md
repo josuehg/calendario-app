@@ -1,4 +1,4 @@
-# Calendario Maestro de Pagos
+# Control Compras
 
 Sistema de cuentas por pagar para una cadena de 6 sucursales: registro de
 documentos de compra, canje de facturas a letras (varias facturas pueden

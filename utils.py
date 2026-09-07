@@ -36,7 +36,7 @@ def authenticate():
 
     admin_pin = st.secrets.get("APP_PASSWORD")
 
-    st.title("🗓️ Calendario Maestro de Pagos")
+    st.title("🗓️ Control Compras")
     st.caption("Ingresa tu PIN de acceso.")
     with st.form("login_form"):
         pin = st.text_input("PIN", type="password")
