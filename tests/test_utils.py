@@ -28,8 +28,9 @@ def test_money(utils):
 
 
 def test_fmt_time(utils):
-    assert utils.fmt_time("2026-09-07T14:32:05") == "14:32"           # sin zona: tal cual
+    assert utils.fmt_time("2026-09-07T19:32:05") == "14:32"           # sin zona: se asume UTC -> Perú
     assert utils.fmt_time("2026-09-07T19:32:05+00:00") == "14:32"     # UTC -> Perú (-5)
+    assert utils.fmt_time("2026-09-08T02:00:00+00:00") == "21:00"     # cruza medianoche hacia atrás
     assert utils.fmt_time(None) == "—"
     assert utils.fmt_time("basura") == "—"
 

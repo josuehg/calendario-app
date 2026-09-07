@@ -111,17 +111,17 @@ def money(n):
 
 
 def fmt_time(ts):
-    """'HH:MM' de un timestamp ISO. Si trae zona horaria (lo normal en
-    Supabase, que guarda en UTC) lo pasa a hora de Perú."""
+    """'HH:MM' en hora de Perú de un timestamp ISO. Supabase guarda en UTC;
+    si el valor viene sin zona horaria se asume UTC."""
     if not ts:
         return "—"
     try:
         dt = datetime.fromisoformat(ts)
     except (ValueError, TypeError):
         return "—"
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(_PERU_TZ)
-    return dt.strftime("%H:%M")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_PERU_TZ).strftime("%H:%M")
 
 
 # ---------- eventos de pago (calendario / presupuesto) ----------

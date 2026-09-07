@@ -60,7 +60,7 @@ def test_credito_shows_due_date_and_recalcular(run_view, seeded):
     _search(at, "Droguería Norte")
     widget(at, "nf_issue_date", "date_input").set_value(date(2026, 8, 27)).run()
     widget(at, "nf_due_date", "date_input").set_value(date(2026, 1, 1)).run()
-    click(at, "Recalcular")
+    click(at, "Calcular automáticamente")
     assert not at.exception
     assert widget(at, "nf_due_date", "date_input").value == date(2026, 9, 26)
 
@@ -117,7 +117,7 @@ def test_success_dialog_lists_todays_docs(run_view, seeded):
     md = " ".join(str(m.value) for m in at.markdown)
     assert "3 documento(s)" in md
     warns = " ".join(str(w.value) for w in at.warning)
-    assert "cada número de documento" in warns
+    assert "CADA NÚMERO DE DOCUMENTO" in warns
     assert any(b.label.startswith("➕ Registrar otra factura") for b in at.button)
     assert len(seeded.invoices) == 3
 
