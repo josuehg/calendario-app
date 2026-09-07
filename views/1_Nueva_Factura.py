@@ -304,11 +304,12 @@ if st.session_state.get("nf_pending"):
     _confirm_dialog()
 
 # ---------- ventana emergente: registro exitoso ----------
-if st.session_state.get("nf_done") and not st.session_state.get("nf_pending"):
+_done_msg = st.session_state.get("nf_done")
+if _done_msg and not st.session_state.get("nf_pending"):
 
     @st.dialog("✅ Registro exitoso", width="large")
     def _success_dialog():
-        st.success(st.session_state["nf_done"])
+        st.success(_done_msg)
 
         actor = utils.current_actor()
         hoy = date.today().isoformat()
@@ -334,15 +335,16 @@ if st.session_state.get("nf_done") and not st.session_state.get("nf_pending"):
         )
 
         b1, b2 = st.columns(2)
-        b1.button("➕ Registrar otra factura", type="primary", width="stretch", on_click=_clear_form)
+        if b1.button("➕ Registrar otra factura", type="primary", width="stretch"):
+            _clear_form()
+            st.rerun()
         if auth_role == "branch":
             if b2.button("Terminé", width="stretch"):
                 _clear_form()
                 st.rerun()
         else:
             if b2.button("🏠 Ir a Resumen", width="stretch"):
-                st.session_state["nf_nonce"] = st.session_state.get("nf_nonce", 0) + 1
-                st.session_state.pop("nf_done", None)
+                _clear_form()
                 st.switch_page("views/0_Resumen.py")
 
     _success_dialog()
