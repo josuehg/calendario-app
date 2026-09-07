@@ -35,11 +35,12 @@ def test_limpiar_clears_existing_vendor(run_view, seeded):
     at = run_view(VIEW, role="branch")
     _search(at, "Droguería Norte")
     assert widget(at, "nf_query").value == "Droguería Norte"
-    assert [i.value for i in at.info]                      # muestra "trabaja a crédito…"
+    assert any("Proveedor:" in s.value for s in at.success)   # confirmación verde del proveedor
+    assert widget(at, "nf_due_date", "date_input") is not None  # crédito -> campo de vencimiento
     click(at, "Limpiar campos")
     assert widget(at, "nf_query").value == ""
-    assert not [i.value for i in at.info]
     assert not [s.value for s in at.success]
+    assert widget(at, "nf_due_date", "date_input") is None
 
 
 def test_limpiar_clears_new_vendor_fields(run_view, seeded):
@@ -89,34 +90,36 @@ def test_full_flow_then_review_then_clear(run_view, seeded):
     assert len(seeded.invoices) == 1
     assert seeded.invoices[0]["invoice_number"] == "B001-1"
     assert any("Registrado:" in s.value for s in at.success)
-    assert widget(at, "nf_invoice_number").value == "B001-1"   # sigue a la vista
-    click(at, "Registrar otro documento")
+    assert at.session_state["nf_done"]                         # ventana emergente de éxito
+    click(at, "Registrar otra factura")
+    assert not at.exception
+    assert "nf_done" not in at.session_state
     assert widget(at, "nf_invoice_number").value == ""
     assert widget(at, "nf_query").value == ""
 
 
-def test_todays_docs_list_shown_after_save(run_view, seeded):
-    at = run_view(VIEW, role="branch")
-    for n in ("F001-11111", "F001-22222"):
-        _search(at, "Bodega Sur")
-        widget(at, "nf_invoice_number").set_value(n).run()
-        widget(at, "nf_amount", "number_input").set_value(100.0).run()
-        widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
-        click(at, "Registrar documento")
-        click(at, "Confirmar y guardar")
-        click(at, "Registrar otro documento")
-    # tras el 2º guardado (antes de limpiar) la tabla debe listar los dos N°
+def _register_one(at, seeded, n):
     _search(at, "Bodega Sur")
-    widget(at, "nf_invoice_number").set_value("F001-33333").run()
+    widget(at, "nf_invoice_number").set_value(n).run()
     widget(at, "nf_amount", "number_input").set_value(100.0).run()
     widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
     click(at, "Registrar documento")
     click(at, "Confirmar y guardar")
+
+
+def test_success_dialog_lists_todays_docs(run_view, seeded):
+    at = run_view(VIEW, role="branch")
+    for n in ("F001-11111", "F001-22222"):
+        _register_one(at, seeded, n)
+        click(at, "Registrar otra factura")          # cierra la ventana emergente
+    _register_one(at, seeded, "F001-33333")
+    # la ventana emergente de éxito está abierta con la tabla de hoy
     md = " ".join(str(m.value) for m in at.markdown)
     assert "3 documento(s)" in md
-    assert "S/" not in md  # ya no se suma el total
     warns = " ".join(str(w.value) for w in at.warning)
     assert "cada número de documento" in warns
+    assert any(b.label.startswith("➕ Registrar otra factura") for b in at.button)
+    assert len(seeded.invoices) == 3
 
 
 def test_duplicate_blocked_same_vendor_and_number(run_view, seeded):
