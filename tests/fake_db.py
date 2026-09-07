@@ -98,9 +98,10 @@ class FakeDB:
         return [dict(i) for i in sorted(self.invoices, key=lambda i: i.get("issue_date", ""), reverse=True)]
 
     def create_invoice(self, data):
-        from datetime import datetime
+        from datetime import datetime, timezone
 
-        row = {"id": self._nid("inv"), "created_at": datetime.now().isoformat(), **data}
+        row = {"id": self._nid("inv"),
+               "created_at": datetime.now(timezone.utc).isoformat(), **data}
         self.invoices.append(row)
         return row
 

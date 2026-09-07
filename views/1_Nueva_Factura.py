@@ -136,10 +136,9 @@ col1, col2 = st.columns(2)
 with col1:
     document_type = st.selectbox("Tipo de documento", DOCUMENT_TYPES, key=K("nf_doc_type_sel"))
     invoice_number = st.text_input("N° de documento", placeholder="F001-00123", key=K("nf_invoice_number"))
-    amount = st.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f", key=K("nf_amount"))
 with col2:
     issue_date = st.date_input("Fecha de emisión", value=None, key=K("nf_issue_date"))
-    notes = st.text_area("Notas (opcional)", height=68, key=K("nf_notes"))
+    amount = st.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f", key=K("nf_amount"))
 
 # ---------- vencimiento: solo si el proveedor es a crédito ----------
 due_date = None
@@ -148,15 +147,18 @@ if doc_type == "credito":
     st.session_state["_nf_computed_due"] = computed_due
     if K("nf_due_date") not in st.session_state:
         st.session_state[K("nf_due_date")] = computed_due or issue_date or date.today()
-    dc1, dc2 = st.columns([3, 1])
-    due_date = dc1.date_input("Fecha de vencimiento", key=K("nf_due_date"))
-    if computed_due:
-        dc2.button(
-            "↻ Recalcular", width="stretch", on_click=_recalc_due_date,
-            help=f"Usar emisión + {term_days} días",
-        )
+    due_date = st.date_input("Fecha de vencimiento", key=K("nf_due_date"))
     if term_days:
-        dc1.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
+        st.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
+    if computed_due:
+        st.button(
+            "📅 Calcular automáticamente el vencimiento", width="stretch",
+            on_click=_recalc_due_date, help=f"Poner emisión + {term_days} días",
+        )
+
+# ---------- notas (ancho completo) ----------
+notes = st.text_area("Observaciones (opcional)", height=90, key=K("nf_notes"),
+                     placeholder="Ej: pago parcial, descuento acordado, factura física con detalle…")
 
 # ---------- registrar / limpiar ----------
 rc1, rc2 = st.columns(2)
@@ -330,8 +332,9 @@ if _done_msg and not st.session_state.get("nf_pending"):
             })
 
         st.warning(
-            "Revisa **hoja por hoja** tu pila y confirma que registraste **cada número de "
-            "documento** (ej. F001-12345). Si te falta alguno, pulsa **➕ Registrar otra factura**."
+            "## ⚠️ REVISA HOJA POR HOJA TU PILA\n\n"
+            "### CONFIRMA QUE SUBISTE **CADA NÚMERO DE DOCUMENTO** (EJ. F001-12345)\n\n"
+            "SI TE FALTA ALGUNO, PULSA «➕ REGISTRAR OTRA FACTURA»."
         )
 
         b1, b2 = st.columns(2)
