@@ -95,6 +95,29 @@ def test_full_flow_then_review_then_clear(run_view, seeded):
     assert widget(at, "nf_query").value == ""
 
 
+def test_todays_docs_list_shown_after_save(run_view, seeded):
+    at = run_view(VIEW, role="branch")
+    for n in ("F001-11111", "F001-22222"):
+        _search(at, "Bodega Sur")
+        widget(at, "nf_invoice_number").set_value(n).run()
+        widget(at, "nf_amount", "number_input").set_value(100.0).run()
+        widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+        click(at, "Registrar documento")
+        click(at, "Confirmar y guardar")
+        click(at, "Registrar otro documento")
+    # tras el 2º guardado (antes de limpiar) la tabla debe listar los dos N°
+    _search(at, "Bodega Sur")
+    widget(at, "nf_invoice_number").set_value("F001-33333").run()
+    widget(at, "nf_amount", "number_input").set_value(100.0).run()
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+    click(at, "Registrar documento")
+    click(at, "Confirmar y guardar")
+    md = " ".join(str(m.value) for m in at.markdown)
+    assert "3 documento(s)" in md
+    warns = " ".join(str(w.value) for w in at.warning)
+    assert "cada número de documento" in warns
+
+
 def test_duplicate_blocked_same_vendor_and_number(run_view, seeded):
     seeded.invoices.append({
         "id": "x", "vendor": "Bodega Sur", "invoice_number": "B001-1",
