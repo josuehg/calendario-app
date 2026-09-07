@@ -23,9 +23,12 @@ def seeded(db):
 _RUC = {"Droguería Norte": "20123456789", "Bodega Sur": "20999999999"}
 
 
-def _search(at, who):
-    """Busca por RUC. Acepta el nombre de un proveedor sembrado (lo traduce a
-    su RUC) o directamente un RUC."""
+def _search(at, who, registrante="Ana Tester"):
+    """Prepara el formulario: nombre de quien registra + búsqueda por RUC.
+    Acepta el nombre de un proveedor sembrado (lo traduce a su RUC) o un RUC."""
+    w = widget(at, "nf_registrante")
+    if w is not None and not w.value:
+        w.set_value(registrante).run()
     return widget(at, "nf_query").set_value(_RUC.get(who, who)).run()
 
 

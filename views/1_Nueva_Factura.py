@@ -57,12 +57,20 @@ def _is_duplicate(vendor, inv_number):
 # botón "Registrar documento" mientras esa ventana está abierta.
 done = bool(st.session_state.get("nf_done")) and not st.session_state.get("nf_pending")
 
-# ---------- sucursal ----------
+# ---------- sucursal y responsable ----------
 if auth_role == "branch":
     st.text_input("Sucursal", value=auth_branch, disabled=True)
     branch = auth_branch
 else:
     branch = st.selectbox("Sucursal", db.get_branches() + ["Oficina central"], key=K("nf_branch"))
+
+# Nombre de la persona que registra. Key estable (no nonce) para que no se
+# borre al pulsar "Registrar otra factura" — se escribe una vez por sesión.
+registrante = st.text_input(
+    "Nombre de quien registra",
+    key="nf_registrante",
+    placeholder="Tu nombre y apellido",
+)
 
 # ---------- proveedor ----------
 st.markdown("**Proveedor**")
@@ -169,6 +177,8 @@ if trigger_register and not done:
     faltan = []
     vn = (vendor_name or "").strip()
     ruc_clean = (vendor_ruc or "").strip()
+    if not registrante.strip():
+        faltan.append("nombre de quien registra")
     if not vn:
         faltan.append("proveedor")
     if is_new_vendor and not (ruc_clean.isdigit() and len(ruc_clean) == 11):
@@ -235,6 +245,7 @@ if trigger_register and not done:
                 "issue_date": issue_date.isoformat(),
                 "due_date": final_due,
                 "notes": notes.strip(),
+                "registered_by": registrante.strip(),
             }
             st.rerun()
 
@@ -247,6 +258,7 @@ if st.session_state.get("nf_pending"):
         tipo_txt = "Contado" if p["doc_type"] == "contado" else f"Crédito · {p['term_days']} días"
         filas = [
             ("Sucursal", p["branch"]),
+            ("Registra", p["registered_by"]),
             ("Proveedor", p["vendor"] + ("  · 🆕 nuevo" if p["is_new_vendor"] else "")),
             ("RUC", p["ruc"] or "—"),
             ("Tipo de documento", p["document_type"]),
@@ -290,7 +302,7 @@ if st.session_state.get("nf_pending"):
                 "due_date": p["due_date"],
                 "status": "pendiente",
                 "notes": p["notes"],
-                "registered_by": utils.current_actor(),
+                "registered_by": p["registered_by"],
             })
             tipo_msg = "contado" if p["doc_type"] == "contado" else f"crédito a {p['term_days']} días"
             st.session_state["nf_done"] = (
@@ -315,21 +327,21 @@ if _done_msg and not st.session_state.get("nf_pending"):
     def _success_dialog():
         st.success(_done_msg)
 
-        actor = utils.current_actor()
         hoy = date.today().isoformat()
         hoy_docs = sorted(
             (
                 i for i in db.list_invoices()
-                if i.get("registered_by") == actor and (i.get("created_at") or "")[:10] == hoy
+                if i.get("branch") == branch and (i.get("created_at") or "")[:10] == hoy
             ),
             key=lambda i: i.get("created_at") or "",
         )
         if hoy_docs:
-            st.markdown(f"**Hoy registraste {len(hoy_docs)} documento(s)**")
+            st.markdown(f"**Hoy se registraron {len(hoy_docs)} documento(s) en {branch}**")
             st.table({
                 "Hora": [utils.fmt_time(i.get("created_at")) for i in hoy_docs],
                 "N° documento": [i["invoice_number"] for i in hoy_docs],
                 "Proveedor": [i["vendor"] for i in hoy_docs],
+                "Registró": [i.get("registered_by") or "—" for i in hoy_docs],
                 "Monto": [utils.money(i["amount"]) for i in hoy_docs],
             })
 
