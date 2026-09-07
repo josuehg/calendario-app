@@ -65,6 +65,25 @@ def test_credito_shows_due_date_and_recalcular(run_view, seeded):
     assert widget(at, "nf_due_date", "date_input").value == date(2026, 9, 26)
 
 
+def test_all_fields_required_except_observaciones(run_view, seeded):
+    at = run_view(VIEW, role="branch")
+    click(at, "Registrar documento")
+    err = " ".join(e.value for e in at.error)
+    for campo in ("proveedor", "N° de documento", "monto", "fecha de emisión"):
+        assert campo in err
+    assert not seeded.invoices
+
+    _search(at, "Bodega Sur")
+    widget(at, "nf_invoice_number").set_value("F-OK").run()
+    widget(at, "nf_amount", "number_input").set_value(100.0).run()
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+    click(at, "Registrar documento")
+    click(at, "Confirmar y guardar")
+    assert not at.exception
+    assert seeded.invoices and seeded.invoices[0]["invoice_number"] == "F-OK"
+    assert seeded.invoices[0].get("notes") in (None, "")
+
+
 def test_new_vendor_ruc_must_be_11_digits(run_view, seeded):
     at = run_view(VIEW, role="branch")
     _search(at, "Nuevo Prov SAC")

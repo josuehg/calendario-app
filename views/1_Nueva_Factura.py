@@ -166,11 +166,16 @@ trigger_register = rc1.button("Registrar documento", type="primary", width="stre
 rc2.button("🧹 Limpiar campos", width="stretch", on_click=_clear_form, disabled=done)
 
 if trigger_register and not done:
+    # Todo es obligatorio menos "Observaciones".
     faltan = []
     vn = (vendor_name or "").strip()
     ruc_clean = (vendor_ruc or "").strip()
     if not vn:
-        faltan.append("nombre del proveedor")
+        faltan.append("proveedor")
+    if is_new_vendor and not (ruc_clean.isdigit() and len(ruc_clean) == 11):
+        faltan.append("RUC del proveedor nuevo (11 dígitos)")
+    if not document_type:
+        faltan.append("tipo de documento")
     if not invoice_number.strip():
         faltan.append("N° de documento")
     if amount <= 0:
@@ -182,8 +187,6 @@ if trigger_register and not done:
 
     if faltan:
         st.error("Completa: " + ", ".join(faltan) + ".")
-    elif is_new_vendor and not (ruc_clean.isdigit() and len(ruc_clean) == 11):
-        st.error("El RUC debe tener exactamente 11 dígitos.")
     elif doc_type == "credito" and due_date and issue_date and due_date < issue_date:
         st.error("La fecha de vencimiento no puede ser anterior a la de emisión.")
     else:
