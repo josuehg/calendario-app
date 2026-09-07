@@ -67,9 +67,10 @@ else:
 # ---------- proveedor ----------
 st.markdown("**Proveedor**")
 query = st.text_input(
-    "Buscar proveedor por RUC o nombre",
+    "Buscar proveedor por RUC",
     key=K("nf_query"),
-    placeholder="Ej: 20123456789 o 'Droguería Norte'",
+    placeholder="Ej: 20123456789",
+    max_chars=11,
 )
 
 matched_vendor = None
@@ -80,15 +81,14 @@ term_days = None
 is_new_vendor = False
 
 q = query.strip()
+if q and not q.isdigit():
+    st.caption("Escribe **solo el número de RUC** (sin letras ni espacios).")
+    q = ""
+
 if q:
     all_vendors = db.get_vendors()
-    ql = q.lower()
-
-    if q.isdigit():
-        exact = next((v for v in all_vendors if (v.get("ruc") or "") == q), None)
-        candidates = [exact] if exact else [v for v in all_vendors if ql in (v.get("ruc") or "").lower()]
-    else:
-        candidates = [v for v in all_vendors if ql in v["name"].lower() or ql in (v.get("ruc") or "").lower()]
+    exact = next((v for v in all_vendors if (v.get("ruc") or "") == q), None)
+    candidates = [exact] if exact else [v for v in all_vendors if (v.get("ruc") or "").startswith(q)]
 
     if len(candidates) == 1:
         matched_vendor = candidates[0]
@@ -109,17 +109,16 @@ if q:
         doc_type = matched_vendor["doc_type"]
         term_days = matched_vendor["term_days"]
     else:
-        st.warning("No se encontró ningún proveedor con esos datos. Regístralo como proveedor nuevo:")
+        st.warning(f"No hay ningún proveedor con el RUC {q}. Regístralo como proveedor nuevo:")
         is_new_vendor = True
         colA, colB = st.columns(2)
         vendor_name = colA.text_input(
             "Nombre del proveedor nuevo",
-            value=("" if q.isdigit() else query),
             key=K("nf_new_vendor_name"),
         )
         vendor_ruc = colB.text_input(
             "RUC (11 dígitos)",
-            value=(q if q.isdigit() else ""),
+            value=q,
             key=K("nf_new_vendor_ruc"),
             max_chars=11,
         )
@@ -129,7 +128,7 @@ if q:
         )
         doc_type, term_days = "contado", None
 else:
-    st.caption("Escribe el RUC o el nombre del proveedor para buscarlo. Si no existe, podrás crearlo aquí mismo.")
+    st.caption("Escribe el **número de RUC** del proveedor para buscarlo. Si no existe, podrás crearlo aquí mismo.")
 
 # ---------- datos del documento ----------
 col1, col2 = st.columns(2)

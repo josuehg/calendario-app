@@ -52,7 +52,7 @@ def test_invoice_amount_stored_rounded(run_view, db):
                        "doc_type": "contado", "term_days": None})
     from datetime import date
     at = run_view("views/1_Nueva_Factura.py", role="branch", branch="Sucursal 1")
-    widget(at, "nf_query").set_value("Bodega Sur").run()
+    widget(at, "nf_query").set_value("20999999999").run()
     widget(at, "nf_invoice_number").set_value("B-1").run()
     widget(at, "nf_amount", "number_input").set_value(10.005).run()
     widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
