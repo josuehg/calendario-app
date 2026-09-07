@@ -20,8 +20,13 @@ def seeded(db):
     return db
 
 
-def _search(at, text):
-    return widget(at, "nf_query").set_value(text).run()
+_RUC = {"Droguería Norte": "20123456789", "Bodega Sur": "20999999999"}
+
+
+def _search(at, who):
+    """Busca por RUC. Acepta el nombre de un proveedor sembrado (lo traduce a
+    su RUC) o directamente un RUC."""
+    return widget(at, "nf_query").set_value(_RUC.get(who, who)).run()
 
 
 def test_renders_with_new_names(run_view, seeded):
@@ -29,12 +34,21 @@ def test_renders_with_new_names(run_view, seeded):
     assert not at.exception
     assert any("Registro de documentos de compra" in t.value for t in at.title)
     assert any(b.label == "Registrar documento" for b in at.button)
+    assert any(t.label == "Buscar proveedor por RUC" for t in at.text_input)
+
+
+def test_search_by_name_is_rejected(run_view, seeded):
+    at = run_view(VIEW, role="branch")
+    widget(at, "nf_query").set_value("Droguería Norte").run()
+    caps = " ".join(str(c.value) for c in at.caption)
+    assert "solo el número de RUC" in caps
+    assert not any("Proveedor:" in s.value for s in at.success)
 
 
 def test_limpiar_clears_existing_vendor(run_view, seeded):
     at = run_view(VIEW, role="branch")
     _search(at, "Droguería Norte")
-    assert widget(at, "nf_query").value == "Droguería Norte"
+    assert widget(at, "nf_query").value == "20123456789"
     assert any("Proveedor:" in s.value for s in at.success)   # confirmación verde del proveedor
     assert widget(at, "nf_due_date", "date_input") is not None  # crédito -> campo de vencimiento
     click(at, "Limpiar campos")
@@ -45,7 +59,7 @@ def test_limpiar_clears_existing_vendor(run_view, seeded):
 
 def test_limpiar_clears_new_vendor_fields(run_view, seeded):
     at = run_view(VIEW, role="branch")
-    _search(at, "Proveedor Que No Existe")
+    _search(at, "20111111111")                             # RUC que no existe
     widget(at, "nf_new_vendor_name").set_value("Proveedor Que No Existe").run()
     widget(at, "nf_new_vendor_ruc").set_value("20111111111").run()
     widget(at, "nf_invoice_number").set_value("F1-1").run()
@@ -86,7 +100,7 @@ def test_all_fields_required_except_observaciones(run_view, seeded):
 
 def test_new_vendor_ruc_must_be_11_digits(run_view, seeded):
     at = run_view(VIEW, role="branch")
-    _search(at, "Nuevo Prov SAC")
+    _search(at, "20111111111")                             # RUC que no existe
     widget(at, "nf_new_vendor_name").set_value("Nuevo Prov SAC").run()
     widget(at, "nf_new_vendor_ruc").set_value("123").run()
     widget(at, "nf_invoice_number").set_value("F1-1").run()
