@@ -114,6 +114,7 @@ def test_todays_docs_list_shown_after_save(run_view, seeded):
     click(at, "Confirmar y guardar")
     md = " ".join(str(m.value) for m in at.markdown)
     assert "3 documento(s)" in md
+    assert "S/" not in md  # ya no se suma el total
     warns = " ".join(str(w.value) for w in at.warning)
     assert "cada número de documento" in warns
 

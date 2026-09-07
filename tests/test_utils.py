@@ -27,6 +27,13 @@ def test_money(utils):
     assert utils.money(None) == "S/ 0.00"
 
 
+def test_fmt_time(utils):
+    assert utils.fmt_time("2026-09-07T14:32:05") == "14:32"           # sin zona: tal cual
+    assert utils.fmt_time("2026-09-07T19:32:05+00:00") == "14:32"     # UTC -> Perú (-5)
+    assert utils.fmt_time(None) == "—"
+    assert utils.fmt_time("basura") == "—"
+
+
 # ---------- día de pago recortado a fin de mes ----------
 
 @pytest.mark.parametrize("y,m,day,expected", [

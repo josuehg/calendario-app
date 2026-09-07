@@ -67,11 +67,9 @@ if done:
         key=lambda i: i.get("created_at") or "",
     )
     if hoy_docs:
-        st.markdown(
-            f"**Hoy registraste {len(hoy_docs)} documento(s) · "
-            f"{utils.money(utils.dsum(i['amount'] for i in hoy_docs))}**"
-        )
+        st.markdown(f"**Hoy registraste {len(hoy_docs)} documento(s)**")
         st.table({
+            "Hora": [utils.fmt_time(i.get("created_at")) for i in hoy_docs],
             "N° documento": [i["invoice_number"] for i in hoy_docs],
             "Proveedor": [i["vendor"] for i in hoy_docs],
             "Monto": [utils.money(i["amount"]) for i in hoy_docs],
