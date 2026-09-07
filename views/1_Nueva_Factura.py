@@ -52,35 +52,10 @@ def _is_duplicate(vendor, inv_number):
     )
 
 
-# Mensaje de éxito del último registro (se muestra tras el st.rerun).
-done = st.session_state.pop("nf_done", None)
-if done:
-    st.success(done)
-
-    actor = utils.current_actor()
-    hoy = date.today().isoformat()
-    hoy_docs = sorted(
-        (
-            i for i in db.list_invoices()
-            if i.get("registered_by") == actor and (i.get("created_at") or "")[:10] == hoy
-        ),
-        key=lambda i: i.get("created_at") or "",
-    )
-    if hoy_docs:
-        st.markdown(f"**Hoy registraste {len(hoy_docs)} documento(s)**")
-        st.table({
-            "Hora": [utils.fmt_time(i.get("created_at")) for i in hoy_docs],
-            "N° documento": [i["invoice_number"] for i in hoy_docs],
-            "Proveedor": [i["vendor"] for i in hoy_docs],
-            "Monto": [utils.money(i["amount"]) for i in hoy_docs],
-        })
-
-    st.warning(
-        "Revisa **hoja por hoja** tu pila y confirma que registraste **cada número de "
-        "documento** (ej. F001-12345). Si te falta alguno, pulsa **➕ Registrar otro documento**."
-    )
-    st.button("➕ Registrar otro documento", type="primary", on_click=_clear_form)
-    st.divider()
+# El éxito del último registro se muestra en una ventana emergente (al final
+# del archivo). Aquí solo se lee la bandera para no volver a habilitar el
+# botón "Registrar documento" mientras esa ventana está abierta.
+done = bool(st.session_state.get("nf_done")) and not st.session_state.get("nf_pending")
 
 # ---------- sucursal ----------
 if auth_role == "branch":
@@ -133,10 +108,6 @@ if q:
         vendor_ruc = matched_vendor.get("ruc")
         doc_type = matched_vendor["doc_type"]
         term_days = matched_vendor["term_days"]
-        if doc_type == "credito":
-            st.info(f"Este proveedor trabaja a **crédito, {term_days} días**.")
-        else:
-            st.info("Este proveedor trabaja al **contado**.")
     else:
         st.warning("No se encontró ningún proveedor con esos datos. Regístralo como proveedor nuevo:")
         is_new_vendor = True
@@ -188,15 +159,11 @@ if doc_type == "credito":
         dc1.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
 
 # ---------- registrar / limpiar ----------
-if done:
-    st.caption("Documento guardado. Pulsa **➕ Registrar otro documento** arriba para cargar el siguiente.")
-    st.stop()
-
 rc1, rc2 = st.columns(2)
-trigger_register = rc1.button("Registrar documento", type="primary", width="stretch")
-rc2.button("🧹 Limpiar campos", width="stretch", on_click=_clear_form)
+trigger_register = rc1.button("Registrar documento", type="primary", width="stretch", disabled=done)
+rc2.button("🧹 Limpiar campos", width="stretch", on_click=_clear_form, disabled=done)
 
-if trigger_register:
+if trigger_register and not done:
     faltan = []
     vn = (vendor_name or "").strip()
     ruc_clean = (vendor_ruc or "").strip()
@@ -335,3 +302,47 @@ if st.session_state.get("nf_pending"):
             st.rerun()
 
     _confirm_dialog()
+
+# ---------- ventana emergente: registro exitoso ----------
+if st.session_state.get("nf_done") and not st.session_state.get("nf_pending"):
+
+    @st.dialog("✅ Registro exitoso", width="large")
+    def _success_dialog():
+        st.success(st.session_state["nf_done"])
+
+        actor = utils.current_actor()
+        hoy = date.today().isoformat()
+        hoy_docs = sorted(
+            (
+                i for i in db.list_invoices()
+                if i.get("registered_by") == actor and (i.get("created_at") or "")[:10] == hoy
+            ),
+            key=lambda i: i.get("created_at") or "",
+        )
+        if hoy_docs:
+            st.markdown(f"**Hoy registraste {len(hoy_docs)} documento(s)**")
+            st.table({
+                "Hora": [utils.fmt_time(i.get("created_at")) for i in hoy_docs],
+                "N° documento": [i["invoice_number"] for i in hoy_docs],
+                "Proveedor": [i["vendor"] for i in hoy_docs],
+                "Monto": [utils.money(i["amount"]) for i in hoy_docs],
+            })
+
+        st.warning(
+            "Revisa **hoja por hoja** tu pila y confirma que registraste **cada número de "
+            "documento** (ej. F001-12345). Si te falta alguno, pulsa **➕ Registrar otra factura**."
+        )
+
+        b1, b2 = st.columns(2)
+        b1.button("➕ Registrar otra factura", type="primary", width="stretch", on_click=_clear_form)
+        if auth_role == "branch":
+            if b2.button("Terminé", width="stretch"):
+                _clear_form()
+                st.rerun()
+        else:
+            if b2.button("🏠 Ir a Resumen", width="stretch"):
+                st.session_state["nf_nonce"] = st.session_state.get("nf_nonce", 0) + 1
+                st.session_state.pop("nf_done", None)
+                st.switch_page("views/0_Resumen.py")
+
+    _success_dialog()
