@@ -1,7 +1,7 @@
 import streamlit as st
 import utils
 
-st.set_page_config(page_title="Calendario Maestro de Pagos", page_icon="🗓️", layout="wide")
+st.set_page_config(page_title="Control Compras", page_icon="🗓️", layout="wide")
 
 # Las secciones viven en views/ (no en pages/) a propósito: si la carpeta se
 # llama "pages", Streamlit arma solo un menú lateral con TODAS y lo muestra
