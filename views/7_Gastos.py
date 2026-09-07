@@ -212,8 +212,10 @@ if _fx:
         if ed:
             st.divider()
             st.caption(
-                "Al **desactivar** deja de generarse a futuro (los meses ya generados se "
-                "mantienen). **Eliminar** borra la plantilla; los gastos ya generados quedan sueltos."
+                "Guardar aplica los cambios (monto, día, etc.) a las **cuotas futuras que "
+                "sigan pendientes**; las pagadas y los meses pasados no se tocan. "
+                "**Desactivar** quita esas cuotas futuras pendientes. **Eliminar** borra la "
+                "plantilla y deja sueltos los gastos ya generados."
             )
             if st.button("🗑️ Eliminar plantilla"):
                 db.delete_fixed_expense(ed["id"])

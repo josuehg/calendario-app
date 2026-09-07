@@ -108,6 +108,38 @@ def test_remove_end_date_makes_it_indefinite(db):
     assert len(periods) == 4  # vuelve a generar mes actual + 3, sin tope
 
 
+def test_update_fixed_expense_syncs_pending_instances(db):
+    from datetime import date
+
+    fx = db.create_fixed_expense({"name": "Alquiler", "category": "Alquiler", "branch": None,
+                                  "amount": 3000.0, "pay_day": 5})
+    db.ensure_expense_instances()
+    # una cuota futura marcada pagada: NO debe cambiar de monto
+    fut_paid = next(e for e in db.expenses
+                    if e["fixed_expense_id"] == fx["id"] and e["period"] > date.today().strftime("%Y-%m"))
+    db.set_expense_status(fut_paid["id"], "pagado", "2026-01-01")
+
+    db.update_fixed_expense(fx["id"], {"name": "Alquiler", "category": "Alquiler",
+                                       "branch": None, "amount": 3625.0, "pay_day": 5, "active": True,
+                                       "start_month": None, "end_month": None})
+
+    still_pending = [e for e in db.expenses
+                     if e["fixed_expense_id"] == fx["id"] and e["status"] == "pendiente"]
+    assert still_pending and all(e["amount"] == 3625.0 for e in still_pending)
+    assert next(e for e in db.expenses if e["id"] == fut_paid["id"])["amount"] == 3000.0
+
+
+def test_deactivate_fixed_expense_drops_future_pending(db):
+    fx = db.create_fixed_expense({"name": "Publicidad", "category": "Servicios", "branch": None,
+                                  "amount": 500.0, "pay_day": 10})
+    db.ensure_expense_instances()
+    assert len([e for e in db.expenses if e["fixed_expense_id"] == fx["id"]]) >= 3
+    db.update_fixed_expense(fx["id"], {"name": "Publicidad", "category": "Servicios", "branch": None,
+                                       "amount": 500.0, "pay_day": 10, "active": False,
+                                       "start_month": None, "end_month": None})
+    assert [e for e in db.expenses if e["fixed_expense_id"] == fx["id"] and e["status"] == "pendiente"] == []
+
+
 def test_rename_category_cascades(db):
     db.create_fixed_expense({
         "name": "Alquiler local", "category": "Alquiler", "branch": None,

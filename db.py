@@ -277,8 +277,47 @@ def create_fixed_expense(data: dict):
 
 
 def update_fixed_expense(fx_id: int, data: dict):
+    """Actualiza la plantilla y **sincroniza las cuotas futuras que aún están
+    pendientes**: nombre, categoría, sucursal, monto y la fecha (si cambió el
+    día de pago). Las cuotas ya pagadas u omitidas, y los meses pasados, no se
+    tocan. Si la plantilla queda inactiva o fuera del rango de fin, sus cuotas
+    futuras pendientes se eliminan."""
+    import utils
+    from datetime import date
+
     sb = get_client()
-    return sb.table("fixed_expenses").update(data).eq("id", fx_id).execute()
+    res = sb.table("fixed_expenses").update(data).eq("id", fx_id).execute()
+
+    fx = sb.table("fixed_expenses").select("*").eq("id", fx_id).limit(1).execute().data
+    fx = fx[0] if fx else None
+    pend = sb.table("expenses").select("*").eq("fixed_expense_id", fx_id).eq("status", "pendiente").execute().data
+    if not fx or not pend:
+        return res
+
+    this_month = date.today().replace(day=1)
+    end = date.fromisoformat(fx["end_month"]).replace(day=1) if fx.get("end_month") else None
+
+    for e in pend:
+        period = e.get("period") or ""
+        try:
+            y, mo = int(period[:4]), int(period[5:7])
+        except (ValueError, IndexError):
+            continue
+        first = date(y, mo, 1)
+        if first < this_month:
+            continue  # cuota vencida sin pagar: se ajusta a mano
+        if not fx["active"] or (end and first > end):
+            sb.table("expenses").delete().eq("id", e["id"]).execute()
+            continue
+        day = utils.due_day_for_month(y, mo, fx["pay_day"])
+        sb.table("expenses").update({
+            "name": fx["name"],
+            "category": fx["category"],
+            "branch": fx.get("branch"),
+            "amount": fx["amount"],
+            "due_date": date(y, mo, day).isoformat(),
+        }).eq("id", e["id"]).execute()
+    return res
 
 
 def delete_fixed_expense(fx_id: int):
