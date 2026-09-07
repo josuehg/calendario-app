@@ -193,9 +193,39 @@ class FakeDB:
         return row
 
     def update_fixed_expense(self, fid, data):
+        import utils
+        from datetime import date
+
+        fx = None
         for f in self.fixed_expenses:
             if f["id"] == fid:
                 f.update(data)
+                fx = f
+        if not fx:
+            return
+        this_month = date.today().replace(day=1)
+        end = date.fromisoformat(fx["end_month"]).replace(day=1) if fx.get("end_month") else None
+        keep = []
+        for e in self.expenses:
+            if e.get("fixed_expense_id") != fid or e["status"] != "pendiente":
+                keep.append(e)
+                continue
+            try:
+                y, mo = int(e["period"][:4]), int(e["period"][5:7])
+            except (ValueError, IndexError, TypeError):
+                keep.append(e)
+                continue
+            first = date(y, mo, 1)
+            if first < this_month:
+                keep.append(e)
+                continue
+            if not fx["active"] or (end and first > end):
+                continue  # se elimina
+            day = utils.due_day_for_month(y, mo, fx["pay_day"])
+            e.update({"name": fx["name"], "category": fx["category"], "branch": fx.get("branch"),
+                      "amount": fx["amount"], "due_date": date(y, mo, day).isoformat()})
+            keep.append(e)
+        self.expenses[:] = keep
 
     def delete_fixed_expense(self, fid):
         self.fixed_expenses[:] = [f for f in self.fixed_expenses if f["id"] != fid]
