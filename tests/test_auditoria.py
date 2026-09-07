@@ -15,30 +15,36 @@ def test_current_actor(db, monkeypatch):
     assert utils.current_actor() == "Administrador"
 
 
-def test_invoice_records_registering_branch(run_view, db):
+def _register(at, ruc, num, quien):
+    widget(at, "nf_registrante").set_value(quien).run()
+    widget(at, "nf_query").set_value(ruc).run()
+    widget(at, "nf_invoice_number").set_value(num).run()
+    widget(at, "nf_amount", "number_input").set_value(100.0).run()
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+    click(at, "Registrar documento")
+    click(at, "Confirmar y guardar")
+
+
+def test_invoice_records_person_name(run_view, db):
+    db.vendors.append({"id": 1, "name": "Bodega Sur", "ruc": "20999999999",
+                       "doc_type": "contado", "term_days": None})
+    at = run_view("views/1_Nueva_Factura.py", role="branch", branch="ZOLEZZI A")
+    _register(at, "20999999999", "B-1", "Rosa Quispe")
+    assert db.invoices[0]["registered_by"] == "Rosa Quispe"
+    assert db.invoices[0]["branch"] == "ZOLEZZI A"
+
+
+def test_registrante_is_required(run_view, db):
     db.vendors.append({"id": 1, "name": "Bodega Sur", "ruc": "20999999999",
                        "doc_type": "contado", "term_days": None})
     at = run_view("views/1_Nueva_Factura.py", role="branch", branch="ZOLEZZI A")
     widget(at, "nf_query").set_value("20999999999").run()
-    widget(at, "nf_invoice_number").set_value("B-1").run()
+    widget(at, "nf_invoice_number").set_value("B-9").run()
     widget(at, "nf_amount", "number_input").set_value(100.0).run()
     widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
     click(at, "Registrar documento")
-    click(at, "Confirmar y guardar")
-    assert db.invoices[0]["registered_by"] == "ZOLEZZI A"
-
-
-def test_admin_registration_labeled_administrador(run_view, db):
-    db.vendors.append({"id": 1, "name": "Bodega Sur", "ruc": "20999999999",
-                       "doc_type": "contado", "term_days": None})
-    at = run_view("views/1_Nueva_Factura.py", role="admin")
-    widget(at, "nf_query").set_value("20999999999").run()
-    widget(at, "nf_invoice_number").set_value("B-2").run()
-    widget(at, "nf_amount", "number_input").set_value(100.0).run()
-    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
-    click(at, "Registrar documento")
-    click(at, "Confirmar y guardar")
-    assert db.invoices[0]["registered_by"] == "Administrador"
+    assert any("quien registra" in e.value for e in at.error)
+    assert not db.invoices
 
 
 def test_generated_fixed_expense_marked_automatic(db):
