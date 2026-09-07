@@ -4,8 +4,10 @@ y la lógica que convierte facturas + letras en "eventos de pago" para el
 calendario y el presupuesto.
 """
 import calendar as _cal
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
+
+_PERU_TZ = timezone(timedelta(hours=-5))  # Perú: UTC-5 fijo, sin horario de verano
 
 import pandas as pd
 import streamlit as st
@@ -106,6 +108,20 @@ def dsum(values):
 
 def money(n):
     return "S/ " + f"{round2(n):,.2f}"
+
+
+def fmt_time(ts):
+    """'HH:MM' de un timestamp ISO. Si trae zona horaria (lo normal en
+    Supabase, que guarda en UTC) lo pasa a hora de Perú."""
+    if not ts:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return "—"
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_PERU_TZ)
+    return dt.strftime("%H:%M")
 
 
 # ---------- eventos de pago (calendario / presupuesto) ----------
