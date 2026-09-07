@@ -56,6 +56,31 @@ def _is_duplicate(vendor, inv_number):
 done = st.session_state.pop("nf_done", None)
 if done:
     st.success(done)
+
+    actor = utils.current_actor()
+    hoy = date.today().isoformat()
+    hoy_docs = sorted(
+        (
+            i for i in db.list_invoices()
+            if i.get("registered_by") == actor and (i.get("created_at") or "")[:10] == hoy
+        ),
+        key=lambda i: i.get("created_at") or "",
+    )
+    if hoy_docs:
+        st.markdown(
+            f"**Hoy registraste {len(hoy_docs)} documento(s) · "
+            f"{utils.money(utils.dsum(i['amount'] for i in hoy_docs))}**"
+        )
+        st.table({
+            "N° documento": [i["invoice_number"] for i in hoy_docs],
+            "Proveedor": [i["vendor"] for i in hoy_docs],
+            "Monto": [utils.money(i["amount"]) for i in hoy_docs],
+        })
+
+    st.warning(
+        "Revisa **hoja por hoja** tu pila y confirma que registraste **cada número de "
+        "documento** (ej. F001-12345). Si te falta alguno, pulsa **➕ Registrar otro documento**."
+    )
     st.button("➕ Registrar otro documento", type="primary", on_click=_clear_form)
     st.divider()
 
