@@ -247,6 +247,12 @@ with tab_prox:
     f_status = f3.selectbox("Estado", ["Pendientes", "Pagados", "Omitidos", "Todos"], key="gx_f_status")
     f_group = f4.selectbox("Agrupar por", ["Categoría", "Sucursal", "Sin agrupar"], key="gx_f_group")
 
+    f5, f6 = st.columns(2)
+    f_from = f5.date_input("Vencimiento desde", value=None, key="gx_f_from")
+    f_to = f6.date_input("Vencimiento hasta", value=None, key="gx_f_to")
+    if f_from and f_to and f_from > f_to:
+        st.error("«Vencimiento desde» no puede ser posterior a «Vencimiento hasta».")
+
     status_map = {"Pendientes": "pendiente", "Pagados": "pagado", "Omitidos": "omitido"}
     rows = []
     for e in all_exp:
@@ -256,6 +262,10 @@ with tab_prox:
         if f_branch != "Todas" and eb != f_branch:
             continue
         if f_cat != "Todas" and e["category"] != f_cat:
+            continue
+        if f_from and e["due_date"] < f_from.isoformat():
+            continue
+        if f_to and e["due_date"] > f_to.isoformat():
             continue
         rows.append(e)
 
