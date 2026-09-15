@@ -69,6 +69,89 @@ def test_expenses_feed_calendar_and_budget_not_resumen(run_view, db):
     assert metrics.get("Total pendiente") == "S/ 0.00"
 
 
+def test_fijos_tab_shows_grouped_stats(run_view, db):
+    db.create_fixed_expense({"name": "Alquiler A", "category": "Alquiler", "branch": "Sucursal 1",
+                             "amount": 1000.0, "pay_day": 5})
+    db.create_fixed_expense({"name": "Planilla", "category": "Planilla", "branch": None,
+                             "amount": 3000.0, "pay_day": 28})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics.get("Total mensual comprometido") == "S/ 4,000.00"
+    assert metrics.get("Activos / pausados") == "2 / 0"
+    labels = [e.label for e in at.expander]
+    assert any("Alquiler" in l for l in labels)
+    assert any("Planilla" in l for l in labels)
+
+
+def test_fijos_tab_group_by_branch(run_view, db):
+    db.create_fixed_expense({"name": "Alquiler A", "category": "Alquiler", "branch": "Sucursal 1",
+                             "amount": 1000.0, "pay_day": 5})
+    db.create_fixed_expense({"name": "Servicios generales", "category": "Servicios", "branch": None,
+                             "amount": 200.0, "pay_day": 10})
+    at = run_view(VIEW, role="admin")
+    for r in at.radio:
+        if r.key == "fx_group_by":
+            r.set_value("Sucursal").run()
+            break
+    assert not at.exception
+    labels = [e.label for e in at.expander]
+    assert any("Sucursal 1" in l for l in labels)
+    assert any("General" in l for l in labels)
+
+
+def test_urgency_pill_vencido_y_hoy(run_view, db):
+    from datetime import timedelta
+    today = date.today()
+    db.create_expense({"kind": "variable", "name": "Vencido ya", "category": "Servicios",
+                       "branch": None, "amount": 50.0,
+                       "due_date": (today - timedelta(days=3)).isoformat(), "status": "pendiente"})
+    db.create_expense({"kind": "variable", "name": "Hoy mismo", "category": "Servicios",
+                       "branch": None, "amount": 60.0,
+                       "due_date": today.isoformat(), "status": "pendiente"})
+    at = run_view(VIEW, role="admin")
+    html = " ".join(str(m.value) for m in at.markdown)
+    assert "Vencido hace 3 días" in html
+    assert "Vence hoy" in html
+
+
+def test_proximos_gastos_stats_and_grouping(run_view, db):
+    db.create_expense({"kind": "variable", "name": "Gasto A", "category": "Alquiler",
+                       "branch": "Sucursal 1", "amount": 500.0, "due_date": "2020-01-01",
+                       "status": "pendiente"})
+    at = run_view(VIEW, role="admin")
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics.get("Vencidos") == "1"
+    labels = [e.label for e in at.expander]
+    assert any("Alquiler" in l for l in labels)
+
+
+def test_proximos_gastos_sin_agrupar(run_view, db):
+    db.create_expense({"kind": "variable", "name": "Gasto A", "category": "Alquiler",
+                       "branch": None, "amount": 500.0, "due_date": date.today().isoformat(),
+                       "status": "pendiente"})
+    at = run_view(VIEW, role="admin")
+    for sb in at.selectbox:
+        if sb.key == "gx_f_group":
+            sb.set_value("Sin agrupar").run()
+            break
+    assert not at.exception
+    labels = [e.label for e in at.expander]
+    assert any(l.endswith("gasto(s)") for l in labels)
+
+
+def test_variable_pending_section_groups(run_view, db):
+    db.create_expense({"kind": "variable", "name": "Reparación", "category": "Servicios",
+                       "branch": "Sucursal 1", "amount": 300.0, "due_date": date.today().isoformat(),
+                       "status": "pendiente"})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics.get("Total variable pendiente") == "S/ 300.00"
+    labels = [e.label for e in at.expander]
+    assert any("Servicios" in l for l in labels)
+
+
 def test_two_stale_dialog_flags_do_not_crash(run_view, db):
     """Regresión: si quedan marcados los dos gates de diálogo (uno se cerró
     haciendo clic afuera), la página no debe reventar con

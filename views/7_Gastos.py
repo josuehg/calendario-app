@@ -41,6 +41,46 @@ def _open_manage(expense):
     st.session_state["_gx_manage"] = expense
 
 
+# ---------- urgencia (misma idea que el 🔴/🟠/⚫ del Calendario, como pastilla) ----------
+
+def _urgency(due_date, status):
+    if status == "pagado":
+        return "Pagado", "good"
+    if status == "omitido":
+        return "Omitido", "paused"
+    today = date.today().isoformat()
+    if due_date < today:
+        days = (date.fromisoformat(today) - date.fromisoformat(due_date)).days
+        return f"Vencido hace {days} día{'s' if days != 1 else ''}", "critical"
+    if due_date == today:
+        return "Vence hoy", "critical"
+    days = (date.fromisoformat(due_date) - date.fromisoformat(today)).days
+    return f"Vence en {days} día{'s' if days != 1 else ''}", ("warn" if days <= 7 else "neutral")
+
+
+_PILL_COLORS = {
+    "critical": ("#a83a3a", "rgba(179,63,63,.14)"),
+    "warn": ("#a8720f", "rgba(184,128,46,.16)"),
+    "neutral": ("#58676d", "rgba(120,130,135,.14)"),
+    "paused": ("#8a8f93", "rgba(138,143,147,.16)"),
+    "good": ("#2f7d4f", "rgba(47,125,79,.14)"),
+}
+
+
+def _pill(label, cls):
+    fg, bg = _PILL_COLORS.get(cls, _PILL_COLORS["neutral"])
+    return (
+        f'<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;'
+        f'font-weight:600;padding:3px 9px;border-radius:999px;background:{bg};color:{fg};'
+        f'white-space:nowrap"><span style="width:6px;height:6px;border-radius:50%;'
+        f'background:currentColor"></span>{label}</span>'
+    )
+
+
+def _group_key(item, by):
+    return item["category"] if by == "Categoría" else (item.get("branch") or GENERAL)
+
+
 tab_var, tab_fijo, tab_prox = st.tabs(["➕ Gasto variable", "🔁 Gastos fijos", "📆 Próximos gastos"])
 
 # ============================ GASTO VARIABLE ============================
@@ -72,34 +112,140 @@ with tab_var:
                 st.session_state["gx_msg"] = f"Gasto variable registrado: {gv_name.strip()} · {utils.money(gv_amount)}."
                 st.rerun()
 
+    st.divider()
+    st.subheader("Variables pendientes")
+    var_pend = [e for e in db.list_expenses() if e["kind"] == "variable" and e["status"] == "pendiente"]
+
+    if not var_pend:
+        st.caption("No hay gastos variables pendientes.")
+    else:
+        total_var = utils.dsum(e["amount"] for e in var_pend)
+        today_str = date.today().isoformat()
+        overdue_var = [e for e in var_pend if e["due_date"] < today_str]
+
+        v1, v2 = st.columns(2)
+        v1.metric("Total variable pendiente", utils.money(total_var), f"{len(var_pend)} pendiente(s)")
+        v2.metric("Vencidos", str(len(overdue_var)),
+                  utils.money(utils.dsum(e["amount"] for e in overdue_var)) if overdue_var else "S/ 0.00")
+
+        group_by_var = st.radio("Agrupar por", ["Categoría", "Sucursal"], horizontal=True, key="var_group_by")
+        groups_var = {}
+        for e in var_pend:
+            groups_var.setdefault(_group_key(e, group_by_var), []).append(e)
+
+        for gname, items in sorted(groups_var.items(), key=lambda kv: -sum(i["amount"] for i in kv[1])):
+            subtotal = utils.dsum(i["amount"] for i in items)
+            share = (subtotal / total_var * 100) if total_var else 0
+            with st.expander(f"{gname}  ·  {len(items)}", expanded=True):
+                st.markdown(f"**{utils.money(subtotal)}**  ·  {share:.0f}% de lo pendiente")
+                st.progress(min(share / 100, 1.0))
+                for e in sorted(items, key=lambda i: i["due_date"]):
+                    lbl, cls = _urgency(e["due_date"], e["status"])
+                    rc1, rc2, rc3, rc4 = st.columns([2.6, 1.6, 1.1, 1])
+                    meta = (e.get("branch") or GENERAL) if group_by_var == "Categoría" else e["category"]
+                    rc1.markdown(f"**{e['name']}**")
+                    rc1.caption(meta)
+                    rc2.markdown(_pill(lbl, cls), unsafe_allow_html=True)
+                    rc3.markdown(utils.money(e["amount"]))
+                    if rc4.button("Gestionar", key=f"var_mng_{e['id']}", width="stretch"):
+                        _open_manage(e)
+                        st.rerun()
+
 # ============================ GASTOS FIJOS ============================
 with tab_fijo:
+    fixed_all = db.list_fixed_expenses()
+    active_fixed = [f for f in fixed_all if f["active"]]
+    total_fijo = utils.dsum(f["amount"] for f in active_fixed)
+
+    # próxima cuota pendiente generada por cada plantilla (para "vence más
+    # próximo" y la pastilla de cada fila).
+    next_pend_by_fx = {}
+    for e in db.list_expenses():
+        fid = e.get("fixed_expense_id")
+        if fid and e["status"] == "pendiente":
+            cur = next_pend_by_fx.get(fid)
+            if not cur or e["due_date"] < cur["due_date"]:
+                next_pend_by_fx[fid] = e
+
+    if not fixed_all:
+        st.caption("Aún no hay gastos fijos. Usa **➕ Nuevo gasto fijo** para agregar alquiler, planilla, etc.")
+    else:
+        by_cat = {}
+        for f in active_fixed:
+            by_cat[f["category"]] = by_cat.get(f["category"], 0.0) + float(f["amount"])
+        top_cat = max(by_cat.items(), key=lambda kv: kv[1]) if by_cat else None
+        soonest = min(next_pend_by_fx.values(), key=lambda e: e["due_date"]) if next_pend_by_fx else None
+
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Total mensual comprometido", utils.money(total_fijo), f"{len(active_fixed)} activo(s)")
+        s2.metric("Activos / pausados", f"{len(active_fixed)} / {len(fixed_all) - len(active_fixed)}")
+        if soonest:
+            lbl, _cls = _urgency(soonest["due_date"], soonest["status"])
+            s3.metric("Vence más próximo", lbl, soonest["name"])
+        else:
+            s3.metric("Vence más próximo", "—")
+        if top_cat and total_fijo:
+            s4.metric("Categoría con más peso", utils.money(top_cat[1]),
+                      f"{top_cat[0]} · {round(top_cat[1] / total_fijo * 100)}%")
+        else:
+            s4.metric("Categoría con más peso", "—")
+
+    st.divider()
+    c1, c2, c3 = st.columns([1.4, 1, 2])
+    group_by_fx = c1.radio("Agrupar por", ["Categoría", "Sucursal"], horizontal=True, key="fx_group_by")
+    only_active_fx = c2.checkbox("Solo activos", value=True, key="fx_only_active")
+    search_fx = c3.text_input("Buscar", key="fx_search", placeholder="🔎 Buscar gasto fijo",
+                              label_visibility="collapsed")
+
     if st.button("➕ Nuevo gasto fijo"):
         _open_fx_dialog(None)
         st.rerun()
 
-    fixed = db.list_fixed_expenses()
-    if not fixed:
-        st.caption("Aún no hay gastos fijos. Usa **➕ Nuevo gasto fijo** para agregar alquiler, planilla, etc.")
-    for f in fixed:
-        with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([3, 1.6, 1.4, 0.9])
-            estado = "" if f["active"] else "  · ⏸️ inactivo"
-            c1.markdown(f"**{f['name']}**{estado}")
-            c1.caption(f"{f['category']} · {f.get('branch') or 'General'}")
-            c2.markdown(utils.money(f["amount"]))
-            c3.markdown(f"Día {f['pay_day']} de cada mes")
-            if c4.button("Editar", key=f"fx_edit_{f['id']}"):
-                _open_fx_dialog(f)
-                st.rerun()
+    rows_fx = [
+        f for f in fixed_all
+        if (not only_active_fx or f["active"])
+        and (not search_fx.strip() or search_fx.strip().lower() in f["name"].lower())
+    ]
+
+    if fixed_all and not rows_fx:
+        st.caption("Ningún gasto fijo con esos filtros.")
+    elif fixed_all:
+        groups_fx = {}
+        for f in rows_fx:
+            groups_fx.setdefault(_group_key(f, group_by_fx), []).append(f)
+        grand = total_fijo or 1
+
+        for gname, items in sorted(groups_fx.items(), key=lambda kv: -sum(i["amount"] for i in kv[1] if i["active"])):
+            g_subtotal = utils.dsum(i["amount"] for i in items if i["active"])
+            share = g_subtotal / grand * 100 if grand else 0
+            with st.expander(f"{gname}  ·  {len(items)}", expanded=True):
+                st.markdown(f"**{utils.money(g_subtotal)}**  ·  {share:.0f}% del total activo")
+                st.progress(min(share / 100, 1.0))
+                for f in sorted(items, key=lambda i: (not i["active"], i["name"])):
+                    if f["active"]:
+                        nxt = next_pend_by_fx.get(f["id"])
+                        lbl, cls = _urgency(nxt["due_date"], nxt["status"]) if nxt else ("Sin cuota generada", "neutral")
+                    else:
+                        lbl, cls = "Pausado", "paused"
+                    rc1, rc2, rc3, rc4, rc5 = st.columns([2.6, 1, 1.7, 1.1, 0.9])
+                    meta = (f.get("branch") or GENERAL) if group_by_fx == "Categoría" else f["category"]
+                    rc1.markdown(f"**{f['name']}**")
+                    rc1.caption(meta)
+                    rc2.markdown(f"Día {f['pay_day']}")
+                    rc3.markdown(_pill(lbl, cls), unsafe_allow_html=True)
+                    rc4.markdown(utils.money(f["amount"]))
+                    if rc5.button("Editar", key=f"fx_edit_{f['id']}", width="stretch"):
+                        _open_fx_dialog(f)
+                        st.rerun()
 
 # ============================ PRÓXIMOS GASTOS ============================
 with tab_prox:
     all_exp = db.list_expenses()
-    f1, f2, f3 = st.columns(3)
+    f1, f2, f3, f4 = st.columns(4)
     f_branch = f1.selectbox("Sucursal", ["Todas"] + branch_opts, key="gx_f_branch")
     f_cat = f2.selectbox("Categoría", ["Todas"] + cats, key="gx_f_cat")
     f_status = f3.selectbox("Estado", ["Pendientes", "Pagados", "Omitidos", "Todos"], key="gx_f_status")
+    f_group = f4.selectbox("Agrupar por", ["Categoría", "Sucursal", "Sin agrupar"], key="gx_f_group")
 
     status_map = {"Pendientes": "pendiente", "Pagados": "pagado", "Omitidos": "omitido"}
     rows = []
@@ -117,26 +263,51 @@ with tab_prox:
         st.caption("No hay gastos con esos filtros.")
     else:
         total = utils.dsum(e["amount"] for e in rows)
-        st.markdown(f"**{len(rows)} gasto(s) · {utils.money(total)}**")
+        today_str = date.today().isoformat()
+        week_end = utils.add_days(today_str, 6)
+        overdue = [e for e in rows if e["status"] == "pendiente" and e["due_date"] < today_str]
+        this_week = [e for e in rows if e["status"] == "pendiente" and today_str <= e["due_date"] <= week_end]
 
-    today = date.today().isoformat()
-    for e in rows:
-        with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([3, 1.4, 1.5, 1.3])
-            tag = {"pendiente": "", "pagado": "  · ✅ pagado", "omitido": "  · ⏭️ omitido"}[e["status"]]
-            c1.markdown(f"**{e['name']}**{tag}")
-            meta = f"{'Fijo' if e['kind'] == 'fijo' else 'Variable'} · {e['category']} · {e.get('branch') or 'General'}"
-            meta += f" · registró: {e.get('registered_by') or '—'}"
-            if e["status"] == "pagado" and e.get("paid_by"):
-                meta += f" · pagó: {e['paid_by']}"
-            c1.caption(meta)
-            c2.markdown(utils.money(e["amount"]))
-            venc = utils.fmt_short(e["due_date"])
-            c3.markdown(f"🔴 {venc}" if e["status"] == "pendiente" and e["due_date"] < today else f"📅 {venc}")
-            if e["status"] == "pendiente":
-                if c4.button("Gestionar", key=f"gx_mng_{e['id']}", width="stretch"):
-                    _open_manage(e)
-                    st.rerun()
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("Total filtrado", utils.money(total), f"{len(rows)} gasto(s)")
+        s2.metric("Vencidos", str(len(overdue)),
+                  utils.money(utils.dsum(e["amount"] for e in overdue)) if overdue else "S/ 0.00")
+        s3.metric("Vence esta semana", str(len(this_week)),
+                  utils.money(utils.dsum(e["amount"] for e in this_week)) if this_week else "S/ 0.00")
+        s4.metric("Gastos listados", str(len(rows)))
+
+        st.divider()
+        if f_group == "Sin agrupar":
+            groups = {"Todos": rows}
+        else:
+            groups = {}
+            for e in rows:
+                groups.setdefault(_group_key(e, f_group), []).append(e)
+
+        grand = total or 1
+        for gname, items in sorted(groups.items(), key=lambda kv: -sum(i["amount"] for i in kv[1])):
+            subtotal = utils.dsum(i["amount"] for i in items)
+            header = f"{gname}  ·  {len(items)}" if f_group != "Sin agrupar" else f"{len(items)} gasto(s)"
+            with st.expander(header, expanded=True):
+                if f_group != "Sin agrupar":
+                    share = subtotal / grand * 100 if grand else 0
+                    st.markdown(f"**{utils.money(subtotal)}**  ·  {share:.0f}%")
+                    st.progress(min(share / 100, 1.0))
+                for e in sorted(items, key=lambda i: i["due_date"]):
+                    lbl, cls = _urgency(e["due_date"], e["status"])
+                    rc1, rc2, rc3, rc4, rc5 = st.columns([2.6, 1.5, 1.9, 1.1, 1])
+                    rc1.markdown(f"**{e['name']}**")
+                    rc1.caption(f"{'Fijo' if e['kind'] == 'fijo' else 'Variable'} · {e['category']} · {e.get('branch') or GENERAL}")
+                    rc2.markdown(_pill(lbl, cls), unsafe_allow_html=True)
+                    meta2 = f"registró: {e.get('registered_by') or '—'}"
+                    if e["status"] == "pagado" and e.get("paid_by"):
+                        meta2 += f" · pagó: {e['paid_by']}"
+                    rc3.caption(meta2)
+                    rc4.markdown(utils.money(e["amount"]))
+                    if e["status"] == "pendiente":
+                        if rc5.button("Gestionar", key=f"gx_mng_{e['id']}", width="stretch"):
+                            _open_manage(e)
+                            st.rerun()
 
 # ==================== UN SOLO DIÁLOGO A LA VEZ ====================
 # Streamlit no permite abrir dos diálogos en el mismo run. Los tabs se
