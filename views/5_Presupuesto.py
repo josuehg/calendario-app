@@ -3,8 +3,14 @@ import streamlit as st
 import db
 import utils
 
-st.title("📊 Presupuesto — próximas 13 semanas")
+st.title("📊 Presupuesto")
 st.caption("En qué semana futura pega cada factura, letra o gasto (fijo y variable) pendiente.")
+
+HORIZON_OPTIONS = [4, 13, 26]
+horizon = st.radio(
+    "Horizonte", HORIZON_OPTIONS, index=1, horizontal=True, key="pp_horizon",
+    format_func=lambda w: f"{w} semanas",
+)
 
 db.ensure_expense_instances()
 invoices = db.list_invoices()
@@ -13,7 +19,7 @@ canje_facturas = db.list_canje_facturas()
 expenses = db.list_expenses()
 track_contado = db.get_settings().get("track_contado", True)
 events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado, expenses)
-buckets = utils.weekly_buckets(events)
+buckets = utils.weekly_buckets(events, weeks_ahead=horizon)
 today = utils.today_str()
 
 labels = [f"{utils.fmt_short(b['start'])}" for b in buckets]
@@ -27,7 +33,7 @@ fig = go.Figure(go.Bar(
 ))
 fig.update_layout(
     height=380, margin=dict(t=20, b=20, l=20, r=20),
-    yaxis_title="Monto (S/)", xaxis_title="Semana (inicio)",
+    yaxis_title="Monto (S/)", xaxis_title=f"Semana (inicio) — próximas {horizon} semanas",
     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
 )
 st.plotly_chart(fig, width="stretch")
