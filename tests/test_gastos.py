@@ -140,6 +140,42 @@ def test_proximos_gastos_sin_agrupar(run_view, db):
     assert any(l.endswith("gasto(s)") for l in labels)
 
 
+def test_proximos_gastos_date_range_filter(run_view, db):
+    db.create_expense({"kind": "variable", "name": "Dentro de rango", "category": "Alquiler",
+                       "branch": None, "amount": 100.0, "due_date": "2026-09-10", "status": "pendiente"})
+    db.create_expense({"kind": "variable", "name": "Fuera de rango", "category": "Alquiler",
+                       "branch": None, "amount": 200.0, "due_date": "2026-12-25", "status": "pendiente"})
+    at = run_view(VIEW, role="admin")
+    for di in at.date_input:
+        if di.key == "gx_f_from":
+            di.set_value(date(2026, 9, 1)).run()
+    for di in at.date_input:
+        if di.key == "gx_f_to":
+            di.set_value(date(2026, 9, 30)).run()
+    assert not at.exception
+    md = " ".join(str(m.value) for m in at.markdown)
+    assert "Dentro de rango" in md
+    # "Fuera de rango" sigue en la pestaña de Gasto variable (esa lista no usa
+    # este filtro de fecha); lo que prueba que el rango filtró es este conteo:
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics.get("Gastos listados") == "1"
+    assert metrics.get("Total filtrado") == "S/ 100.00"
+
+
+def test_proximos_gastos_date_range_invalid_order(run_view, db):
+    db.create_expense({"kind": "variable", "name": "X", "category": "Alquiler", "branch": None,
+                       "amount": 100.0, "due_date": date.today().isoformat(), "status": "pendiente"})
+    at = run_view(VIEW, role="admin")
+    for di in at.date_input:
+        if di.key == "gx_f_from":
+            di.set_value(date(2026, 12, 1)).run()
+    for di in at.date_input:
+        if di.key == "gx_f_to":
+            di.set_value(date(2026, 1, 1)).run()
+    assert not at.exception
+    assert any("no puede ser posterior" in e.value for e in at.error)
+
+
 def test_variable_pending_section_groups(run_view, db):
     db.create_expense({"kind": "variable", "name": "Reparación", "category": "Servicios",
                        "branch": "Sucursal 1", "amount": 300.0, "due_date": date.today().isoformat(),
