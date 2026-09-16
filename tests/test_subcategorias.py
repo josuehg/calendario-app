@@ -5,6 +5,15 @@ import pytest
 
 from tests.conftest import click, widget
 
+FIJOS = "🔁 Gastos fijos"
+
+
+def _goto(at, section):
+    for r in at.radio:
+        if r.key == "gx_section":
+            return r.set_value(section).run()
+    raise AssertionError("no se encontró el radio de sección (gx_section)")
+
 
 # ---------- db ----------
 
@@ -85,7 +94,7 @@ def test_add_subcategory_via_configuracion(run_view, db):
 def test_new_fixed_expense_dialog_filters_subcategories_by_category(run_view, db):
     db.add_expense_subcategory("Servicios", "Luz")
     db.add_expense_subcategory("Alquiler", "Local A")
-    at = run_view("views/7_Gastos.py", role="admin")
+    at = _goto(run_view("views/7_Gastos.py", role="admin"), FIJOS)
     click(at, "➕ Nuevo gasto fijo")
     # por defecto la categoría es la primera de la lista (Alquiler): debe
     # ofrecer "Local A", no "Luz"
@@ -96,7 +105,7 @@ def test_new_fixed_expense_dialog_filters_subcategories_by_category(run_view, db
 
 def test_create_fixed_expense_with_subcategory(run_view, db):
     db.add_expense_subcategory("Servicios", "Internet")
-    at = run_view("views/7_Gastos.py", role="admin")
+    at = _goto(run_view("views/7_Gastos.py", role="admin"), FIJOS)
     click(at, "➕ Nuevo gasto fijo")
     for ti in at.text_input:
         if ti.key == "fx_name":
@@ -125,7 +134,7 @@ def test_switching_category_resets_subcategory_without_crash(run_view, db):
     db.add_expense_subcategory("Alquiler", "Local A")
     fx = db.create_fixed_expense({"name": "Luz tienda", "category": "Servicios", "subcategory": "Luz",
                                   "branch": None, "amount": 80.0, "pay_day": 10})
-    at = run_view("views/7_Gastos.py", role="admin")
+    at = _goto(run_view("views/7_Gastos.py", role="admin"), FIJOS)
     for b in at.button:
         if b.key and b.key.startswith("fx_edit_"):
             b.click().run()

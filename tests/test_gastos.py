@@ -6,6 +6,18 @@ from tests.conftest import click, widget
 
 VIEW = "views/7_Gastos.py"
 
+FIJOS = "🔁 Gastos fijos"
+PROXIMOS = "📆 Próximos gastos"
+
+
+def _goto(at, section):
+    """Cambia de sección: st.tabs se reemplazó por un radio con key
+    (gx_section) para que sobreviva a los reruns tras guardar/editar."""
+    for r in at.radio:
+        if r.key == "gx_section":
+            return r.set_value(section).run()
+    raise AssertionError("no se encontró el radio de sección (gx_section)")
+
 
 def test_gastos_view_renders(run_view, db):
     at = run_view(VIEW, role="admin")
@@ -74,7 +86,7 @@ def test_fijos_tab_shows_grouped_stats(run_view, db):
                              "amount": 1000.0, "pay_day": 5})
     db.create_fixed_expense({"name": "Planilla", "category": "Planilla", "branch": None,
                              "amount": 3000.0, "pay_day": 28})
-    at = run_view(VIEW, role="admin")
+    at = _goto(run_view(VIEW, role="admin"), FIJOS)
     assert not at.exception
     metrics = {m.label: m.value for m in at.metric}
     assert metrics.get("Total mensual comprometido") == "S/ 4,000.00"
@@ -89,7 +101,7 @@ def test_fijos_tab_group_by_branch(run_view, db):
                              "amount": 1000.0, "pay_day": 5})
     db.create_fixed_expense({"name": "Servicios generales", "category": "Servicios", "branch": None,
                              "amount": 200.0, "pay_day": 10})
-    at = run_view(VIEW, role="admin")
+    at = _goto(run_view(VIEW, role="admin"), FIJOS)
     for r in at.radio:
         if r.key == "fx_group_by":
             r.set_value("Sucursal").run()
@@ -119,7 +131,7 @@ def test_proximos_gastos_stats_and_grouping(run_view, db):
     db.create_expense({"kind": "variable", "name": "Gasto A", "category": "Alquiler",
                        "branch": "Sucursal 1", "amount": 500.0, "due_date": "2020-01-01",
                        "status": "pendiente"})
-    at = run_view(VIEW, role="admin")
+    at = _goto(run_view(VIEW, role="admin"), PROXIMOS)
     metrics = {m.label: m.value for m in at.metric}
     assert metrics.get("Vencidos") == "1"
     labels = [e.label for e in at.expander]
@@ -130,7 +142,7 @@ def test_proximos_gastos_sin_agrupar(run_view, db):
     db.create_expense({"kind": "variable", "name": "Gasto A", "category": "Alquiler",
                        "branch": None, "amount": 500.0, "due_date": date.today().isoformat(),
                        "status": "pendiente"})
-    at = run_view(VIEW, role="admin")
+    at = _goto(run_view(VIEW, role="admin"), PROXIMOS)
     for sb in at.selectbox:
         if sb.key == "gx_f_group":
             sb.set_value("Sin agrupar").run()
@@ -145,7 +157,7 @@ def test_proximos_gastos_date_range_filter(run_view, db):
                        "branch": None, "amount": 100.0, "due_date": "2026-09-10", "status": "pendiente"})
     db.create_expense({"kind": "variable", "name": "Fuera de rango", "category": "Alquiler",
                        "branch": None, "amount": 200.0, "due_date": "2026-12-25", "status": "pendiente"})
-    at = run_view(VIEW, role="admin")
+    at = _goto(run_view(VIEW, role="admin"), PROXIMOS)
     for di in at.date_input:
         if di.key == "gx_f_from":
             di.set_value(date(2026, 9, 1)).run()
@@ -165,7 +177,7 @@ def test_proximos_gastos_date_range_filter(run_view, db):
 def test_proximos_gastos_date_range_invalid_order(run_view, db):
     db.create_expense({"kind": "variable", "name": "X", "category": "Alquiler", "branch": None,
                        "amount": 100.0, "due_date": date.today().isoformat(), "status": "pendiente"})
-    at = run_view(VIEW, role="admin")
+    at = _goto(run_view(VIEW, role="admin"), PROXIMOS)
     for di in at.date_input:
         if di.key == "gx_f_from":
             di.set_value(date(2026, 12, 1)).run()
@@ -188,6 +200,27 @@ def test_variable_pending_section_groups(run_view, db):
     assert any("Servicios" in l for l in labels)
 
 
+def test_editing_fixed_expense_stays_on_fijos_section_after_save(run_view, db):
+    """Regresión: st.tabs volvía siempre a la primera pestaña tras el rerun
+    de Guardar. Ahora es un radio con key, que sí conserva la sección."""
+    db.create_fixed_expense({"name": "Alquiler A", "category": "Alquiler", "branch": None,
+                             "amount": 1000.0, "pay_day": 5})
+    at = _goto(run_view(VIEW, role="admin"), FIJOS)
+    for b in at.button:
+        if b.key and b.key.startswith("fx_edit_"):
+            b.click().run()
+            break
+    for ni in at.number_input:
+        if ni.key == "fx_amount":
+            ni.set_value(1200.0).run()
+            break
+    click(at, "Guardar")
+    assert not at.exception
+    section_widget = next(r for r in at.radio if r.key == "gx_section")
+    assert section_widget.value == FIJOS
+    assert any(e.label.startswith("Alquiler") for e in at.expander)
+
+
 def test_two_stale_dialog_flags_do_not_crash(run_view, db):
     """Regresión: si quedan marcados los dos gates de diálogo (uno se cerró
     haciendo clic afuera), la página no debe reventar con
@@ -205,7 +238,7 @@ def test_edit_fixed_expense_dialog_shows_end_date(run_view, db):
         "name": "Cuota préstamo", "category": "Servicios", "branch": None,
         "amount": 900.0, "pay_day": 10, "start_month": "2026-09-01", "end_month": "2028-08-01",
     })
-    at = run_view(VIEW, role="admin")
+    at = _goto(run_view(VIEW, role="admin"), FIJOS)
     for b in at.button:
         if b.key and b.key.startswith("fx_edit_"):
             b.click().run()
