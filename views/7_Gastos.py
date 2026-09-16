@@ -17,8 +17,8 @@ db.ensure_expense_instances()
 GENERAL = "General / oficina central"
 cats = [c["name"] for c in db.list_expense_categories()]
 branch_opts = [GENERAL] + db.get_branches()
-FX_KEYS = ["fx_name", "fx_cat", "fx_branch", "fx_amount", "fx_day", "fx_start",
-           "fx_endon", "fx_end", "fx_notes", "fx_active"]
+FX_KEYS = ["fx_name", "fx_cat", "fx_subcat", "fx_branch", "fx_amount", "fx_day", "fx_start",
+           "fx_endon", "fx_end", "fx_notes", "fx_active", "_fx_cat_prev"]
 
 if not cats:
     st.warning("No hay categorías de gasto. Créalas en **Configuración → Categorías de gasto**.")
@@ -34,6 +34,9 @@ def _open_fx_dialog(data):
         st.session_state.pop(k, None)
     st.session_state.pop("_gx_manage", None)
     st.session_state["_fx_dialog"] = {"data": data}
+    # Pre-sembrado para que el guard de "cambió la categoría" (ver _fx_dialog)
+    # no borre la subcategoría ya guardada en el primer render.
+    st.session_state["_fx_cat_prev"] = data["category"] if data else None
 
 
 def _open_manage(expense):
@@ -81,18 +84,34 @@ def _group_key(item, by):
     return item["category"] if by == "Categoría" else (item.get("branch") or GENERAL)
 
 
+def _meta_line(item, by):
+    base = (item.get("branch") or GENERAL) if by == "Categoría" else item["category"]
+    sub = item.get("subcategory")
+    return f"{base} · {sub}" if sub else base
+
+
 tab_var, tab_fijo, tab_prox = st.tabs(["➕ Gasto variable", "🔁 Gastos fijos", "📆 Próximos gastos"])
 
 # ============================ GASTO VARIABLE ============================
 with tab_var:
+    # Categoría y subcategoría van fuera del form: un st.form no vuelve a
+    # correr hasta que se envía, así que adentro la subcategoría no podría
+    # filtrarse en vivo según la categoría elegida.
+    vcat1, vcat2 = st.columns(2)
+    gv_cat = vcat1.selectbox("Categoría", cats, key="gv_cat")
+    if st.session_state.get("_gv_cat_prev") != gv_cat:
+        st.session_state.pop("gv_subcat", None)
+        st.session_state["_gv_cat_prev"] = gv_cat
+    gv_subcat_opts = ["— Ninguna —"] + [s["name"] for s in db.list_expense_subcategories(gv_cat)]
+    gv_subcat = vcat2.selectbox("Subcategoría (opcional)", gv_subcat_opts, key="gv_subcat")
+
     with st.form("gx_var_form"):
         c1, c2 = st.columns(2)
         gv_name = c1.text_input("Descripción", placeholder="Ej: Reparación de vitrina")
-        gv_cat = c2.selectbox("Categoría", cats)
-        c3, c4, c5 = st.columns(3)
-        gv_branch = c3.selectbox("Sucursal", branch_opts)
-        gv_amount = c4.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f")
-        gv_due = c5.date_input("Fecha de pago", value=date.today())
+        gv_branch = c2.selectbox("Sucursal", branch_opts)
+        c3, c4 = st.columns(2)
+        gv_amount = c3.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f")
+        gv_due = c4.date_input("Fecha de pago", value=date.today())
         gv_notes = st.text_area("Notas (opcional)", height=68)
         if st.form_submit_button("Registrar gasto variable", type="primary"):
             if not gv_name.strip() or gv_amount <= 0 or not gv_due:
@@ -102,6 +121,7 @@ with tab_var:
                     "kind": "variable",
                     "name": gv_name.strip(),
                     "category": gv_cat,
+                    "subcategory": None if gv_subcat == "— Ninguna —" else gv_subcat,
                     "branch": None if gv_branch == GENERAL else gv_branch,
                     "amount": utils.round2(gv_amount),
                     "due_date": gv_due.isoformat(),
@@ -142,9 +162,8 @@ with tab_var:
                 for e in sorted(items, key=lambda i: i["due_date"]):
                     lbl, cls = _urgency(e["due_date"], e["status"])
                     rc1, rc2, rc3, rc4 = st.columns([2.6, 1.6, 1.1, 1])
-                    meta = (e.get("branch") or GENERAL) if group_by_var == "Categoría" else e["category"]
                     rc1.markdown(f"**{e['name']}**")
-                    rc1.caption(meta)
+                    rc1.caption(_meta_line(e, group_by_var))
                     rc2.markdown(_pill(lbl, cls), unsafe_allow_html=True)
                     rc3.markdown(utils.money(e["amount"]))
                     if rc4.button("Gestionar", key=f"var_mng_{e['id']}", width="stretch"):
@@ -228,9 +247,8 @@ with tab_fijo:
                     else:
                         lbl, cls = "Pausado", "paused"
                     rc1, rc2, rc3, rc4, rc5 = st.columns([2.6, 1, 1.7, 1.1, 0.9])
-                    meta = (f.get("branch") or GENERAL) if group_by_fx == "Categoría" else f["category"]
                     rc1.markdown(f"**{f['name']}**")
-                    rc1.caption(meta)
+                    rc1.caption(_meta_line(f, group_by_fx))
                     rc2.markdown(f"Día {f['pay_day']}")
                     rc3.markdown(_pill(lbl, cls), unsafe_allow_html=True)
                     rc4.markdown(utils.money(f["amount"]))
@@ -307,7 +325,8 @@ with tab_prox:
                     lbl, cls = _urgency(e["due_date"], e["status"])
                     rc1, rc2, rc3, rc4, rc5 = st.columns([2.6, 1.5, 1.9, 1.1, 1])
                     rc1.markdown(f"**{e['name']}**")
-                    rc1.caption(f"{'Fijo' if e['kind'] == 'fijo' else 'Variable'} · {e['category']} · {e.get('branch') or GENERAL}")
+                    cat_txt = e["category"] + (f" · {e['subcategory']}" if e.get("subcategory") else "")
+                    rc1.caption(f"{'Fijo' if e['kind'] == 'fijo' else 'Variable'} · {cat_txt} · {e.get('branch') or GENERAL}")
                     rc2.markdown(_pill(lbl, cls), unsafe_allow_html=True)
                     meta2 = f"registró: {e.get('registered_by') or '—'}"
                     if e["status"] == "pagado" and e.get("paid_by"):
@@ -336,8 +355,18 @@ if _fx:
         cat = c1.selectbox("Categoría", cats,
                            index=cats.index(ed["category"]) if ed and ed["category"] in cats else 0,
                            key="fx_cat")
+        # Si la categoría cambió (respecto al render anterior), la subcategoría
+        # ya no es válida para la nueva lista de opciones: se resetea antes de
+        # instanciar el selectbox (si no, Streamlit truena con un valor que ya
+        # no está entre las opciones).
+        if st.session_state.get("_fx_cat_prev") != cat:
+            st.session_state.pop("fx_subcat", None)
+            st.session_state["_fx_cat_prev"] = cat
+        subcat_opts = ["— Ninguna —"] + [s["name"] for s in db.list_expense_subcategories(cat)]
+        subcat = c2.selectbox("Subcategoría (opcional)", subcat_opts, key="fx_subcat")
+
         b_idx = branch_opts.index(ed["branch"]) if ed and ed.get("branch") in branch_opts else 0
-        branch = c2.selectbox("Sucursal", branch_opts, index=b_idx, key="fx_branch")
+        branch = st.selectbox("Sucursal", branch_opts, index=b_idx, key="fx_branch")
         c3, c4 = st.columns(2)
         amount = c3.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f",
                                  value=float(ed["amount"]) if ed else 0.0, key="fx_amount")
@@ -371,6 +400,7 @@ if _fx:
                 payload = {
                     "name": name.strip(),
                     "category": cat,
+                    "subcategory": None if subcat == "— Ninguna —" else subcat,
                     "branch": None if branch == GENERAL else branch,
                     "amount": utils.round2(amount),
                     "pay_day": int(pay_day),
@@ -411,7 +441,8 @@ elif _mng:
 
     @st.dialog(f"Gasto: {mng['name']}")
     def _manage_dialog():
-        st.write(f"{mng['category']} · {mng.get('branch') or 'General'} · vence {utils.fmt_short(mng['due_date'])}")
+        cat_line = mng["category"] + (f" · {mng['subcategory']}" if mng.get("subcategory") else "")
+        st.write(f"{cat_line} · {mng.get('branch') or 'General'} · vence {utils.fmt_short(mng['due_date'])}")
         new_amount = st.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f",
                                      value=float(mng["amount"]), key="gx_mng_amount")
         if abs(new_amount - float(mng["amount"])) > 0.001:

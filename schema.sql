@@ -101,12 +101,23 @@ insert into expense_categories (name, sort_order) values
   ('Mantenimiento', 5), ('Transporte', 6), ('Otros', 99)
 on conflict (name) do nothing;
 
+-- Subcategorías dentro de una categoría (ej. "Servicios" -> Luz, Agua,
+-- Internet), base para un futuro estado de resultados por rubro.
+create table if not exists expense_subcategories (
+  id serial primary key,
+  category text not null,
+  name text not null,
+  sort_order int not null default 0,
+  unique (category, name)
+);
+
 -- Plantillas de gasto fijo recurrente. El sistema genera una fila en
 -- "expenses" por cada mes a partir de estas.
 create table if not exists fixed_expenses (
   id serial primary key,
   name text not null,
   category text not null,
+  subcategory text,
   branch text,                       -- null = general / oficina central
   amount numeric(12,2) not null check (amount > 0),
   pay_day int not null check (pay_day between 1 and 31),
@@ -125,6 +136,7 @@ create table if not exists expenses (
   period text,                       -- 'YYYY-MM' para instancias de gasto fijo
   name text not null,
   category text not null,
+  subcategory text,
   branch text,
   amount numeric(12,2) not null check (amount > 0),
   due_date date not null,

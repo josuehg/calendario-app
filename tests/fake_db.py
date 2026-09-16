@@ -24,6 +24,7 @@ class FakeDB:
             {"id": 2, "name": "Servicios", "sort_order": 2},
             {"id": 3, "name": "Planilla", "sort_order": 3},
         ]
+        self.expense_subcategories = []
         self.fixed_expenses = []
         self.expenses = []
         self._seq = itertools.count(1)
@@ -177,9 +178,41 @@ class FakeDB:
         for e in self.expenses:
             if e["category"] == prev:
                 e["category"] = new_name
+        for s in self.expense_subcategories:
+            if s["category"] == prev:
+                s["category"] = new_name
 
     def delete_expense_category(self, cid):
+        cat = next((c for c in self.expense_categories if c["id"] == cid), None)
         self.expense_categories[:] = [c for c in self.expense_categories if c["id"] != cid]
+        if cat:
+            self.expense_subcategories[:] = [s for s in self.expense_subcategories if s["category"] != cat["name"]]
+
+    # ---- subcategorías de gasto ----
+    def list_expense_subcategories(self, category=None):
+        rows = [dict(s) for s in sorted(self.expense_subcategories, key=lambda s: (s["sort_order"], s["name"]))]
+        return [s for s in rows if s["category"] == category] if category else rows
+
+    def add_expense_subcategory(self, category, name):
+        self.expense_subcategories.append({
+            "id": next(self._seq), "category": category, "name": name.strip(), "sort_order": 50,
+        })
+
+    def rename_expense_subcategory(self, sid, new_name):
+        sub = next((s for s in self.expense_subcategories if s["id"] == sid), None)
+        if not sub:
+            return
+        cat, prev, new_name = sub["category"], sub["name"], new_name.strip()
+        sub["name"] = new_name
+        for f in self.fixed_expenses:
+            if f["category"] == cat and f.get("subcategory") == prev:
+                f["subcategory"] = new_name
+        for e in self.expenses:
+            if e["category"] == cat and e.get("subcategory") == prev:
+                e["subcategory"] = new_name
+
+    def delete_expense_subcategory(self, sid):
+        self.expense_subcategories[:] = [s for s in self.expense_subcategories if s["id"] != sid]
 
     # ---- gastos fijos ----
     def list_fixed_expenses(self, active_only=False):
@@ -189,7 +222,7 @@ class FakeDB:
     def create_fixed_expense(self, data):
         row = {
             "id": max([f["id"] for f in self.fixed_expenses], default=0) + 1,
-            "active": True, "start_month": None, "end_month": None, "notes": None,
+            "active": True, "start_month": None, "end_month": None, "notes": None, "subcategory": None,
             **data,
         }
         self.fixed_expenses.append(row)
@@ -225,8 +258,9 @@ class FakeDB:
             if not fx["active"] or (end and first > end):
                 continue  # se elimina
             day = utils.due_day_for_month(y, mo, fx["pay_day"])
-            e.update({"name": fx["name"], "category": fx["category"], "branch": fx.get("branch"),
-                      "amount": fx["amount"], "due_date": date(y, mo, day).isoformat()})
+            e.update({"name": fx["name"], "category": fx["category"], "subcategory": fx.get("subcategory"),
+                      "branch": fx.get("branch"), "amount": fx["amount"],
+                      "due_date": date(y, mo, day).isoformat()})
             keep.append(e)
         self.expenses[:] = keep
 
@@ -238,7 +272,8 @@ class FakeDB:
         return [dict(e) for e in sorted(self.expenses, key=lambda e: e["due_date"])]
 
     def create_expense(self, data):
-        row = {"id": self._nid("exp"), "fixed_expense_id": None, "period": None, "notes": None, **data}
+        row = {"id": self._nid("exp"), "fixed_expense_id": None, "period": None, "notes": None,
+               "subcategory": None, **data}
         self.expenses.append(row)
         return row
 

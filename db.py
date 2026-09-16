@@ -245,7 +245,8 @@ def add_expense_category(name: str):
 
 def rename_expense_category(cat_id: int, new_name: str):
     """Renombra la categoría y arrastra el cambio a los gastos ya guardados
-    (category se guarda como texto en fixed_expenses y expenses)."""
+    (category se guarda como texto en fixed_expenses y expenses) y a sus
+    subcategorías."""
     sb = get_client()
     old = sb.table("expense_categories").select("name").eq("id", cat_id).limit(1).execute().data
     new_name = new_name.strip()
@@ -254,11 +255,53 @@ def rename_expense_category(cat_id: int, new_name: str):
         prev = old[0]["name"]
         sb.table("fixed_expenses").update({"category": new_name}).eq("category", prev).execute()
         sb.table("expenses").update({"category": new_name}).eq("category", prev).execute()
+        sb.table("expense_subcategories").update({"category": new_name}).eq("category", prev).execute()
 
 
 def delete_expense_category(cat_id: int):
+    """Borra la categoría y sus subcategorías (los gastos ya guardados
+    conservan el texto que tenían, igual que al borrar una subcategoría)."""
     sb = get_client()
-    return sb.table("expense_categories").delete().eq("id", cat_id).execute()
+    cat = sb.table("expense_categories").select("name").eq("id", cat_id).limit(1).execute().data
+    res = sb.table("expense_categories").delete().eq("id", cat_id).execute()
+    if cat:
+        sb.table("expense_subcategories").delete().eq("category", cat[0]["name"]).execute()
+    return res
+
+
+# ---------- subcategorías de gasto ----------
+
+def list_expense_subcategories(category: str | None = None):
+    sb = get_client()
+    q = sb.table("expense_subcategories").select("*").order("sort_order").order("name")
+    if category:
+        q = q.eq("category", category)
+    return q.execute().data
+
+
+def add_expense_subcategory(category: str, name: str):
+    sb = get_client()
+    return sb.table("expense_subcategories").insert(
+        {"category": category, "name": name.strip(), "sort_order": 50}
+    ).execute()
+
+
+def rename_expense_subcategory(subcat_id: int, new_name: str):
+    """Renombra la subcategoría y arrastra el cambio a los gastos ya
+    guardados de esa misma categoría."""
+    sb = get_client()
+    old = sb.table("expense_subcategories").select("category, name").eq("id", subcat_id).limit(1).execute().data
+    new_name = new_name.strip()
+    sb.table("expense_subcategories").update({"name": new_name}).eq("id", subcat_id).execute()
+    if old:
+        cat, prev = old[0]["category"], old[0]["name"]
+        sb.table("fixed_expenses").update({"subcategory": new_name}).eq("category", cat).eq("subcategory", prev).execute()
+        sb.table("expenses").update({"subcategory": new_name}).eq("category", cat).eq("subcategory", prev).execute()
+
+
+def delete_expense_subcategory(subcat_id: int):
+    sb = get_client()
+    return sb.table("expense_subcategories").delete().eq("id", subcat_id).execute()
 
 
 # ---------- gastos fijos (plantillas recurrentes) ----------
@@ -313,6 +356,7 @@ def update_fixed_expense(fx_id: int, data: dict):
         sb.table("expenses").update({
             "name": fx["name"],
             "category": fx["category"],
+            "subcategory": fx.get("subcategory"),
             "branch": fx.get("branch"),
             "amount": fx["amount"],
             "due_date": date(y, mo, day).isoformat(),
