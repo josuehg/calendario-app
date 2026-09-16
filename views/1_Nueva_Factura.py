@@ -327,11 +327,11 @@ if _done_msg and not st.session_state.get("nf_pending"):
     def _success_dialog():
         st.success(_done_msg)
 
-        hoy = date.today().isoformat()
+        hoy = utils.today_lima().isoformat()
         hoy_docs = sorted(
             (
                 i for i in db.list_invoices()
-                if i.get("branch") == branch and (i.get("created_at") or "")[:10] == hoy
+                if i.get("branch") == branch and utils.to_lima_date_str(i.get("created_at")) == hoy
             ),
             key=lambda i: i.get("created_at") or "",
         )

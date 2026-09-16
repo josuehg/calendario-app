@@ -27,6 +27,26 @@ def test_money(utils):
     assert utils.money(None) == "S/ 0.00"
 
 
+def test_to_lima_date_str(utils):
+    # 02:00 UTC del 8-sep = 21:00 hora Perú del 7-sep (cruza medianoche hacia atrás)
+    assert utils.to_lima_date_str("2026-09-08T02:00:00+00:00") == "2026-09-07"
+    assert utils.to_lima_date_str("2026-09-08T06:00:00+00:00") == "2026-09-08"
+    assert utils.to_lima_date_str("2026-09-08T02:00:00") == "2026-09-07"  # sin zona: se asume UTC
+    assert utils.to_lima_date_str(None) == ""
+
+
+def test_today_lima_is_utc_minus_5(utils, monkeypatch):
+    from datetime import datetime, timezone
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 8, 2, 30, tzinfo=timezone.utc)  # 21:30 del 7-sep en Perú
+
+    monkeypatch.setattr(utils, "datetime", _FixedDatetime)
+    assert utils.today_lima().isoformat() == "2026-09-07"
+
+
 def test_fmt_time(utils):
     assert utils.fmt_time("2026-09-07T19:32:05") == "14:32"           # sin zona: se asume UTC -> Perú
     assert utils.fmt_time("2026-09-07T19:32:05+00:00") == "14:32"     # UTC -> Perú (-5)

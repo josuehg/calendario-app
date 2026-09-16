@@ -79,7 +79,7 @@ for c in gcats:
 with st.form("cat_add_form", clear_on_submit=True):
     ac1, ac2 = st.columns([3, 1])
     add_name = ac1.text_input("Nueva categoría", label_visibility="collapsed", placeholder="Nombre de la categoría")
-    if ac2.form_submit_button("➕ Agregar", width="stretch") and add_name.strip():
+    if ac2.form_submit_button("➕ Agregar", width="stretch", key="cat_add_submit") and add_name.strip():
         existing = [c["name"].lower() for c in gcats]
         if add_name.strip().lower() in existing:
             st.error("Ya existe una categoría con ese nombre.")
@@ -87,6 +87,53 @@ with st.form("cat_add_form", clear_on_submit=True):
             db.add_expense_category(add_name.strip())
             st.success("Categoría agregada.")
             st.rerun()
+
+st.divider()
+
+# ---------- subcategorías de gasto ----------
+st.subheader("Subcategorías de gasto")
+st.caption(
+    "Agrupan más fino dentro de una categoría (ej. dentro de \"Servicios\": Luz, Agua, "
+    "Internet). Sirven para más adelante desglosar el estado de resultados por rubro. "
+    "Al renombrar una, arrastra el cambio a los gastos que ya la tengan."
+)
+
+gcat_names = [c["name"] for c in gcats]
+if not gcat_names:
+    st.caption("Crea primero una categoría arriba.")
+else:
+    sc_cat = st.selectbox("Categoría", gcat_names, key="sc_cat_pick")
+    subcats = db.list_expense_subcategories(sc_cat)
+    for s in subcats:
+        sc1, sc2, sc3 = st.columns([3, 1, 1])
+        new_sname = sc1.text_input(
+            f"subcat_{s['id']}", value=s["name"], label_visibility="collapsed", key=f"subcat_name_{s['id']}"
+        )
+        if sc2.button("Guardar", key=f"subcat_save_{s['id']}", width="stretch"):
+            if new_sname.strip() and new_sname.strip() != s["name"]:
+                db.rename_expense_subcategory(s["id"], new_sname.strip())
+                st.success("Subcategoría renombrada.")
+                st.rerun()
+        if sc3.button("Eliminar", key=f"subcat_del_{s['id']}", width="stretch"):
+            db.delete_expense_subcategory(s["id"])
+            st.success("Subcategoría eliminada.")
+            st.rerun()
+    if not subcats:
+        st.caption(f"«{sc_cat}» todavía no tiene subcategorías.")
+
+    with st.form("subcat_add_form", clear_on_submit=True):
+        sa1, sa2 = st.columns([3, 1])
+        add_sname = sa1.text_input(
+            "Nueva subcategoría", label_visibility="collapsed",
+            placeholder=f"Nueva subcategoría de {sc_cat}",
+        )
+        if sa2.form_submit_button("➕ Agregar", width="stretch", key="subcat_add_submit") and add_sname.strip():
+            if add_sname.strip().lower() in [s["name"].lower() for s in subcats]:
+                st.error("Ya existe una subcategoría con ese nombre en esta categoría.")
+            else:
+                db.add_expense_subcategory(sc_cat, add_sname.strip())
+                st.success("Subcategoría agregada.")
+                st.rerun()
 
 st.divider()
 

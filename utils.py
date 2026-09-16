@@ -124,6 +124,29 @@ def fmt_time(ts):
     return dt.astimezone(_PERU_TZ).strftime("%H:%M")
 
 
+def today_lima():
+    """La fecha de 'hoy' en hora de Perú, sin importar en qué zona horaria
+    corra el servidor (Streamlit Cloud corre en UTC). Úsala en vez de
+    date.today() para cualquier '¿esto fue hoy?' pensado para el usuario
+    — si no, el corte de 'hoy' cae a medianoche UTC (7pm en Perú), no a
+    medianoche real."""
+    return datetime.now(timezone.utc).astimezone(_PERU_TZ).date()
+
+
+def to_lima_date_str(ts):
+    """La fecha 'YYYY-MM-DD' en hora de Perú de un timestamp ISO (si viene
+    sin zona horaria, como puede pasar, se asume UTC — igual que fmt_time)."""
+    if not ts:
+        return ""
+    try:
+        dt = datetime.fromisoformat(ts)
+    except (ValueError, TypeError):
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_PERU_TZ).date().isoformat()
+
+
 # ---------- eventos de pago (calendario / presupuesto) ----------
 
 def get_payment_events(invoices, letras, canje_facturas, track_contado=True, expenses=None):
@@ -251,6 +274,7 @@ def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_
                 "period": period,
                 "name": f["name"],
                 "category": f["category"],
+                "subcategory": f.get("subcategory"),
                 "branch": f.get("branch"),
                 "amount": f["amount"],
                 "due_date": date(y, mo, day).isoformat(),
