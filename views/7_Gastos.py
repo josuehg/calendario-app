@@ -90,10 +90,16 @@ def _meta_line(item, by):
     return f"{base} · {sub}" if sub else base
 
 
-tab_var, tab_fijo, tab_prox = st.tabs(["➕ Gasto variable", "🔁 Gastos fijos", "📆 Próximos gastos"])
+# st.tabs no recuerda cuál estaba activa entre reruns (vuelve siempre a la
+# primera) — molesto porque guardar en un diálogo dispara un rerun. Un radio
+# con key sí conserva su valor, así que hace de "pestañas" que sobreviven a
+# guardar/editar.
+SECTIONS = ["➕ Gasto variable", "🔁 Gastos fijos", "📆 Próximos gastos"]
+section = st.radio("Sección", SECTIONS, horizontal=True, key="gx_section", label_visibility="collapsed")
+st.divider()
 
 # ============================ GASTO VARIABLE ============================
-with tab_var:
+if section == SECTIONS[0]:
     # Categoría y subcategoría van fuera del form: un st.form no vuelve a
     # correr hasta que se envía, así que adentro la subcategoría no podría
     # filtrarse en vivo según la categoría elegida.
@@ -171,7 +177,7 @@ with tab_var:
                         st.rerun()
 
 # ============================ GASTOS FIJOS ============================
-with tab_fijo:
+elif section == SECTIONS[1]:
     fixed_all = db.list_fixed_expenses()
     active_fixed = [f for f in fixed_all if f["active"]]
     total_fijo = utils.dsum(f["amount"] for f in active_fixed)
@@ -257,7 +263,7 @@ with tab_fijo:
                         st.rerun()
 
 # ============================ PRÓXIMOS GASTOS ============================
-with tab_prox:
+else:
     all_exp = db.list_expenses()
     f1, f2, f3, f4 = st.columns(4)
     f_branch = f1.selectbox("Sucursal", ["Todas"] + branch_opts, key="gx_f_branch")
