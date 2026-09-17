@@ -243,6 +243,14 @@ def due_day_for_month(year, month, pay_day):
     return min(int(pay_day), _cal.monthrange(year, month)[1])
 
 
+def occurrences_per_month(fixed_expense):
+    """Cuántas veces al mes se paga: 2 si es quincenal (con su segundo día
+    configurado), 1 si es mensual. Para sumar el compromiso mensual real."""
+    if fixed_expense.get("frequency") == "quincenal" and fixed_expense.get("pay_day_2"):
+        return 2
+    return 1
+
+
 def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_ahead=3):
     """Filas de 'expenses' que faltan para cada gasto fijo activo, desde el mes
     de 'today' hasta months_ahead meses adelante. Pura (sin BD) para poder
@@ -264,24 +272,31 @@ def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_
                 continue
             if end and first > end:
                 continue
-            period = f"{y:04d}-{mo:02d}"
-            if (f["id"], period) in existing:
-                continue
-            day = due_day_for_month(y, mo, f["pay_day"])
-            rows.append({
-                "kind": "fijo",
-                "fixed_expense_id": f["id"],
-                "period": period,
-                "name": f["name"],
-                "category": f["category"],
-                "subcategory": f.get("subcategory"),
-                "branch": f.get("branch"),
-                "amount": f["amount"],
-                "due_date": date(y, mo, day).isoformat(),
-                "status": "pendiente",
-                "registered_by": "Gasto fijo (automático)",
-                "notes": f.get("notes"),
-            })
+            pay_days = [f["pay_day"]]
+            if f.get("frequency") == "quincenal" and f.get("pay_day_2"):
+                pay_days.append(f["pay_day_2"])
+            for idx, pd in enumerate(pay_days, start=1):
+                # Mensual: period "YYYY-MM" (igual que siempre). Quincenal:
+                # "YYYY-MM-Q1"/"YYYY-MM-Q2" para que las dos cuotas del mismo
+                # mes no choquen contra el índice único (fixed_expense_id, period).
+                period = f"{y:04d}-{mo:02d}" if len(pay_days) == 1 else f"{y:04d}-{mo:02d}-Q{idx}"
+                if (f["id"], period) in existing:
+                    continue
+                day = due_day_for_month(y, mo, pd)
+                rows.append({
+                    "kind": "fijo",
+                    "fixed_expense_id": f["id"],
+                    "period": period,
+                    "name": f["name"],
+                    "category": f["category"],
+                    "subcategory": f.get("subcategory"),
+                    "branch": f.get("branch"),
+                    "amount": f["amount"],
+                    "due_date": date(y, mo, day).isoformat(),
+                    "status": "pendiente",
+                    "registered_by": "Gasto fijo (automático)",
+                    "notes": f.get("notes"),
+                })
     return rows
 
 

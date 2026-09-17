@@ -17,8 +17,8 @@ db.ensure_expense_instances()
 GENERAL = "General / oficina central"
 cats = [c["name"] for c in db.list_expense_categories()]
 branch_opts = [GENERAL] + db.get_branches()
-FX_KEYS = ["fx_name", "fx_cat", "fx_subcat", "fx_branch", "fx_amount", "fx_day", "fx_start",
-           "fx_endon", "fx_end", "fx_notes", "fx_active", "_fx_cat_prev"]
+FX_KEYS = ["fx_name", "fx_cat", "fx_subcat", "fx_branch", "fx_amount", "fx_freq", "fx_day", "fx_day2",
+           "fx_start", "fx_endon", "fx_end", "fx_notes", "fx_active", "_fx_cat_prev"]
 
 if not cats:
     st.warning("No hay categorías de gasto. Créalas en **Configuración → Categorías de gasto**.")
@@ -88,6 +88,18 @@ def _meta_line(item, by):
     base = (item.get("branch") or GENERAL) if by == "Categoría" else item["category"]
     sub = item.get("subcategory")
     return f"{base} · {sub}" if sub else base
+
+
+def _pay_day_label(f):
+    if f.get("frequency") == "quincenal" and f.get("pay_day_2"):
+        return f"Días {f['pay_day']} y {f['pay_day_2']}"
+    return f"Día {f['pay_day']}"
+
+
+def _monthly_amount(f):
+    """El monto es por cuota; para totales 'al mes' hay que multiplicarlo por
+    cuántas veces se paga al mes (2 si es quincenal)."""
+    return float(f["amount"]) * utils.occurrences_per_month(f)
 
 
 # st.tabs no recuerda cuál estaba activa entre reruns (vuelve siempre a la
@@ -180,7 +192,7 @@ if section == SECTIONS[0]:
 elif section == SECTIONS[1]:
     fixed_all = db.list_fixed_expenses()
     active_fixed = [f for f in fixed_all if f["active"]]
-    total_fijo = utils.dsum(f["amount"] for f in active_fixed)
+    total_fijo = utils.dsum(_monthly_amount(f) for f in active_fixed)
 
     # próxima cuota pendiente generada por cada plantilla (para "vence más
     # próximo" y la pastilla de cada fila).
@@ -197,7 +209,7 @@ elif section == SECTIONS[1]:
     else:
         by_cat = {}
         for f in active_fixed:
-            by_cat[f["category"]] = by_cat.get(f["category"], 0.0) + float(f["amount"])
+            by_cat[f["category"]] = by_cat.get(f["category"], 0.0) + _monthly_amount(f)
         top_cat = max(by_cat.items(), key=lambda kv: kv[1]) if by_cat else None
         soonest = min(next_pend_by_fx.values(), key=lambda e: e["due_date"]) if next_pend_by_fx else None
 
@@ -240,8 +252,8 @@ elif section == SECTIONS[1]:
             groups_fx.setdefault(_group_key(f, group_by_fx), []).append(f)
         grand = total_fijo or 1
 
-        for gname, items in sorted(groups_fx.items(), key=lambda kv: -sum(i["amount"] for i in kv[1] if i["active"])):
-            g_subtotal = utils.dsum(i["amount"] for i in items if i["active"])
+        for gname, items in sorted(groups_fx.items(), key=lambda kv: -sum(_monthly_amount(i) for i in kv[1] if i["active"])):
+            g_subtotal = utils.dsum(_monthly_amount(i) for i in items if i["active"])
             share = g_subtotal / grand * 100 if grand else 0
             with st.expander(f"{gname}  ·  {len(items)}", expanded=True):
                 st.markdown(f"**{utils.money(g_subtotal)}**  ·  {share:.0f}% del total activo")
@@ -255,7 +267,7 @@ elif section == SECTIONS[1]:
                     rc1, rc2, rc3, rc4, rc5 = st.columns([2.6, 1, 1.7, 1.1, 0.9])
                     rc1.markdown(f"**{f['name']}**")
                     rc1.caption(_meta_line(f, group_by_fx))
-                    rc2.markdown(f"Día {f['pay_day']}")
+                    rc2.markdown(_pay_day_label(f))
                     rc3.markdown(_pill(lbl, cls), unsafe_allow_html=True)
                     rc4.markdown(utils.money(f["amount"]))
                     if rc5.button("Editar", key=f"fx_edit_{f['id']}", width="stretch"):
@@ -374,10 +386,25 @@ if _fx:
         b_idx = branch_opts.index(ed["branch"]) if ed and ed.get("branch") in branch_opts else 0
         branch = st.selectbox("Sucursal", branch_opts, index=b_idx, key="fx_branch")
         c3, c4 = st.columns(2)
-        amount = c3.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f",
+        amount = c3.number_input("Monto por cuota (S/)", min_value=0.0, step=0.01, format="%.2f",
                                  value=float(ed["amount"]) if ed else 0.0, key="fx_amount")
-        pay_day = c4.number_input("Día de pago (1–31)", min_value=1, max_value=31, step=1,
-                                  value=int(ed["pay_day"]) if ed else 1, key="fx_day")
+        freq = c4.radio(
+            "Frecuencia", ["Mensual", "Quincenal"], horizontal=True, key="fx_freq",
+            index=1 if (ed and ed.get("frequency") == "quincenal") else 0,
+            help="Quincenal: se paga dos veces al mes, cada una por el monto de arriba (ej. planilla quincenal).",
+        )
+        if freq == "Quincenal":
+            d1, d2 = st.columns(2)
+            pay_day = d1.number_input("Día de pago 1 (1–31)", min_value=1, max_value=31, step=1,
+                                      value=int(ed["pay_day"]) if ed else 1, key="fx_day")
+            pay_day_2 = d2.number_input(
+                "Día de pago 2 (1–31)", min_value=1, max_value=31, step=1, key="fx_day2",
+                value=int(ed["pay_day_2"]) if (ed and ed.get("pay_day_2")) else 15,
+            )
+        else:
+            pay_day = st.number_input("Día de pago (1–31)", min_value=1, max_value=31, step=1,
+                                      value=int(ed["pay_day"]) if ed else 1, key="fx_day")
+            pay_day_2 = None
         c5, c6 = st.columns(2)
         start = c5.date_input("Aplica desde",
                               value=date.fromisoformat(ed["start_month"]) if ed and ed.get("start_month") else date.today(),
@@ -402,6 +429,8 @@ if _fx:
         if b1.button("Guardar", type="primary", width="stretch"):
             if not name.strip() or amount <= 0:
                 st.error("Ponle nombre y un monto mayor a 0.")
+            elif pay_day_2 and int(pay_day) == int(pay_day_2):
+                st.error("Los dos días de pago no pueden ser el mismo.")
             else:
                 payload = {
                     "name": name.strip(),
@@ -409,7 +438,9 @@ if _fx:
                     "subcategory": None if subcat == "— Ninguna —" else subcat,
                     "branch": None if branch == GENERAL else branch,
                     "amount": utils.round2(amount),
+                    "frequency": "quincenal" if freq == "Quincenal" else "mensual",
                     "pay_day": int(pay_day),
+                    "pay_day_2": int(pay_day_2) if pay_day_2 else None,
                     "active": bool(active),
                     "start_month": start.replace(day=1).isoformat(),
                     "end_month": end.replace(day=1).isoformat() if end else None,

@@ -342,17 +342,35 @@ def update_fixed_expense(fx_id: int, data: dict):
 
     for e in pend:
         period = e.get("period") or ""
+        parts = period.split("-")
         try:
-            y, mo = int(period[:4]), int(period[5:7])
+            y, mo = int(parts[0]), int(parts[1])
         except (ValueError, IndexError):
             continue
+        quincena = parts[2] if len(parts) > 2 else None  # "Q1" / "Q2" / None (mensual)
         first = date(y, mo, 1)
         if first < this_month:
             continue  # cuota vencida sin pagar: se ajusta a mano
         if not fx["active"] or (end and first > end):
             sb.table("expenses").delete().eq("id", e["id"]).execute()
             continue
-        day = utils.due_day_for_month(y, mo, fx["pay_day"])
+
+        if fx.get("frequency") == "quincenal" and fx.get("pay_day_2"):
+            # Repuntúa cualquier cuota suelta (period sin quincena, de cuando
+            # era mensual) como la 1ra quincena; la 2da la crea
+            # ensure_expense_instances en la siguiente carga de la página.
+            q = quincena or "Q1"
+            pay_day = fx["pay_day"] if q == "Q1" else fx["pay_day_2"]
+            new_period = f"{y:04d}-{mo:02d}-{q}"
+        else:
+            if quincena == "Q2":
+                # Volvió a ser mensual: la 2da quincena sobra.
+                sb.table("expenses").delete().eq("id", e["id"]).execute()
+                continue
+            pay_day = fx["pay_day"]
+            new_period = f"{y:04d}-{mo:02d}"
+
+        day = utils.due_day_for_month(y, mo, pay_day)
         sb.table("expenses").update({
             "name": fx["name"],
             "category": fx["category"],
@@ -360,6 +378,7 @@ def update_fixed_expense(fx_id: int, data: dict):
             "branch": fx.get("branch"),
             "amount": fx["amount"],
             "due_date": date(y, mo, day).isoformat(),
+            "period": new_period,
         }).eq("id", e["id"]).execute()
     return res
 
