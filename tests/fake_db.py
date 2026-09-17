@@ -223,6 +223,7 @@ class FakeDB:
         row = {
             "id": max([f["id"] for f in self.fixed_expenses], default=0) + 1,
             "active": True, "start_month": None, "end_month": None, "notes": None, "subcategory": None,
+            "frequency": "mensual", "pay_day_2": None,
             **data,
         }
         self.fixed_expenses.append(row)
@@ -246,21 +247,34 @@ class FakeDB:
             if e.get("fixed_expense_id") != fid or e["status"] != "pendiente":
                 keep.append(e)
                 continue
+            parts = (e.get("period") or "").split("-")
             try:
-                y, mo = int(e["period"][:4]), int(e["period"][5:7])
-            except (ValueError, IndexError, TypeError):
+                y, mo = int(parts[0]), int(parts[1])
+            except (ValueError, IndexError):
                 keep.append(e)
                 continue
+            quincena = parts[2] if len(parts) > 2 else None
             first = date(y, mo, 1)
             if first < this_month:
                 keep.append(e)
                 continue
             if not fx["active"] or (end and first > end):
                 continue  # se elimina
-            day = utils.due_day_for_month(y, mo, fx["pay_day"])
+
+            if fx.get("frequency") == "quincenal" and fx.get("pay_day_2"):
+                q = quincena or "Q1"
+                pay_day = fx["pay_day"] if q == "Q1" else fx["pay_day_2"]
+                new_period = f"{y:04d}-{mo:02d}-{q}"
+            else:
+                if quincena == "Q2":
+                    continue  # se elimina: sobra al volver a mensual
+                pay_day = fx["pay_day"]
+                new_period = f"{y:04d}-{mo:02d}"
+
+            day = utils.due_day_for_month(y, mo, pay_day)
             e.update({"name": fx["name"], "category": fx["category"], "subcategory": fx.get("subcategory"),
                       "branch": fx.get("branch"), "amount": fx["amount"],
-                      "due_date": date(y, mo, day).isoformat()})
+                      "due_date": date(y, mo, day).isoformat(), "period": new_period})
             keep.append(e)
         self.expenses[:] = keep
 

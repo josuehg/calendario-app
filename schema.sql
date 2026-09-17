@@ -121,6 +121,8 @@ create table if not exists fixed_expenses (
   branch text,                       -- null = general / oficina central
   amount numeric(12,2) not null check (amount > 0),
   pay_day int not null check (pay_day between 1 and 31),
+  frequency text not null default 'mensual' check (frequency in ('mensual', 'quincenal')),
+  pay_day_2 int check (pay_day_2 between 1 and 31),  -- solo si frequency = 'quincenal'
   active boolean not null default true,
   start_month date,
   end_month date,
@@ -128,7 +130,7 @@ create table if not exists fixed_expenses (
   created_at timestamptz not null default now()
 );
 
--- Gastos concretos: instancias mensuales de los fijos + los variables.
+-- Gastos concretos: instancias mensuales (o quincenales) de los fijos + los variables.
 create table if not exists expenses (
   id uuid primary key default gen_random_uuid(),
   kind text not null check (kind in ('fijo', 'variable')),
