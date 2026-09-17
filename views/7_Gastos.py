@@ -102,6 +102,23 @@ def _monthly_amount(f):
     return float(f["amount"]) * utils.occurrences_per_month(f)
 
 
+def _render_fx_row(f, group_by, next_pend_by_fx):
+    if f["active"]:
+        nxt = next_pend_by_fx.get(f["id"])
+        lbl, cls = _urgency(nxt["due_date"], nxt["status"]) if nxt else ("Sin cuota generada", "neutral")
+    else:
+        lbl, cls = "Pausado", "paused"
+    rc1, rc2, rc3, rc4, rc5 = st.columns([2.6, 1, 1.7, 1.1, 0.9])
+    rc1.markdown(f"**{f['name']}**")
+    rc1.caption(_meta_line(f, group_by))
+    rc2.markdown(_pay_day_label(f))
+    rc3.markdown(_pill(lbl, cls), unsafe_allow_html=True)
+    rc4.markdown(utils.money(f["amount"]))
+    if rc5.button("Editar", key=f"fx_edit_{f['id']}", width="stretch"):
+        _open_fx_dialog(f)
+        st.rerun()
+
+
 # st.tabs no recuerda cuál estaba activa entre reruns (vuelve siempre a la
 # primera) — molesto porque guardar en un diálogo dispara un rerun. Un radio
 # con key sí conserva su valor, así que hace de "pestañas" que sobreviven a
@@ -258,21 +275,33 @@ elif section == SECTIONS[1]:
             with st.expander(f"{gname}  ·  {len(items)}", expanded=True):
                 st.markdown(f"**{utils.money(g_subtotal)}**  ·  {share:.0f}% del total activo")
                 st.progress(min(share / 100, 1.0))
-                for f in sorted(items, key=lambda i: (not i["active"], i["name"])):
-                    if f["active"]:
-                        nxt = next_pend_by_fx.get(f["id"])
-                        lbl, cls = _urgency(nxt["due_date"], nxt["status"]) if nxt else ("Sin cuota generada", "neutral")
-                    else:
-                        lbl, cls = "Pausado", "paused"
-                    rc1, rc2, rc3, rc4, rc5 = st.columns([2.6, 1, 1.7, 1.1, 0.9])
-                    rc1.markdown(f"**{f['name']}**")
-                    rc1.caption(_meta_line(f, group_by_fx))
-                    rc2.markdown(_pay_day_label(f))
-                    rc3.markdown(_pill(lbl, cls), unsafe_allow_html=True)
-                    rc4.markdown(utils.money(f["amount"]))
-                    if rc5.button("Editar", key=f"fx_edit_{f['id']}", width="stretch"):
-                        _open_fx_dialog(f)
-                        st.rerun()
+
+                # Desglose por subcategoría dentro de la categoría — solo si
+                # alguien la usa aquí (si no, sería ruido). Streamlit no deja
+                # anidar un expander dentro de otro, así que cada subcategoría
+                # es un sub-encabezado, no un desplegable propio.
+                if group_by_fx == "Categoría" and any(f.get("subcategory") for f in items):
+                    subgroups = {}
+                    for f in items:
+                        subgroups.setdefault(f.get("subcategory"), []).append(f)
+                    ordered_subs = sorted(
+                        subgroups.items(),
+                        key=lambda kv: (kv[0] is None, -sum(_monthly_amount(i) for i in kv[1] if i["active"])),
+                    )
+                    for idx, (sub_name, sub_items) in enumerate(ordered_subs):
+                        if idx > 0:
+                            st.divider()
+                        sub_subtotal = utils.dsum(_monthly_amount(i) for i in sub_items if i["active"])
+                        sub_share = sub_subtotal / grand * 100 if grand else 0
+                        st.markdown(
+                            f"**↳ {sub_name or 'Sin subcategoría'}**  ·  {len(sub_items)}  ·  "
+                            f"{utils.money(sub_subtotal)}  ·  {sub_share:.0f}%"
+                        )
+                        for f in sorted(sub_items, key=lambda i: (not i["active"], i["name"])):
+                            _render_fx_row(f, group_by_fx, next_pend_by_fx)
+                else:
+                    for f in sorted(items, key=lambda i: (not i["active"], i["name"])):
+                        _render_fx_row(f, group_by_fx, next_pend_by_fx)
 
 # ============================ PRÓXIMOS GASTOS ============================
 else:
