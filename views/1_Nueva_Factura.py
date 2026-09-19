@@ -35,6 +35,7 @@ def _recalc_due_date():
     computed = st.session_state.get("_nf_computed_due")
     if computed:
         st.session_state[f"nf_due_date__{n}"] = computed
+        st.session_state[f"_nf_due_auto_value__{n}"] = computed
 
 
 def _is_duplicate(vendor, inv_number):
@@ -152,9 +153,23 @@ due_date = None
 if doc_type == "credito":
     computed_due = issue_date + timedelta(days=term_days) if (issue_date and term_days) else None
     st.session_state["_nf_computed_due"] = computed_due
-    if K("nf_due_date") not in st.session_state:
-        st.session_state[K("nf_due_date")] = computed_due or issue_date or date.today()
-    due_date = st.date_input("Fecha de vencimiento", key=K("nf_due_date"))
+    due_key = K("nf_due_date")
+    auto_key = K("_nf_due_auto_value")
+    if due_key not in st.session_state:
+        init_val = computed_due or issue_date or date.today()
+        st.session_state[due_key] = init_val
+        st.session_state[auto_key] = init_val
+    elif (
+        computed_due
+        and st.session_state.get(due_key) == st.session_state.get(auto_key)
+        and computed_due != st.session_state.get(auto_key)
+    ):
+        # El usuario no había tocado el vencimiento a mano (sigue igual al
+        # último auto-calculado): al cambiar emisión o proveedor, lo
+        # re-sincronizamos con emisión + plazo en vez de dejarlo pegado.
+        st.session_state[due_key] = computed_due
+        st.session_state[auto_key] = computed_due
+    due_date = st.date_input("Fecha de vencimiento", key=due_key)
     if term_days:
         st.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
     if computed_due:
