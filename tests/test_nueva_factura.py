@@ -82,6 +82,28 @@ def test_credito_shows_due_date_and_recalcular(run_view, seeded):
     assert widget(at, "nf_due_date", "date_input").value == date(2026, 9, 26)
 
 
+def test_due_date_syncs_when_issue_date_set_after_vendor(run_view, seeded):
+    """Bug real: si se busca el proveedor (crédito) ANTES de poner la fecha de
+    emisión, el vencimiento se inicializaba en hoy y se quedaba pegado ahí
+    aunque luego se completara la emisión — debía recalcularse solo mientras
+    el usuario no lo haya tocado a mano."""
+    at = run_view(VIEW, role="branch")
+    _search(at, "Droguería Norte")                          # crédito, 30 días
+    assert widget(at, "nf_due_date", "date_input").value == date.today()
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+    assert widget(at, "nf_due_date", "date_input").value == date(2026, 10, 1)
+
+
+def test_due_date_manual_edit_is_not_overwritten_by_later_issue_date_change(run_view, seeded):
+    at = run_view(VIEW, role="branch")
+    _search(at, "Droguería Norte")
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+    assert widget(at, "nf_due_date", "date_input").value == date(2026, 10, 1)
+    widget(at, "nf_due_date", "date_input").set_value(date(2026, 12, 15)).run()   # ajuste manual
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 5)).run()   # cambia emisión de nuevo
+    assert widget(at, "nf_due_date", "date_input").value == date(2026, 12, 15)    # respeta el ajuste manual
+
+
 def test_all_fields_required_except_observaciones(run_view, seeded):
     at = run_view(VIEW, role="branch")
     click(at, "Registrar documento")
