@@ -184,6 +184,19 @@ def test_fijos_row_shows_both_paydays(run_view, db):
     assert "Días 15 y 30" in md
 
 
+def test_editar_gasto_fijo_quincenal_precarga_frecuencia_y_dias(run_view, db):
+    db.create_fixed_expense({"name": "Planilla", "category": "Planilla", "branch": None,
+                             "amount": 5000.0, "pay_day": 15, "frequency": "quincenal", "pay_day_2": 30})
+    at = _goto(run_view(VIEW, role="admin"), FIJOS)
+    click(at, "Editar")
+    assert not at.exception
+    freq = next(r for r in at.radio if r.key == "fx_freq")
+    assert freq.value == "Quincenal"
+    day1 = next(ni for ni in at.number_input if ni.key == "fx_day")
+    day2 = next(ni for ni in at.number_input if ni.key == "fx_day2")
+    assert day1.value == 15 and day2.value == 30
+
+
 def test_monthly_total_counts_quincenal_twice(run_view, db):
     db.create_fixed_expense({"name": "Planilla", "category": "Planilla", "branch": None,
                              "amount": 5000.0, "pay_day": 15, "frequency": "quincenal", "pay_day_2": 30})
