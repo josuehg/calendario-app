@@ -46,12 +46,22 @@ if c3.button("Siguiente →"):
 y, m = st.session_state["cal_year"], st.session_state["cal_month"]
 c2.markdown(f"<h3 style='text-align:center'>{utils.MONTHS_ES[m-1].capitalize()} {y}</h3>", unsafe_allow_html=True)
 
+today_str = today.isoformat()
+month_prefix = f"{y:04d}-{m:02d}"
+month_items = [e for ds, info in by_date.items() if ds.startswith(month_prefix) for e in info["items"]]
+mc1, mc2, mc3, mc4 = st.columns(4)
+mc1.metric("Total del mes", utils.money(utils.dsum(e["amount"] for e in month_items)))
+mc2.metric("Vencido del mes", utils.money(utils.dsum(e["amount"] for e in month_items if e["date"] < today_str)))
+mc3.metric("Por vencer del mes", utils.money(utils.dsum(e["amount"] for e in month_items if e["date"] >= today_str)))
+mc4.metric("N° de pagos", len(month_items))
+
+st.divider()
+
 dow_cols = st.columns(7)
 for i, d in enumerate(["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]):
     dow_cols[i].markdown(f"<div style='text-align:center;font-size:12px;color:gray;font-weight:600'>{d}</div>", unsafe_allow_html=True)
 
 weeks = cal.Calendar(firstweekday=0).monthdayscalendar(y, m)
-today_str = today.isoformat()
 
 for week in weeks:
     cols = st.columns(7)
@@ -72,7 +82,7 @@ for week in weeks:
                     f"<div style='font-family:monospace;font-size:12.5px;font-weight:600;color:{color}'>{utils.money(info['amount'])}</div>"
                     f"<div style='font-size:11px;color:gray'>{info['count']} pago(s)</div>"
                     f"</div>", unsafe_allow_html=True)
-                if st.button("Ver", key=f"day_{ds}", width="stretch"):
+                if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
                     st.session_state["_cal_day"] = ds
                     st.rerun()
             else:
@@ -84,6 +94,19 @@ st.divider()
 st.markdown(
     "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante",
 )
+
+st.divider()
+st.subheader("Resumen semanal")
+for week in weeks:
+    days_in_week = [d for d in week if d != 0]
+    if not days_in_week:
+        continue
+    ds_list = [f"{y:04d}-{m:02d}-{d:02d}" for d in days_in_week]
+    week_items = [e for ds in ds_list for e in by_date.get(ds, {"items": []})["items"]]
+    wc1, wc2, wc3 = st.columns([3, 1, 1])
+    wc1.write(f"**{days_in_week[0]:02d} – {days_in_week[-1]:02d} de {utils.MONTHS_ES[m-1]}**")
+    wc2.write(f"{len(week_items)} pago(s)")
+    wc3.write(f"**{utils.money(utils.dsum(e['amount'] for e in week_items))}**")
 
 if st.session_state.get("_cal_day"):
     ds = st.session_state["_cal_day"]
