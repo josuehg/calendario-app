@@ -146,6 +146,40 @@ def test_events_from_expenses_only_pending(utils):
     assert "Alquiler" in ev[0]["label"]
 
 
+# ---------- vencimientos sospechosos ----------
+
+def _vendor(**kw):
+    base = dict(id=1, name="Prov", doc_type="credito", term_days=30)
+    base.update(kw)
+    return base
+
+
+def test_suspicious_flags_due_date_mismatch(utils):
+    invs = [_inv(vendor="Prov", issue_date="2026-09-01", due_date="2026-09-01")]
+    out = utils.find_suspicious_due_dates(invs, [_vendor()])
+    assert len(out) == 1
+    assert out[0]["expected_due_date"] == "2026-10-01"
+    assert out[0]["vendor_term_days"] == 30
+
+
+def test_suspicious_ignores_matching_due_date(utils):
+    invs = [_inv(vendor="Prov", issue_date="2026-09-01", due_date="2026-10-01")]
+    assert utils.find_suspicious_due_dates(invs, [_vendor()]) == []
+
+
+def test_suspicious_ignores_non_pending_or_contado(utils):
+    invs = [
+        _inv(vendor="Prov", issue_date="2026-09-01", due_date="2026-09-01", status="pagada"),
+        _inv(vendor="Prov", issue_date="2026-09-01", due_date="2026-09-01", doc_type="contado"),
+    ]
+    assert utils.find_suspicious_due_dates(invs, [_vendor()]) == []
+
+
+def test_suspicious_ignores_vendor_without_configured_term(utils):
+    invs = [_inv(vendor="Sin Plazo", issue_date="2026-09-01", due_date="2026-09-01")]
+    assert utils.find_suspicious_due_dates(invs, [_vendor(name="Sin Plazo", doc_type="contado", term_days=None)]) == []
+
+
 def test_compute_stats_and_weekly_buckets(utils, monkeypatch):
     monkeypatch.setattr(utils, "today_str", lambda: "2026-09-07")
     events = [

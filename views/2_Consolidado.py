@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 import streamlit as st
 import pandas as pd
 import db
@@ -119,7 +121,7 @@ if st.session_state.get("_edit_inv"):
                                  value=float(inv["amount"]), key="ei_amount")
         c3, c4 = st.columns(2)
         issue = c3.date_input("Fecha de emisión",
-                              value=__import__("datetime").date.fromisoformat(inv["issue_date"]) if inv.get("issue_date") else None,
+                              value=date.fromisoformat(inv["issue_date"]) if inv.get("issue_date") else None,
                               key="ei_issue")
         doc_type = c4.radio("Condición", ["contado", "credito"],
                             index=1 if inv["doc_type"] == "credito" else 0,
@@ -131,8 +133,16 @@ if st.session_state.get("_edit_inv"):
                                      index=utils.TERM_OPTIONS.index(inv["term_days"]) if inv.get("term_days") in utils.TERM_OPTIONS else 0,
                                      key="ei_term")
         due = c4.date_input("Vencimiento",
-                            value=__import__("datetime").date.fromisoformat(inv["due_date"]) if inv.get("due_date") else None,
+                            value=date.fromisoformat(inv["due_date"]) if inv.get("due_date") else None,
                             key="ei_due")
+        if doc_type == "credito" and term_days and issue:
+            expected = issue + timedelta(days=term_days)
+            if due and due != expected:
+                st.warning(
+                    f"⚠️ Este vencimiento NO coincide con el plazo habitual de este proveedor "
+                    f"({term_days} días → debería ser el {expected.strftime('%d/%m/%Y')}). "
+                    "Verifica bien antes de guardar — si no se pactó algo distinto, corrígelo."
+                )
         notes = st.text_input("Notas", value=inv.get("notes") or "", key="ei_notes")
 
         b1, b2 = st.columns(2)

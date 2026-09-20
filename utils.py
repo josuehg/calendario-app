@@ -235,6 +235,26 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
     return events
 
 
+def find_suspicious_due_dates(invoices, vendors):
+    """Facturas 'pendiente' a crédito cuyo vencimiento no coincide con
+    emisión + plazo configurado del proveedor (posible error de digitación
+    al registrar o editar). No es un error garantizado — un proveedor puede
+    pactar un plazo distinto al habitual para un documento puntual — pero
+    vale la pena revisarlas."""
+    terms = {v["name"]: v.get("term_days") for v in vendors if v.get("doc_type") == "credito"}
+    out = []
+    for inv in invoices:
+        if inv.get("status") != "pendiente" or inv.get("doc_type") != "credito":
+            continue
+        term = terms.get(inv.get("vendor"))
+        if not term or not inv.get("issue_date") or not inv.get("due_date"):
+            continue
+        expected = (date.fromisoformat(inv["issue_date"]) + timedelta(days=term)).isoformat()
+        if inv["due_date"] != expected:
+            out.append({**inv, "expected_due_date": expected, "vendor_term_days": term})
+    return out
+
+
 # ---------- generación de gastos fijos recurrentes ----------
 
 def due_day_for_month(year, month, pay_day):

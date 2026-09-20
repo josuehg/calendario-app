@@ -39,6 +39,19 @@ def test_consolidado_edit_dialog_saves(run_view, db):
     assert db.list_invoices()[0]["vendor"] == "Corregido SAC"
 
 
+def test_consolidado_edit_dialog_warns_due_date_mismatch(run_view, db):
+    db.create_invoice({
+        "branch": "Sucursal 1", "vendor": "Prov Credito", "invoice_number": "F-9",
+        "document_type": "Factura", "doc_type": "credito", "term_days": 30, "amount": 100.0,
+        "issue_date": "2026-09-01", "due_date": "2026-09-05", "status": "pendiente",
+    })
+    at = run_view("views/2_Consolidado.py", role="admin")
+    click(at, "Editar")
+    assert not at.exception
+    warns = " ".join(str(w.value) for w in at.warning)
+    assert "NO coincide" in warns and "30 días" in warns
+
+
 def test_delete_dialog_warns_for_canjeada(run_view, db):
     db.create_invoice({
         "branch": "Sucursal 1", "vendor": "X", "invoice_number": "F-1",
