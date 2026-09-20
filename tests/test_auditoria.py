@@ -92,3 +92,24 @@ def test_consolidado_shows_registered_by_column(run_view, db):
     df = at.dataframe[0].value
     assert "Registrado por" in list(df.columns)
     assert "Sucursal 1" in df["Registrado por"].tolist()
+
+
+def test_consolidado_shows_fecha_de_registro_column(run_view, db):
+    db.invoices.append({"id": "i1", "vendor": "Prov", "invoice_number": "F1", "branch": "Sucursal 1",
+                        "document_type": "Factura", "doc_type": "contado", "amount": 100.0,
+                        "issue_date": "2026-09-01", "due_date": "2026-09-01", "status": "pendiente",
+                        "created_at": "2026-09-02T03:00:00+00:00"})   # 2026-09-01 22:00 hora Perú (UTC-5)
+    at = run_view("views/2_Consolidado.py", role="admin")
+    assert not at.exception
+    df = at.dataframe[0].value
+    assert "Fecha de registro" in list(df.columns)
+    assert df["Fecha de registro"].tolist() == ["2026-09-01"]
+
+
+def test_consolidado_fecha_de_registro_missing_shows_dash(run_view, db):
+    db.invoices.append({"id": "i1", "vendor": "Prov", "invoice_number": "F1", "branch": "Sucursal 1",
+                        "document_type": "Factura", "doc_type": "contado", "amount": 100.0,
+                        "issue_date": "2026-09-01", "due_date": "2026-09-01", "status": "pendiente"})
+    at = run_view("views/2_Consolidado.py", role="admin")
+    df = at.dataframe[0].value
+    assert df["Fecha de registro"].tolist() == ["—"]
