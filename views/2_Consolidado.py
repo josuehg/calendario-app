@@ -52,7 +52,10 @@ else:
         if col not in df.columns:
             df[col] = default
     df["registered_by"] = df["registered_by"].fillna("—")
-    df["_registro"] = [utils.to_lima_date_str(r.get("created_at")) or "—" for r in rows]
+    df["_registro"] = [
+        f"{d} {utils.fmt_time(r.get('created_at'))}" if (d := utils.to_lima_date_str(r.get("created_at"))) else "—"
+        for r in rows
+    ]
     df_view = df[["_registro", "issue_date", "branch", "vendor", "document_type", "invoice_number", "doc_type", "amount", "due_date", "status", "registered_by"]].copy()
     df_view.columns = ["Fecha de registro", "Emisión", "Sucursal", "Proveedor", "Tipo Doc.", "N° Documento", "Tipo", "Monto (S/)", "Vence", "Estado", "Registrado por"]
     df_view["Vencida"] = [

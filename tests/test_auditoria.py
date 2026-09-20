@@ -103,7 +103,7 @@ def test_consolidado_shows_fecha_de_registro_column(run_view, db):
     assert not at.exception
     df = at.dataframe[0].value
     assert "Fecha de registro" in list(df.columns)
-    assert df["Fecha de registro"].tolist() == ["2026-09-01"]
+    assert df["Fecha de registro"].tolist() == ["2026-09-01 22:00"]
 
 
 def test_consolidado_fecha_de_registro_missing_shows_dash(run_view, db):
