@@ -42,7 +42,7 @@ def test_canje_letra_still_derives_from_invoices(utils):
 def test_create_standalone_letra_via_view(run_view, db):
     at = run_view("views/3_Canjear_a_Letras.py", role="admin")
     for ti in at.text_input:
-        if ti.label == "Proveedor":
+        if ti.key == "ld_vendor_new":
             ti.set_value("Droguería Central").run()
         if ti.label == "N° de letra":
             ti.set_value("2026-045").run()

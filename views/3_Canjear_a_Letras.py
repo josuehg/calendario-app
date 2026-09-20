@@ -32,28 +32,35 @@ with tab_directa:
         "Para letras que ya negociaste fuera del sistema. Se registran sueltas, con su "
         "proveedor y fecha, y aparecen en Calendario y Presupuesto igual que las demás."
     )
+    vendor_names = sorted({v["name"] for v in db.get_vendors()})
+    NUEVO_PROVEEDOR = "✍️ Nuevo / no está en la lista"
     with st.form("letra_directa_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
-        ld_vendor = c1.text_input("Proveedor")
-        ld_branch = c2.selectbox("Sucursal", BRANCHES)
+        ld_vendor_pick = c1.selectbox("Proveedor", [NUEVO_PROVEEDOR] + vendor_names, key="ld_vendor_pick")
+        ld_branch = c2.selectbox("Sucursal", BRANCHES, key="ld_branch")
+        ld_vendor_new = st.text_input(
+            "Nombre del proveedor nuevo", key="ld_vendor_new",
+            placeholder="Solo si elegiste \"Nuevo\" arriba — si no, déjalo vacío",
+        )
         c3, c4, c5 = st.columns(3)
         ld_numero = c3.text_input("N° de letra")
         ld_monto = c4.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f")
         ld_venc = c5.date_input("Vencimiento", value=None)
         ld_notes = st.text_input("Notas (opcional)")
         if st.form_submit_button("Registrar letra", type="primary"):
-            if not ld_vendor.strip() or ld_monto <= 0 or not ld_venc:
+            ld_vendor = ld_vendor_new.strip() or (ld_vendor_pick if ld_vendor_pick != NUEVO_PROVEEDOR else "")
+            if not ld_vendor or ld_monto <= 0 or not ld_venc:
                 st.error("Completa proveedor, monto y vencimiento.")
             else:
                 db.create_letra({
                     "numero": ld_numero.strip() or None,
                     "monto": utils.round2(ld_monto),
                     "fecha_vencimiento": ld_venc.isoformat(),
-                    "vendor": ld_vendor.strip(),
+                    "vendor": ld_vendor,
                     "branch": ld_branch,
                     "notes": ld_notes.strip() or None,
                 })
-                st.success(f"Letra registrada: {ld_vendor.strip()} · {utils.money(ld_monto)} · vence {utils.fmt_short(ld_venc.isoformat())}.")
+                st.success(f"Letra registrada: {ld_vendor} · {utils.money(ld_monto)} · vence {utils.fmt_short(ld_venc.isoformat())}.")
                 st.rerun()
 
 # ============ todas las letras: editar / eliminar ============
