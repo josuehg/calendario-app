@@ -21,10 +21,29 @@ c4.metric("Total pendiente", utils.money(stats["total_pendiente"]))
 st.divider()
 st.subheader("Próximos vencimientos")
 
+FILTROS_TIPO = ["Todos", "Contado", "Crédito", "Letras"]
+
+
+def _matches_filtro(e, filtro):
+    if filtro == "Todos":
+        return True
+    if filtro == "Contado":
+        return e["kind"] == "invoice" and e["label"] == "Contado"
+    if filtro == "Crédito":
+        return e["kind"] == "invoice" and e["label"] != "Contado"
+    if filtro == "Letras":
+        return e["kind"] == "letra"
+    return True
+
+
 if not events:
     st.info("No hay pagos pendientes registrados. Ve a **Nueva Factura** en el menú de la izquierda para empezar.")
 else:
-    for e in events[:15]:
+    filtro = st.radio("Filtrar", FILTROS_TIPO, horizontal=True, label_visibility="collapsed", key="resumen_filtro_tipo")
+    filtered = [e for e in events if _matches_filtro(e, filtro)]
+    if not filtered:
+        st.caption("No hay ninguno con este filtro.")
+    for e in filtered[:15]:
         cols = st.columns([3, 2, 2, 1.5, 1.5])
         cols[0].markdown(f"**{e['vendor']}**  \n<span style='font-size:12px;color:gray'>Fact. {e['invoice_number']} · {e['branch']}</span>", unsafe_allow_html=True)
         cols[1].write(e["label"])
