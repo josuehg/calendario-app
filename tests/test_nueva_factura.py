@@ -104,6 +104,23 @@ def test_due_date_manual_edit_is_not_overwritten_by_later_issue_date_change(run_
     assert widget(at, "nf_due_date", "date_input").value == date(2026, 12, 15)    # respeta el ajuste manual
 
 
+def test_due_date_mismatch_shows_warning(run_view, seeded):
+    at = run_view(VIEW, role="branch")
+    _search(at, "Droguería Norte")                          # crédito, 30 días
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+    widget(at, "nf_due_date", "date_input").set_value(date(2026, 9, 5)).run()   # no son 30 días
+    warns = " ".join(str(w.value) for w in at.warning)
+    assert "NO coincide" in warns and "30 días" in warns
+
+
+def test_due_date_matching_plazo_shows_no_warning(run_view, seeded):
+    at = run_view(VIEW, role="branch")
+    _search(at, "Droguería Norte")
+    widget(at, "nf_issue_date", "date_input").set_value(date(2026, 9, 1)).run()
+    assert widget(at, "nf_due_date", "date_input").value == date(2026, 10, 1)
+    assert not [w for w in at.warning]
+
+
 def test_all_fields_required_except_observaciones(run_view, seeded):
     at = run_view(VIEW, role="branch")
     click(at, "Registrar documento")

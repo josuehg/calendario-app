@@ -23,6 +23,34 @@ if track_contado != settings.get("track_contado", True):
 
 st.divider()
 
+# ---------- consistencia de vencimientos ----------
+st.subheader("⚠️ Vencimientos sospechosos")
+st.caption(
+    "Facturas a crédito 'pendientes' cuyo vencimiento no coincide con emisión + plazo "
+    "configurado del proveedor — puede ser un error al registrar/editar, o un plazo "
+    "distinto pactado a propósito para esa factura. Revísalas."
+)
+_susp = utils.find_suspicious_due_dates(db.list_invoices(), db.get_vendors())
+if not _susp:
+    st.success("No hay ninguna. Todo cuadra con el plazo de cada proveedor.")
+else:
+    for s in _susp:
+        with st.container(border=True):
+            sc1, sc2 = st.columns([3, 1])
+            with sc1:
+                st.markdown(f"**{s['vendor']}** · Fact. {s['invoice_number']} · {s.get('branch') or '—'} · {utils.money(s['amount'])}")
+                st.caption(
+                    f"Emisión {utils.fmt_short(s['issue_date'])} · plazo {s['vendor_term_days']} días · "
+                    f"vence hoy: **{utils.fmt_short(s['due_date'])}** · debería ser: **{utils.fmt_short(s['expected_due_date'])}**"
+                )
+            with sc2:
+                if st.button("Corregir", key=f"fix_due_{s['id']}", width="stretch"):
+                    db.update_invoice(s["id"], {"due_date": s["expected_due_date"]})
+                    st.success("Vencimiento corregido.")
+                    st.rerun()
+
+st.divider()
+
 # ---------- sucursales y PIN ----------
 st.subheader("Sucursales y PIN de acceso")
 st.caption(

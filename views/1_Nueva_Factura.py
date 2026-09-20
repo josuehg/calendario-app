@@ -172,6 +172,12 @@ if doc_type == "credito":
     due_date = st.date_input("Fecha de vencimiento", key=due_key)
     if term_days:
         st.caption(f"Sugerida: emisión + {term_days} días. Ajústala si se pactó otra.")
+        if computed_due and due_date and due_date != computed_due:
+            st.warning(
+                f"⚠️ Este vencimiento NO coincide con el plazo habitual de este proveedor "
+                f"({term_days} días → debería ser el {computed_due.strftime('%d/%m/%Y')}). "
+                "Verifica bien antes de registrar — si no se pactó algo distinto, corrígelo."
+            )
     if computed_due:
         st.button(
             "📅 Calcular automáticamente el vencimiento", width="stretch",
