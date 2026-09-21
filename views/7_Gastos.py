@@ -191,7 +191,7 @@ if section == SECTIONS[0]:
         for gname, items in sorted(groups_var.items(), key=lambda kv: -sum(i["amount"] for i in kv[1])):
             subtotal = utils.dsum(i["amount"] for i in items)
             share = (subtotal / total_var * 100) if total_var else 0
-            with st.expander(f"{gname}  ·  {len(items)}", expanded=True):
+            with st.expander(f"{gname}  ·  {len(items)}  ·  {utils.money(subtotal)}", expanded=True):
                 st.markdown(f"**{utils.money(subtotal)}**  ·  {share:.0f}% de lo pendiente")
                 st.progress(min(share / 100, 1.0))
                 for e in sorted(items, key=lambda i: i["due_date"]):
@@ -272,7 +272,7 @@ elif section == SECTIONS[1]:
         for gname, items in sorted(groups_fx.items(), key=lambda kv: -sum(_monthly_amount(i) for i in kv[1] if i["active"])):
             g_subtotal = utils.dsum(_monthly_amount(i) for i in items if i["active"])
             share = g_subtotal / grand * 100 if grand else 0
-            with st.expander(f"{gname}  ·  {len(items)}", expanded=True):
+            with st.expander(f"{gname}  ·  {len(items)}  ·  {utils.money(g_subtotal)}", expanded=True):
                 st.markdown(f"**{utils.money(g_subtotal)}**  ·  {share:.0f}% del total activo")
                 st.progress(min(share / 100, 1.0))
 
@@ -362,7 +362,10 @@ else:
         grand = total or 1
         for gname, items in sorted(groups.items(), key=lambda kv: -sum(i["amount"] for i in kv[1])):
             subtotal = utils.dsum(i["amount"] for i in items)
-            header = f"{gname}  ·  {len(items)}" if f_group != "Sin agrupar" else f"{len(items)} gasto(s)"
+            header = (
+                f"{gname}  ·  {len(items)}  ·  {utils.money(subtotal)}"
+                if f_group != "Sin agrupar" else f"{len(items)} gasto(s)  ·  {utils.money(subtotal)}"
+            )
             with st.expander(header, expanded=True):
                 if f_group != "Sin agrupar":
                     share = subtotal / grand * 100 if grand else 0
