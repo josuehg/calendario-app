@@ -96,6 +96,16 @@ def test_fijos_tab_shows_grouped_stats(run_view, db):
     assert any("Planilla" in l for l in labels)
 
 
+def test_fijos_tab_expander_header_shows_subtotal(run_view, db):
+    db.create_fixed_expense({"name": "Alquiler A", "category": "Alquiler", "branch": "Sucursal 1",
+                             "amount": 1000.0, "pay_day": 5})
+    db.create_fixed_expense({"name": "Alquiler B", "category": "Alquiler", "branch": "Sucursal 2",
+                             "amount": 500.0, "pay_day": 5})
+    at = _goto(run_view(VIEW, role="admin"), FIJOS)
+    labels = [e.label for e in at.expander]
+    assert any("Alquiler" in l and "S/ 1,500.00" in l for l in labels)
+
+
 def test_fijos_tab_group_by_branch(run_view, db):
     db.create_fixed_expense({"name": "Alquiler A", "category": "Alquiler", "branch": "Sucursal 1",
                              "amount": 1000.0, "pay_day": 5})
@@ -149,7 +159,7 @@ def test_proximos_gastos_sin_agrupar(run_view, db):
             break
     assert not at.exception
     labels = [e.label for e in at.expander]
-    assert any(l.endswith("gasto(s)") for l in labels)
+    assert any("gasto(s)" in l for l in labels)
 
 
 def test_proximos_gastos_date_range_filter(run_view, db):
@@ -198,6 +208,16 @@ def test_variable_pending_section_groups(run_view, db):
     assert metrics.get("Total variable pendiente") == "S/ 300.00"
     labels = [e.label for e in at.expander]
     assert any("Servicios" in l for l in labels)
+    assert any("S/ 300.00" in l for l in labels)
+
+
+def test_proximos_gastos_expander_header_shows_subtotal(run_view, db):
+    db.create_expense({"kind": "variable", "name": "Gasto A", "category": "Alquiler",
+                       "branch": "Sucursal 1", "amount": 500.0, "due_date": "2020-01-01",
+                       "status": "pendiente"})
+    at = _goto(run_view(VIEW, role="admin"), PROXIMOS)
+    labels = [e.label for e in at.expander]
+    assert any("Alquiler" in l and "S/ 500.00" in l for l in labels)
 
 
 def test_editing_fixed_expense_stays_on_fijos_section_after_save(run_view, db):
