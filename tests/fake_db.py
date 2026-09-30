@@ -117,6 +117,12 @@ class FakeDB:
     def mark_invoice_paid(self, iid, paid_at, paid_by=None):
         self.update_invoice(iid, {"status": "pagada", "paid_at": paid_at, "paid_by": paid_by})
 
+    def mark_invoice_validated(self, iid, validated_by, validated_at):
+        self.update_invoice(iid, {"validated": True, "validated_by": validated_by, "validated_at": validated_at})
+
+    def unmark_invoice_validated(self, iid):
+        self.update_invoice(iid, {"validated": False, "validated_by": None, "validated_at": None})
+
     # ---- canjes / letras ----
     def list_canjes(self):
         return [dict(c) for c in self.canjes]

@@ -155,6 +155,14 @@ def mark_invoice_paid(invoice_id: str, paid_at: str, paid_by: str | None = None)
     return update_invoice(invoice_id, {"status": "pagada", "paid_at": paid_at, "paid_by": paid_by})
 
 
+def mark_invoice_validated(invoice_id: str, validated_by: str, validated_at: str):
+    return update_invoice(invoice_id, {"validated": True, "validated_by": validated_by, "validated_at": validated_at})
+
+
+def unmark_invoice_validated(invoice_id: str):
+    return update_invoice(invoice_id, {"validated": False, "validated_by": None, "validated_at": None})
+
+
 # ---------- canjes y letras ----------
 
 def list_canjes():

@@ -13,6 +13,8 @@ def test_current_actor(db, monkeypatch):
     assert utils.current_actor() == "ZOLEZZI A"
     monkeypatch.setattr(st, "session_state", {"auth_role": "admin"}, raising=False)
     assert utils.current_actor() == "Administrador"
+    monkeypatch.setattr(st, "session_state", {"auth_role": "validador"}, raising=False)
+    assert utils.current_actor() == "Validador"
 
 
 def _register(at, ruc, num, quien):
