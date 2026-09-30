@@ -57,7 +57,10 @@ create table if not exists invoices (
   paid_at date,                          -- solo cuando se paga directo, sin pasar por canje
   registered_by text,                    -- sucursal o 'Administrador' que registró
   paid_by text,                          -- quién marcó el pago
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  validated boolean not null default false,  -- cruce manual contra Odoo (rol "Validador")
+  validated_by text,
+  validated_at date
 );
 
 -- Un canje agrupa N facturas -> M letras (muchas-a-muchas)

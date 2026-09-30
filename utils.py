@@ -27,14 +27,17 @@ def authenticate():
     """
     Pide un PIN de acceso y detiene la app hasta que sea válido.
     - Si coincide con el PIN de administrador (APP_PASSWORD en secrets): acceso total.
+    - Si coincide con el PIN de validación (VALIDATOR_PASSWORD en secrets): acceso
+      de solo lectura a la pantalla de Validación (uno solo para todas las sucursales).
     - Si coincide con el PIN de alguna sucursal (tabla branches): acceso limitado
       a esa sucursal, ya identificada — no hace falta elegirla en un menú.
-    Devuelve {"role": "admin" | "branch", "branch": str | None}.
+    Devuelve {"role": "admin" | "validador" | "branch", "branch": str | None}.
     """
     if st.session_state.get("auth_role"):
         return {"role": st.session_state["auth_role"], "branch": st.session_state.get("auth_branch")}
 
     admin_pin = st.secrets.get("APP_PASSWORD")
+    validator_pin = st.secrets.get("VALIDATOR_PASSWORD")
 
     st.title("🗓️ Control Compras")
     st.caption("Ingresa tu PIN de acceso.")
@@ -45,6 +48,10 @@ def authenticate():
     if submitted:
         if admin_pin and pin == admin_pin:
             st.session_state["auth_role"] = "admin"
+            st.session_state["auth_branch"] = None
+            st.rerun()
+        if validator_pin and pin == validator_pin:
+            st.session_state["auth_role"] = "validador"
             st.session_state["auth_branch"] = None
             st.rerun()
         branch = db.find_branch_by_pin(pin)
@@ -58,9 +65,12 @@ def authenticate():
 
 def current_actor():
     """Quién está usando la app ahora, para los campos de auditoría:
-    el nombre de la sucursal, o 'Administrador'."""
-    if st.session_state.get("auth_role") == "branch":
+    el nombre de la sucursal, 'Validador' o 'Administrador'."""
+    role = st.session_state.get("auth_role")
+    if role == "branch":
         return st.session_state.get("auth_branch") or "Sucursal"
+    if role == "validador":
+        return "Validador"
     return "Administrador"
 
 

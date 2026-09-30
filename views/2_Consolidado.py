@@ -56,8 +56,9 @@ else:
         f"{d} {utils.fmt_time(r.get('created_at'))}" if (d := utils.to_lima_date_str(r.get("created_at"))) else "—"
         for r in rows
     ]
-    df_view = df[["_registro", "issue_date", "branch", "vendor", "document_type", "invoice_number", "doc_type", "amount", "due_date", "status", "registered_by"]].copy()
-    df_view.columns = ["Fecha de registro", "Emisión", "Sucursal", "Proveedor", "Tipo Doc.", "N° Documento", "Tipo", "Monto (S/)", "Vence", "Estado", "Registrado por"]
+    df["_validado"] = ["✅" if r.get("validated") else "—" for r in rows]
+    df_view = df[["_registro", "issue_date", "branch", "vendor", "document_type", "invoice_number", "doc_type", "amount", "due_date", "status", "registered_by", "_validado"]].copy()
+    df_view.columns = ["Fecha de registro", "Emisión", "Sucursal", "Proveedor", "Tipo Doc.", "N° Documento", "Tipo", "Monto (S/)", "Vence", "Estado", "Registrado por", "Validado"]
     df_view["Vencida"] = [
         (r["status"] != "pagada" and r["due_date"] < today) for r in rows
     ]

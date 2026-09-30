@@ -15,6 +15,7 @@ ADMIN_VIEWS = [
     "views/5_Presupuesto.py",
     "views/6_Configuracion.py",
     "views/7_Gastos.py",
+    "views/8_Validacion.py",
 ]
 
 
@@ -47,4 +48,10 @@ def test_app_nav_admin_vs_branch(run_view):
     assert not at.exception
 
     at = run_view("app.py", role="admin")
+    assert not at.exception
+
+
+def test_app_nav_validador(run_view):
+    """El rol validador solo ve la pantalla de Validación, sin menú lateral."""
+    at = run_view("app.py", role="validador")
     assert not at.exception
