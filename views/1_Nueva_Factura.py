@@ -65,6 +65,33 @@ if auth_role == "branch":
 else:
     branch = st.selectbox("Sucursal", db.get_branches() + ["Oficina central"], key=K("nf_branch"))
 
+# ---------- historial de los últimos 30 días (solo lectura) ----------
+with st.expander(f"📜 Historial de {branch} — últimos 30 días", expanded=False):
+    cutoff = (utils.today_lima() - timedelta(days=30)).isoformat()
+    hist = sorted(
+        (
+            i for i in db.list_invoices()
+            if i.get("branch") == branch and utils.to_lima_date_str(i.get("created_at")) >= cutoff
+        ),
+        key=lambda i: i.get("created_at") or "",
+        reverse=True,
+    )
+    if not hist:
+        st.caption("No hay documentos registrados en estos últimos 30 días.")
+    else:
+        st.caption(f"{len(hist)} documento(s)")
+        st.dataframe(
+            {
+                "Fecha de registro": [utils.to_lima_date_str(i.get("created_at")) for i in hist],
+                "N° documento": [i["invoice_number"] for i in hist],
+                "Proveedor": [i["vendor"] for i in hist],
+                "Tipo": ["Contado" if i["doc_type"] == "contado" else "Crédito" for i in hist],
+                "Monto": [utils.money(i["amount"]) for i in hist],
+                "Estado": [i["status"] for i in hist],
+            },
+            width="stretch", hide_index=True,
+        )
+
 # Nombre de la persona que registra. Key estable (no nonce) para que no se
 # borre al pulsar "Registrar otra factura" — se escribe una vez por sesión.
 registrante = st.text_input(
