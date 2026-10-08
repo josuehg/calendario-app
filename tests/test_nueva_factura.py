@@ -182,6 +182,46 @@ def _register_one(at, seeded, n):
     click(at, "Confirmar y guardar")
 
 
+def test_historial_30_dias_incluye_reciente_y_excluye_viejo(run_view, db):
+    db.create_invoice({
+        "branch": "Sucursal 1", "vendor": "Droguería Norte", "invoice_number": "F-reciente",
+        "document_type": "Factura", "doc_type": "contado", "amount": 50.0,
+        "issue_date": "2026-09-01", "due_date": "2026-09-01", "status": "pendiente",
+    })
+    db.create_invoice({
+        "branch": "Sucursal 1", "vendor": "Droguería Norte", "invoice_number": "F-viejo",
+        "document_type": "Factura", "doc_type": "contado", "amount": 60.0,
+        "issue_date": "2020-01-01", "due_date": "2020-01-01", "status": "pendiente",
+        "created_at": "2020-01-01T00:00:00+00:00",
+    })
+    at = run_view(VIEW, role="branch", branch="Sucursal 1")
+    assert not at.exception
+    labels = [e.label for e in at.expander]
+    assert any("Sucursal 1" in l and "30 días" in l for l in labels)
+    df = at.dataframe[0].value
+    assert "F-reciente" in df["N° documento"].tolist()
+    assert "F-viejo" not in df["N° documento"].tolist()
+
+
+def test_historial_vacio_muestra_aviso(run_view, db):
+    at = run_view(VIEW, role="branch", branch="Sucursal 1")
+    assert not at.exception
+    caps = " ".join(str(c.value) for c in at.caption)
+    assert "No hay documentos registrados" in caps
+
+
+def test_historial_scoped_a_su_propia_sucursal(run_view, db):
+    db.create_invoice({
+        "branch": "Sucursal 2", "vendor": "Otro Prov", "invoice_number": "F-otra-sucursal",
+        "document_type": "Factura", "doc_type": "contado", "amount": 40.0,
+        "issue_date": "2026-09-01", "due_date": "2026-09-01", "status": "pendiente",
+    })
+    at = run_view(VIEW, role="branch", branch="Sucursal 1")
+    caps = " ".join(str(c.value) for c in at.caption)
+    assert "No hay documentos registrados" in caps
+    assert not at.dataframe
+
+
 def test_success_dialog_lists_todays_docs(run_view, seeded):
     at = run_view(VIEW, role="branch")
     for n in ("F001-11111", "F001-22222"):
