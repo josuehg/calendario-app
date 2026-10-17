@@ -1,6 +1,7 @@
 import uuid
 from datetime import date
 
+import pandas as pd
 import streamlit as st
 import db
 import utils
@@ -96,6 +97,24 @@ with tab_todas:
 
         today = date.today().isoformat()
         st.markdown(f"**{len(vis)} letra(s) · {utils.money(utils.dsum(l['monto'] for l in vis))}**")
+        if vis:
+            export_df = pd.DataFrame([
+                {
+                    "Proveedor": _letra_vendor(l),
+                    "N° de letra": l.get("numero") or "—",
+                    "Monto": l["monto"],
+                    "Vencimiento": l["fecha_vencimiento"],
+                    "Estado": l["estado"],
+                    "Origen": "Canje" if l.get("canje_id") else "Programada",
+                }
+                for l in sorted(vis, key=lambda x: x["fecha_vencimiento"])
+            ])
+            st.download_button(
+                "⬇️ Descargar (Excel)",
+                data=utils.df_to_xlsx_bytes(export_df, "Letras"),
+                file_name=f"letras_{utils.today_lima().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
         for l in sorted(vis, key=lambda x: x["fecha_vencimiento"]):
             grouped = canje_invs.get(l.get("canje_id"), [])
             if grouped:
