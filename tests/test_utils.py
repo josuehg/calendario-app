@@ -17,6 +17,17 @@ def test_add_days_and_fmt(utils):
     assert utils.fmt_short(None) == "—"
 
 
+def test_df_to_xlsx_bytes_roundtrips(utils):
+    import pandas as pd
+    df = pd.DataFrame({"Proveedor": ["Prov A", "Prov B"], "Monto": [100.0, 200.5]})
+    raw = utils.df_to_xlsx_bytes(df, "Hoja1")
+    assert isinstance(raw, bytes) and len(raw) > 0
+    import io
+    back = pd.read_excel(io.BytesIO(raw), sheet_name="Hoja1")
+    assert back["Proveedor"].tolist() == ["Prov A", "Prov B"]
+    assert back["Monto"].tolist() == [100.0, 200.5]
+
+
 def test_start_of_week_is_monday(utils):
     # 2026-09-05 es sábado -> lunes de esa semana es 2026-08-31
     assert utils.start_of_week("2026-09-05") == "2026-08-31"

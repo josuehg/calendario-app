@@ -164,6 +164,21 @@ def test_letras_filtro_proveedor_sin_coincidencias(run_view, with_letras):
     assert "0 letra(s)" in text
 
 
+def test_letras_shows_download_button_when_there_are_results(run_view, with_letras):
+    at = run_view("views/3_Canjear_a_Letras.py", role="admin")
+    assert not at.exception
+    assert any("Descargar" in b.label for b in at.download_button)
+
+
+def test_letras_no_download_button_when_filters_match_nothing(run_view, with_letras):
+    at = run_view("views/3_Canjear_a_Letras.py", role="admin")
+    for ti in at.text_input:
+        if ti.key == "lt_f_vendor":
+            ti.set_value("Proveedor Que No Existe").run()
+            break
+    assert not at.download_button
+
+
 def test_letra_manage_dialog_edit(run_view, with_letras):
     at = run_view("views/3_Canjear_a_Letras.py", role="admin")
     for b in at.button:

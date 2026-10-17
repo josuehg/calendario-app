@@ -108,6 +108,15 @@ def test_consolidado_shows_fecha_de_registro_column(run_view, db):
     assert df["Fecha de registro"].tolist() == ["2026-09-01 22:00"]
 
 
+def test_consolidado_shows_download_button(run_view, db):
+    db.invoices.append({"id": "i1", "vendor": "Prov A", "invoice_number": "F1", "branch": "Sucursal 1",
+                        "document_type": "Factura", "doc_type": "contado", "amount": 100.0,
+                        "issue_date": "2026-09-01", "due_date": "2026-09-01", "status": "pendiente"})
+    at = run_view("views/2_Consolidado.py", role="admin")
+    assert not at.exception
+    assert any("Descargar" in b.label for b in at.download_button)
+
+
 def test_consolidado_fecha_de_registro_missing_shows_dash(run_view, db):
     db.invoices.append({"id": "i1", "vendor": "Prov", "invoice_number": "F1", "branch": "Sucursal 1",
                         "document_type": "Factura", "doc_type": "contado", "amount": 100.0,

@@ -4,6 +4,7 @@ y la lógica que convierte facturas + letras en "eventos de pago" para el
 calendario y el presupuesto.
 """
 import calendar as _cal
+import io
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -118,6 +119,14 @@ def dsum(values):
 
 def money(n):
     return "S/ " + f"{round2(n):,.2f}"
+
+
+def df_to_xlsx_bytes(df, sheet_name="Hoja1"):
+    """Serializa un DataFrame a bytes de un .xlsx, para botones de descarga."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+    return buf.getvalue()
 
 
 def fmt_time(ts):

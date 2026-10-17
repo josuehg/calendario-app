@@ -68,6 +68,12 @@ else:
         ),
         width="stretch", hide_index=True,
     )
+    st.download_button(
+        "⬇️ Descargar (Excel)",
+        data=utils.df_to_xlsx_bytes(df_view.drop(columns=["Vencida"]), "Consolidado"),
+        file_name=f"consolidado_facturas_{utils.today_lima().isoformat()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
     st.divider()
     st.subheader("Seleccionar facturas a crédito pendientes para canjear")
