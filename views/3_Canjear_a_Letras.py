@@ -68,9 +68,16 @@ with tab_todas:
     if not letras:
         st.caption("Aún no hay letras registradas.")
     else:
-        f1, f2 = st.columns(2)
+        f1, f2, f3 = st.columns(3)
         f_estado = f1.selectbox("Estado", ["Pendientes", "Pagadas", "Todas"], key="lt_f_estado")
         f_origen = f2.selectbox("Origen", ["Todos", "De un canje", "Programadas sueltas"], key="lt_f_origen")
+        f_vendor = f3.text_input("Buscar proveedor", key="lt_f_vendor")
+
+        def _letra_vendor(l):
+            grouped = canje_invs.get(l.get("canje_id"), [])
+            if grouped:
+                return ", ".join(sorted({i["vendor"] for i in grouped}))
+            return l.get("vendor") or "—"
 
         vis = []
         for l in letras:
@@ -82,6 +89,8 @@ with tab_todas:
             if f_origen == "De un canje" and not de_canje:
                 continue
             if f_origen == "Programadas sueltas" and de_canje:
+                continue
+            if f_vendor.strip() and f_vendor.strip().lower() not in _letra_vendor(l).lower():
                 continue
             vis.append(l)
 

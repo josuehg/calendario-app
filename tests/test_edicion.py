@@ -129,6 +129,41 @@ def test_todas_las_letras_tab_renders(run_view, with_letras):
     assert "letra(s)" in labels
 
 
+def test_letras_filtro_proveedor_standalone(run_view, with_letras):
+    at = run_view("views/3_Canjear_a_Letras.py", role="admin")
+    for ti in at.text_input:
+        if ti.key == "lt_f_vendor":
+            ti.set_value("Lab Suelto").run()
+            break
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "Lab Suelto" in text
+    assert "Prov Canje" not in text
+
+
+def test_letras_filtro_proveedor_de_canje(run_view, with_letras):
+    """La letra de un canje no tiene 'vendor' propio: el proveedor sale de
+    las facturas agrupadas (Prov Canje, via la factura i1)."""
+    at = run_view("views/3_Canjear_a_Letras.py", role="admin")
+    for ti in at.text_input:
+        if ti.key == "lt_f_vendor":
+            ti.set_value("Prov Canje").run()
+            break
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "Prov Canje" in text
+    assert "Lab Suelto" not in text
+
+
+def test_letras_filtro_proveedor_sin_coincidencias(run_view, with_letras):
+    at = run_view("views/3_Canjear_a_Letras.py", role="admin")
+    for ti in at.text_input:
+        if ti.key == "lt_f_vendor":
+            ti.set_value("Proveedor Que No Existe").run()
+            break
+    assert not at.exception
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "0 letra(s)" in text
+
+
 def test_letra_manage_dialog_edit(run_view, with_letras):
     at = run_view("views/3_Canjear_a_Letras.py", role="admin")
     for b in at.button:
