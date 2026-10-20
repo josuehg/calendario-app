@@ -443,3 +443,28 @@ def ensure_expense_instances(months_ahead: int = 3):
         except Exception:
             # carrera con otra sesión: el índice único ya cubrió el hueco
             pass
+
+
+# ---------- deudas (capital/saldo, separado de la cuota en gastos fijos) ----------
+
+def list_debts(active_only: bool = False):
+    sb = get_client()
+    q = sb.table("debts").select("*")
+    if active_only:
+        q = q.eq("active", True)
+    return q.order("creditor").execute().data
+
+
+def create_debt(data: dict):
+    sb = get_client()
+    return sb.table("debts").insert(data).execute()
+
+
+def update_debt(debt_id, data: dict):
+    sb = get_client()
+    return sb.table("debts").update(data).eq("id", debt_id).execute()
+
+
+def delete_debt(debt_id):
+    sb = get_client()
+    return sb.table("debts").delete().eq("id", debt_id).execute()

@@ -35,6 +35,7 @@ else:
         st.Page("views/4_Calendario.py", title="Calendario", icon="📅"),
         st.Page("views/5_Presupuesto.py", title="Presupuesto", icon="📊"),
         st.Page("views/7_Gastos.py", title="Gastos", icon="💸"),
+        st.Page("views/9_Deudas.py", title="Deudas", icon="💰"),
         st.Page("views/6_Configuracion.py", title="Configuración", icon="⚙️"),
     ]
     nav = st.navigation(pages)
