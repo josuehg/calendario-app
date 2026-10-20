@@ -16,9 +16,12 @@ def _login(pin, admin_pin="admin123", validator_pin="val123"):
     at.secrets["APP_PASSWORD"] = admin_pin
     at.secrets["VALIDATOR_PASSWORD"] = validator_pin
     at.run()
+    # Dentro de un st.form no hay que correr (.run()) entre un set_value y el
+    # siguiente — las versiones nuevas de Streamlit no conservan el valor
+    # pendiente de un campo del form si se corre el script antes de enviarlo.
     for ti in at.text_input:
         if ti.label == "PIN":
-            ti.set_value(pin).run()
+            ti.set_value(pin)
             break
     for b in at.button:
         if b.label == "Entrar":

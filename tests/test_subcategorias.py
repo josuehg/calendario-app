@@ -78,7 +78,7 @@ def test_add_subcategory_via_configuracion(run_view, db):
             break
     for ti in at.text_input:
         if ti.label == "Nueva subcategoría":
-            ti.set_value("Internet").run()
+            ti.set_value("Internet")
             break
     for b in at.button:
         if b.key == "subcat_add_submit":
@@ -163,11 +163,11 @@ def test_variable_expense_category_subcategory_outside_form(run_view, db):
             break
     for ti in at.text_input:
         if ti.label == "Descripción":
-            ti.set_value("Licencia anual").run()
+            ti.set_value("Licencia anual")
             break
     for ni in at.number_input:
         if ni.label.startswith("Monto"):
-            ni.set_value(200.0).run()
+            ni.set_value(200.0)
             break
     click(at, "Registrar gasto variable")
     assert not at.exception

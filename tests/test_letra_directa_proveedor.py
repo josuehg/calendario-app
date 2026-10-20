@@ -8,17 +8,21 @@ VIEW = "views/3_Canjear_a_Letras.py"
 
 
 def _fill_and_submit(at, numero="L-1", monto=1000.0, venc=date(2026, 12, 1)):
+    # Dentro de un st.form, las versiones nuevas de Streamlit solo conservan
+    # los valores "pendientes" de los demás widgets si no se hace un .run()
+    # intermedio entre uno y otro — por eso se encolan todos los set_value()
+    # y se dispara un solo .run() junto con el click final del submit.
     for ti in at.text_input:
         if ti.label == "N° de letra":
-            ti.set_value(numero).run()
+            ti.set_value(numero)
             break
     for ni in at.number_input:
         if ni.label == "Monto (S/)":
-            ni.set_value(monto).run()
+            ni.set_value(monto)
             break
     for di in at.date_input:
         if di.label == "Vencimiento":
-            di.set_value(venc).run()
+            di.set_value(venc)
             break
     return click(at, "Registrar letra")
 
@@ -36,7 +40,7 @@ def test_registrar_con_proveedor_de_la_lista(run_view, db):
     at = run_view(VIEW, role="admin")
     for sb in at.selectbox:
         if sb.key == "ld_vendor_pick":
-            sb.set_value("Droguería Norte").run()
+            sb.set_value("Droguería Norte")
             break
     at = _fill_and_submit(at)
     assert not at.exception
@@ -47,7 +51,7 @@ def test_registrar_con_proveedor_nuevo_escrito_a_mano(run_view, db):
     at = run_view(VIEW, role="admin")
     for ti in at.text_input:
         if ti.key == "ld_vendor_new":
-            ti.set_value("Proveedor Suelto SAC").run()
+            ti.set_value("Proveedor Suelto SAC")
             break
     at = _fill_and_submit(at)
     assert not at.exception
@@ -59,11 +63,11 @@ def test_texto_nuevo_tiene_prioridad_sobre_la_lista(run_view, db):
     at = run_view(VIEW, role="admin")
     for sb in at.selectbox:
         if sb.key == "ld_vendor_pick":
-            sb.set_value("Droguería Norte").run()
+            sb.set_value("Droguería Norte")
             break
     for ti in at.text_input:
         if ti.key == "ld_vendor_new":
-            ti.set_value("Otro Proveedor").run()
+            ti.set_value("Otro Proveedor")
             break
     at = _fill_and_submit(at)
     assert db.letras and db.letras[0]["vendor"] == "Otro Proveedor"

@@ -43,15 +43,15 @@ def test_create_standalone_letra_via_view(run_view, db):
     at = run_view("views/3_Canjear_a_Letras.py", role="admin")
     for ti in at.text_input:
         if ti.key == "ld_vendor_new":
-            ti.set_value("Droguería Central").run()
+            ti.set_value("Droguería Central")
         if ti.label == "N° de letra":
-            ti.set_value("2026-045").run()
+            ti.set_value("2026-045")
     for ni in at.number_input:
         if ni.label.startswith("Monto"):
-            ni.set_value(8200.0).run()
+            ni.set_value(8200.0)
     for di in at.date_input:
         if di.label == "Vencimiento":
-            di.set_value(date(2026, 11, 20)).run()
+            di.set_value(date(2026, 11, 20))
     click(at, "Registrar letra")
     assert not at.exception
     assert len(db.letras) == 1
