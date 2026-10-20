@@ -27,13 +27,12 @@ def test_gastos_view_renders(run_view, db):
 
 def test_variable_expense_created(run_view, db):
     at = run_view(VIEW, role="admin")
-    widget(at, "", "text_input")  # noop; localizamos por label abajo
     for ti in at.text_input:
         if ti.label == "Descripción":
-            ti.set_value("Reparación de vitrina").run()
+            ti.set_value("Reparación de vitrina")
     for ni in at.number_input:
         if ni.label.startswith("Monto"):
-            ni.set_value(450.0).run()
+            ni.set_value(450.0)
     for b in at.button:
         if "Registrar gasto variable" in b.label:
             b.click().run()

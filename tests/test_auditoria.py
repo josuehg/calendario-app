@@ -60,10 +60,10 @@ def test_variable_expense_and_payment_record_actor(run_view, db):
     at = run_view("views/7_Gastos.py", role="admin")
     for ti in at.text_input:
         if ti.label == "Descripción":
-            ti.set_value("Reparación").run()
+            ti.set_value("Reparación")
     for ni in at.number_input:
         if ni.label.startswith("Monto"):
-            ni.set_value(200.0).run()
+            ni.set_value(200.0)
     for b in at.button:
         if "Registrar gasto variable" in b.label:
             b.click().run()
