@@ -129,6 +129,17 @@ def df_to_xlsx_bytes(df, sheet_name="Hoja1"):
     return buf.getvalue()
 
 
+def dict_list_to_xlsx_bytes(sheets: dict):
+    """sheets: {nombre_hoja: lista_de_dicts}. Cada entrada se vuelve una
+    pestaña de un mismo .xlsx — para un backup completo en un solo archivo."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for name, rows in sheets.items():
+            df = pd.DataFrame(rows) if rows else pd.DataFrame()
+            df.to_excel(writer, index=False, sheet_name=name[:31])
+    return buf.getvalue()
+
+
 def fmt_time(ts):
     """'HH:MM' en hora de Perú de un timestamp ISO. Supabase guarda en UTC;
     si el valor viene sin zona horaria se asume UTC."""
