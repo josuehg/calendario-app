@@ -215,6 +215,35 @@ elif search:
 else:
     st.caption("Aún no has registrado proveedores. Usa \"➕ Nuevo proveedor\" para empezar.")
 
+st.divider()
+
+# ---------- backup completo ----------
+st.subheader("💾 Backup completo de datos")
+st.caption(
+    "Descarga todas las tablas en un solo Excel (una pestaña por tabla) — para análisis "
+    "externo o como respaldo, sin tener que exportarlas una por una desde Supabase."
+)
+_settings = db.get_settings()
+_backup_sheets = {
+    "invoices": db.list_invoices(),
+    "vendors": db.get_vendors(),
+    "branches": db.get_branches_full(),
+    "letras": db.list_letras(),
+    "canjes": db.list_canjes(),
+    "canje_facturas": db.list_canje_facturas(),
+    "expenses": db.list_expenses(),
+    "fixed_expenses": db.list_fixed_expenses(),
+    "expense_categories": db.list_expense_categories(),
+    "expense_subcategories": db.list_expense_subcategories(),
+    "app_settings": [_settings] if _settings else [],
+}
+st.download_button(
+    "⬇️ Descargar backup completo (Excel)",
+    data=utils.dict_list_to_xlsx_bytes(_backup_sheets),
+    file_name=f"backup_control_compras_{utils.today_lima().isoformat()}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
+
 # ---------- dialog: nuevo / editar proveedor ----------
 dialog_state = st.session_state.get("_vendor_dialog")
 if dialog_state:
