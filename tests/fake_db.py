@@ -27,6 +27,7 @@ class FakeDB:
         self.expense_subcategories = []
         self.fixed_expenses = []
         self.expenses = []
+        self.debts = []
         self._seq = itertools.count(1)
 
     def _nid(self, prefix):
@@ -315,3 +316,26 @@ class FakeDB:
         rows = utils.fixed_expense_rows_to_create(active, self.list_expenses(), date.today(), months_ahead)
         for r in rows:
             self.create_expense(r)
+
+    # ---- deudas ----
+    def list_debts(self, active_only=False):
+        rows = [d for d in self.debts if (not active_only or d["active"])]
+        return [dict(d) for d in sorted(rows, key=lambda d: d["creditor"].lower())]
+
+    def create_debt(self, data):
+        row = {
+            "id": self._nid("debt"), "debt_type": "bancario", "rate_pct": None,
+            "rate_period": None, "monthly_payment": None, "start_date": None,
+            "end_date": None, "notes": None, "active": True,
+            **data,
+        }
+        self.debts.append(row)
+        return row
+
+    def update_debt(self, debt_id, data):
+        for d in self.debts:
+            if d["id"] == debt_id:
+                d.update(data)
+
+    def delete_debt(self, debt_id):
+        self.debts[:] = [d for d in self.debts if d["id"] != debt_id]

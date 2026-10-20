@@ -16,6 +16,7 @@ ADMIN_VIEWS = [
     "views/6_Configuracion.py",
     "views/7_Gastos.py",
     "views/8_Validacion.py",
+    "views/9_Deudas.py",
 ]
 
 
