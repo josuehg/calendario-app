@@ -25,12 +25,13 @@ today = utils.today_str()
 
 # ---------- filtros ----------
 branches = ["Todas"] + db.get_branches() + ["Oficina central"]
-f1, f2, f3, f4, f5 = st.columns([1.2, 1.4, 1, 1, 1])
+f1, f2, f3, f4, f5, f6 = st.columns([1.1, 1.3, 1, 0.9, 0.9, 0.9])
 f_branch = f1.selectbox("Sucursal", branches)
 f_vendor = f2.text_input("Buscar proveedor")
 f_status = f3.selectbox("Estado", ["Todos", "pendiente", "canjeada", "pagada"])
-f_from = f4.date_input("Desde", value=None)
-f_to = f5.date_input("Hasta", value=None)
+f_tipo = f4.selectbox("Tipo", ["Todos", "Contado", "Crédito"])
+f_from = f5.date_input("Desde", value=None)
+f_to = f6.date_input("Hasta", value=None)
 
 rows = invoices
 if f_branch != "Todas":
@@ -39,6 +40,8 @@ if f_vendor:
     rows = [r for r in rows if f_vendor.lower() in r["vendor"].lower()]
 if f_status != "Todos":
     rows = [r for r in rows if r["status"] == f_status]
+if f_tipo != "Todos":
+    rows = [r for r in rows if r["doc_type"] == ("contado" if f_tipo == "Contado" else "credito")]
 if f_from:
     rows = [r for r in rows if r["issue_date"] >= f_from.isoformat()]
 if f_to:

@@ -108,6 +108,29 @@ def test_consolidado_shows_fecha_de_registro_column(run_view, db):
     assert df["Fecha de registro"].tolist() == ["2026-09-01 22:00"]
 
 
+def test_consolidado_filtro_tipo_credito_pendiente(run_view, db):
+    """Caso de uso: facturas a crédito pendientes de canjear a letra —
+    Estado='pendiente' + Tipo='Crédito'."""
+    db.invoices.append({"id": "i1", "vendor": "Prov Credito", "invoice_number": "F-1", "branch": "Sucursal 1",
+                        "document_type": "Factura", "doc_type": "credito", "term_days": 30, "amount": 100.0,
+                        "issue_date": "2026-09-01", "due_date": "2026-10-01", "status": "pendiente"})
+    db.invoices.append({"id": "i2", "vendor": "Prov Contado", "invoice_number": "F-2", "branch": "Sucursal 1",
+                        "document_type": "Factura", "doc_type": "contado", "amount": 50.0,
+                        "issue_date": "2026-09-01", "due_date": "2026-09-01", "status": "pendiente"})
+    db.invoices.append({"id": "i3", "vendor": "Prov Canjeada", "invoice_number": "F-3", "branch": "Sucursal 1",
+                        "document_type": "Factura", "doc_type": "credito", "term_days": 30, "amount": 200.0,
+                        "issue_date": "2026-09-01", "due_date": "2026-10-01", "status": "canjeada"})
+    at = run_view("views/2_Consolidado.py", role="admin")
+    for sb in at.selectbox:
+        if sb.label == "Estado":
+            sb.set_value("pendiente")
+        if sb.label == "Tipo":
+            sb.set_value("Crédito")
+    at.run()
+    df = at.dataframe[0].value
+    assert df["Proveedor"].tolist() == ["Prov Credito"]
+
+
 def test_consolidado_shows_download_button(run_view, db):
     db.invoices.append({"id": "i1", "vendor": "Prov A", "invoice_number": "F1", "branch": "Sucursal 1",
                         "document_type": "Factura", "doc_type": "contado", "amount": 100.0,
