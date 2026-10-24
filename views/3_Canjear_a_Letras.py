@@ -213,22 +213,47 @@ with tab_canje:
     if _canje_done:
         st.success(_canje_done)
 
-    if "canje_selected_ids" not in st.session_state:
-        st.session_state["canje_selected_ids"] = st.session_state.pop("canje_preselect", [])
+    _canje_pre = st.session_state.pop("canje_preselect", None)
+    if _canje_pre is not None:
+        # Viene de "Canjear seleccionadas" en Consolidado. Si ya se había usado
+        # esta pestaña antes en la sesión, el multiselect tiene su propio
+        # estado por key — hay que limpiarlo para que tome la preselección
+        # nueva en vez de quedarse con la selección anterior.
+        st.session_state["canje_selected_ids"] = _canje_pre
+        st.session_state.pop("canje_multiselect", None)
+    elif "canje_selected_ids" not in st.session_state:
+        st.session_state["canje_selected_ids"] = []
     if "canje_letra_ids" not in st.session_state:
         st.session_state["canje_letra_ids"] = []
 
     if not pendientes_credito:
         st.info("No hay facturas a crédito pendientes de canje.")
     else:
+        f_vendor_canje = st.text_input(
+            "🔎 Filtrar por proveedor (para encontrar más rápido entre varias facturas)",
+            key="canje_f_vendor",
+        )
+        selected_now = set(st.session_state["canje_selected_ids"])
+        s = f_vendor_canje.strip().lower()
+        # Las ya elegidas se quedan visibles aunque no coincidan con el filtro
+        # actual — así buscar por otro proveedor no te borra lo ya elegido.
+        candidatos = [
+            r for r in pendientes_credito
+            if not s or s in r["vendor"].lower() or r["id"] in selected_now
+        ]
         options = {
             f"{r['vendor']} · Fact. {r['invoice_number']} · {r['branch']} · {utils.money(r['amount'])} · vence {utils.fmt_short(r['due_date'])}": r["id"]
-            for r in pendientes_credito
+            for r in candidatos
         }
         id_to_label = {v: k for k, v in options.items()}
         default_labels = [id_to_label[i] for i in st.session_state["canje_selected_ids"] if i in id_to_label]
 
-        selected_labels = st.multiselect("Facturas a incluir en este canje", list(options.keys()), default=default_labels)
+        # key fija: sin ella, Streamlit a veces "olvida" lo ya elegido cuando
+        # el orden de las facturas pendientes cambia entre recargas.
+        selected_labels = st.multiselect(
+            "Facturas a incluir en este canje", list(options.keys()),
+            default=default_labels, key="canje_multiselect",
+        )
         selected_ids = [options[l] for l in selected_labels]
         st.session_state["canje_selected_ids"] = selected_ids
         selected_invoices = [i for i in pendientes_credito if i["id"] in selected_ids]
@@ -331,6 +356,7 @@ if st.session_state.get("_canje_pending"):
             db.create_canje(cp["invoice_ids"], cp["letras"], created_by=utils.current_actor())
             st.session_state["_canje_pending"] = None
             st.session_state["canje_selected_ids"] = []
+            st.session_state.pop("canje_multiselect", None)
             st.session_state["canje_letra_ids"] = []
             st.session_state["_canje_done"] = (
                 f"Canje registrado: {len(cp['invoice_ids'])} factura(s) → {len(cp['letras'])} letra(s)."
