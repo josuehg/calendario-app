@@ -70,8 +70,8 @@ else:
         # Agrupado por tipo (en vez de una sola lista mezclada por fecha) —
         # así no se confunden facturas sueltas con letras ya agrupadas.
         grupos = [
-            ("📄 Facturas a crédito", "Crédito", "Consolidado"),
-            ("💵 Contado", "Contado", "Consolidado"),
+            ("📄 Facturas a crédito", "Crédito", "Facturas"),
+            ("💵 Contado", "Contado", "Facturas"),
             ("🔁 Letras", "Letras", "Letras → Todas las letras"),
         ]
         hubo_algo = False
@@ -90,7 +90,7 @@ else:
         filtered = [e for e in events if _matches_filtro(e, filtro)]
         if not filtered:
             st.caption("No hay ninguno con este filtro.")
-        destino = "Letras → Todas las letras" if filtro == "Letras" else "Consolidado"
+        destino = "Letras → Todas las letras" if filtro == "Letras" else "Facturas"
         _render_lista(filtered, destino)
 
 if st.session_state.get("_show_pay_dialog"):

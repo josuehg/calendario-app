@@ -215,7 +215,7 @@ with tab_canje:
 
     _canje_pre = st.session_state.pop("canje_preselect", None)
     if _canje_pre is not None:
-        # Viene de "Canjear seleccionadas" en Consolidado. Si ya se había usado
+        # Viene de "Canjear seleccionadas" en Facturas. Si ya se había usado
         # esta pestaña antes en la sesión, el multiselect tiene su propio
         # estado por key — hay que limpiarlo para que tome la preselección
         # nueva en vez de quedarse con la selección anterior.
