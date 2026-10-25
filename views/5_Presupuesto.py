@@ -46,3 +46,34 @@ for b in buckets:
     cols[0].write(f"**{utils.fmt_short(b['start'])} – {utils.fmt_short(b['end'])}**{tag}")
     cols[1].write(f"{b['count']} pago(s)")
     cols[2].write(f"**{utils.money(b['amount'])}**")
+
+st.divider()
+st.subheader("Balance semanal (histórico)")
+st.caption(
+    "Por semana: lo que vencía (Debido), lo que realmente se pagó (Pagado) y "
+    "el saldo pendiente acumulado hasta esa semana — igual que llevarías la "
+    "cuenta en una hoja de cálculo, pero calculado solo con tus datos."
+)
+WEEKS_BACK_OPTIONS = [4, 8, 12]
+weeks_back = st.radio(
+    "Semanas hacia atrás", WEEKS_BACK_OPTIONS, index=1, horizontal=True, key="pp_weeks_back",
+    format_func=lambda w: f"{w} semanas",
+)
+balance = utils.weekly_balance(invoices, letras, expenses, weeks_back=weeks_back)
+if not balance:
+    st.caption("No hay movimientos registrados todavía.")
+else:
+    bc1, bc2, bc3, bc4 = st.columns([2.5, 1, 1, 1])
+    bc1.markdown("**Semana**")
+    bc2.markdown("**Debido**")
+    bc3.markdown("**Pagado**")
+    bc4.markdown("**Saldo pendiente**")
+    for b in balance:
+        bc1, bc2, bc3, bc4 = st.columns([2.5, 1, 1, 1])
+        is_current = b["start"] <= today <= b["end"]
+        tag = " 🟢" if is_current else ""
+        bc1.write(f"{utils.fmt_short(b['start'])} – {utils.fmt_short(b['end'])}{tag}")
+        bc2.write(utils.money(b["debido"]))
+        bc3.write(utils.money(b["pagado"]))
+        color = ":red" if b["saldo"] > 0 else ":green"
+        bc4.markdown(f"{color}[**{utils.money(b['saldo'])}**]")

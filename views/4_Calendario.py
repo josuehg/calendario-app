@@ -14,6 +14,31 @@ expenses = db.list_expenses()
 track_contado = db.get_settings().get("track_contado", True)
 events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado, expenses)
 
+TIPOS_CAL = ["Todos", "Facturas a crédito", "Contado", "Letras", "Gastos fijos", "Gastos variables"]
+fc1, fc2 = st.columns(2)
+f_tipo_cal = fc1.selectbox("Tipo", TIPOS_CAL, key="cal_f_tipo")
+categorias_cal = ["Todas"] + [c["name"] for c in db.list_expense_categories()]
+f_cat_cal = fc2.selectbox("Categoría (solo gastos)", categorias_cal, key="cal_f_categoria")
+
+
+def _cal_matches(e):
+    if f_tipo_cal == "Facturas a crédito" and not (e["kind"] == "invoice" and e.get("doc_type") == "credito"):
+        return False
+    if f_tipo_cal == "Contado" and not (e["kind"] == "invoice" and e.get("doc_type") == "contado"):
+        return False
+    if f_tipo_cal == "Letras" and e["kind"] != "letra":
+        return False
+    if f_tipo_cal == "Gastos fijos" and not (e["kind"] == "expense" and e.get("expense_kind") == "fijo"):
+        return False
+    if f_tipo_cal == "Gastos variables" and not (e["kind"] == "expense" and e.get("expense_kind") == "variable"):
+        return False
+    if f_cat_cal != "Todas" and e.get("category") != f_cat_cal:
+        return False
+    return True
+
+
+events = [e for e in events if _cal_matches(e)]
+
 today = date.today()
 if "cal_year" not in st.session_state:
     st.session_state["cal_year"] = today.year
