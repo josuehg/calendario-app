@@ -51,6 +51,21 @@ def test_sin_filtro_muestra_todo(run_view, db):
     assert "Contado Uno" in text and "Credito Uno" in text and "Letra L-1" in text
 
 
+def test_todos_agrupa_por_tipo_con_encabezados_y_subtotal(run_view, db):
+    _seed(db)
+    at = run_view(VIEW, role="admin")
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "📄 Facturas a crédito" in text and "S/ 200.00" in text
+    assert "💵 Contado" in text and "S/ 50.00" in text
+    assert "🔁 Letras" in text and "S/ 500.00" in text
+    # y los encabezados de grupo deben aparecer antes que las filas de otro
+    # grupo (no deben seguir mezclados en una sola lista por fecha)
+    idx_credito = text.index("📄 Facturas a crédito")
+    idx_contado = text.index("💵 Contado")
+    idx_letras = text.index("🔁 Letras")
+    assert idx_credito < idx_contado < idx_letras
+
+
 def test_filtro_contado_solo_muestra_facturas_al_contado(run_view, db):
     _seed(db)
     at = _set_filtro(run_view(VIEW, role="admin"), "Contado")
