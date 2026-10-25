@@ -36,6 +36,17 @@ def _matches_filtro(e, filtro):
     return True
 
 
+MOSTRAR_TOPE = 20
+
+
+def _render_lista(items, destino):
+    for e in items[:MOSTRAR_TOPE]:
+        _render_row(e)
+    restantes = len(items) - MOSTRAR_TOPE
+    if restantes > 0:
+        st.caption(f"+ {restantes} más — ve a **{destino}** para verlas todas.")
+
+
 def _render_row(e):
     cols = st.columns([3, 2, 2, 1.5, 1.5])
     cols[0].markdown(f"**{e['vendor']}**  \n<span style='font-size:12px;color:gray'>Fact. {e['invoice_number']} · {e['branch']}</span>", unsafe_allow_html=True)
@@ -59,20 +70,19 @@ else:
         # Agrupado por tipo (en vez de una sola lista mezclada por fecha) —
         # así no se confunden facturas sueltas con letras ya agrupadas.
         grupos = [
-            ("📄 Facturas a crédito", "Crédito"),
-            ("💵 Contado", "Contado"),
-            ("🔁 Letras", "Letras"),
+            ("📄 Facturas a crédito", "Crédito", "Consolidado"),
+            ("💵 Contado", "Contado", "Consolidado"),
+            ("🔁 Letras", "Letras", "Letras → Todas las letras"),
         ]
         hubo_algo = False
-        for titulo, tipo in grupos:
+        for titulo, tipo, destino in grupos:
             items = [e for e in events if _matches_filtro(e, tipo)]
             if not items:
                 continue
             hubo_algo = True
             subtotal = utils.dsum(i["amount"] for i in items)
             st.markdown(f"**{titulo}** · {len(items)} · {utils.money(subtotal)}")
-            for e in items[:15]:
-                _render_row(e)
+            _render_lista(items, destino)
             st.divider()
         if not hubo_algo:
             st.caption("No hay ninguno con este filtro.")
@@ -80,8 +90,8 @@ else:
         filtered = [e for e in events if _matches_filtro(e, filtro)]
         if not filtered:
             st.caption("No hay ninguno con este filtro.")
-        for e in filtered[:15]:
-            _render_row(e)
+        destino = "Letras → Todas las letras" if filtro == "Letras" else "Consolidado"
+        _render_lista(filtered, destino)
 
 if st.session_state.get("_show_pay_dialog"):
     e = st.session_state["_pay_target"]

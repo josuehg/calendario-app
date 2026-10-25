@@ -51,6 +51,20 @@ def test_sin_filtro_muestra_todo(run_view, db):
     assert "Contado Uno" in text and "Credito Uno" in text and "Letra L-1" in text
 
 
+def test_mas_de_veinte_letras_no_se_pierden_en_silencio(run_view, db):
+    """Regresión: el tope de 15 por sección cortaba las letras más lejanas
+    (ej. las de diciembre) sin avisar — ahora debe salir un '+N más'."""
+    for i in range(22):
+        db.create_letra({
+            "numero": f"L-{i}", "monto": 100.0, "fecha_vencimiento": f"2026-{10 + i % 3:02d}-05",
+            "vendor": f"Prov {i}", "branch": "Sucursal 1",
+        })
+    at = _set_filtro(run_view(VIEW, role="admin"), "Letras")
+    caps = " ".join(str(c.value) for c in at.caption)
+    assert "+ 2 más" in caps
+    assert "Letras → Todas las letras" in caps
+
+
 def test_todos_agrupa_por_tipo_con_encabezados_y_subtotal(run_view, db):
     _seed(db)
     at = run_view(VIEW, role="admin")
