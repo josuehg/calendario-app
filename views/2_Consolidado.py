@@ -5,7 +5,7 @@ import pandas as pd
 import db
 import utils
 
-st.title("📋 Consolidado de facturas")
+st.title("📋 Facturas")
 
 # Streamlit no permite dos diálogos en el mismo run: al abrir uno se limpian
 # los otros gates, y abajo se elige uno solo con elif.
@@ -73,8 +73,8 @@ else:
     )
     st.download_button(
         "⬇️ Descargar (Excel)",
-        data=utils.df_to_xlsx_bytes(df_view.drop(columns=["Vencida"]), "Consolidado"),
-        file_name=f"consolidado_facturas_{utils.today_lima().isoformat()}.xlsx",
+        data=utils.df_to_xlsx_bytes(df_view.drop(columns=["Vencida"]), "Facturas"),
+        file_name=f"facturas_{utils.today_lima().isoformat()}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

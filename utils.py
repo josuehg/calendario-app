@@ -189,7 +189,7 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
       due_date (los 'pagado' y 'omitido' no).
     Las facturas 'pagada' o 'canjeada' no generan evento por sí mismas.
     Si track_contado es False, las facturas al contado se excluyen (siguen
-    registradas y visibles en Consolidado, solo no aparecen en estas vistas).
+    registradas y visibles en Facturas, solo no aparecen en estas vistas).
     """
     today = today_str()
     inv_by_id = {i["id"]: i for i in invoices}

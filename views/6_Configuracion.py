@@ -12,7 +12,7 @@ track_contado = st.toggle(
     value=settings.get("track_contado", True),
     help=(
         "Si lo apagas, las compras al contado se siguen registrando y ves todas en "
-        "Consolidado, pero dejan de aparecer en Resumen, Calendario y Presupuesto — "
+        "Facturas, pero dejan de aparecer en Resumen, Calendario y Presupuesto — "
         "así esas vistas quedan enfocadas solo en las cuentas por pagar (crédito)."
     ),
 )
