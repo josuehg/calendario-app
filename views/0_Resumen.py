@@ -36,25 +36,52 @@ def _matches_filtro(e, filtro):
     return True
 
 
+def _render_row(e):
+    cols = st.columns([3, 2, 2, 1.5, 1.5])
+    cols[0].markdown(f"**{e['vendor']}**  \n<span style='font-size:12px;color:gray'>Fact. {e['invoice_number']} · {e['branch']}</span>", unsafe_allow_html=True)
+    cols[1].write(e["label"])
+    badge = f"🔴 Vencido {utils.fmt_short(e['date'])}" if e["overdue"] else f"🟡 {utils.fmt_short(e['date'])}"
+    cols[2].write(badge)
+    cols[3].write(f"**{utils.money(e['amount'])}**")
+    with cols[4]:
+        if st.button("Pagado", key=f"pay_{e['kind']}_{e['ref_id']}"):
+            st.session_state["_pay_target"] = e
+            st.session_state["_show_pay_dialog"] = True
+            st.rerun()
+
+
 if not events:
     st.info("No hay pagos pendientes registrados. Ve a **Nueva Factura** en el menú de la izquierda para empezar.")
 else:
     filtro = st.radio("Filtrar", FILTROS_TIPO, horizontal=True, label_visibility="collapsed", key="resumen_filtro_tipo")
-    filtered = [e for e in events if _matches_filtro(e, filtro)]
-    if not filtered:
-        st.caption("No hay ninguno con este filtro.")
-    for e in filtered[:15]:
-        cols = st.columns([3, 2, 2, 1.5, 1.5])
-        cols[0].markdown(f"**{e['vendor']}**  \n<span style='font-size:12px;color:gray'>Fact. {e['invoice_number']} · {e['branch']}</span>", unsafe_allow_html=True)
-        cols[1].write(e["label"])
-        badge = f"🔴 Vencido {utils.fmt_short(e['date'])}" if e["overdue"] else f"🟡 {utils.fmt_short(e['date'])}"
-        cols[2].write(badge)
-        cols[3].write(f"**{utils.money(e['amount'])}**")
-        with cols[4]:
-            if st.button("Pagado", key=f"pay_{e['kind']}_{e['ref_id']}"):
-                st.session_state["_pay_target"] = e
-                st.session_state["_show_pay_dialog"] = True
-                st.rerun()
+
+    if filtro == "Todos":
+        # Agrupado por tipo (en vez de una sola lista mezclada por fecha) —
+        # así no se confunden facturas sueltas con letras ya agrupadas.
+        grupos = [
+            ("📄 Facturas a crédito", "Crédito"),
+            ("💵 Contado", "Contado"),
+            ("🔁 Letras", "Letras"),
+        ]
+        hubo_algo = False
+        for titulo, tipo in grupos:
+            items = [e for e in events if _matches_filtro(e, tipo)]
+            if not items:
+                continue
+            hubo_algo = True
+            subtotal = utils.dsum(i["amount"] for i in items)
+            st.markdown(f"**{titulo}** · {len(items)} · {utils.money(subtotal)}")
+            for e in items[:15]:
+                _render_row(e)
+            st.divider()
+        if not hubo_algo:
+            st.caption("No hay ninguno con este filtro.")
+    else:
+        filtered = [e for e in events if _matches_filtro(e, filtro)]
+        if not filtered:
+            st.caption("No hay ninguno con este filtro.")
+        for e in filtered[:15]:
+            _render_row(e)
 
 if st.session_state.get("_show_pay_dialog"):
     e = st.session_state["_pay_target"]
