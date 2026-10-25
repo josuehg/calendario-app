@@ -31,6 +31,18 @@ def _seed(db):
                     created_by="Administrador")
 
 
+def test_vencido_muestra_la_fecha_tambien(run_view, db):
+    db.create_invoice({
+        "branch": "Sucursal 1", "vendor": "Vencido Uno", "invoice_number": "V-1",
+        "document_type": "Factura", "doc_type": "credito", "term_days": 30, "amount": 100.0,
+        "issue_date": "2019-12-01", "due_date": "2020-01-01", "status": "pendiente",
+    })
+    at = run_view(VIEW, role="admin")
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "🔴 Vencido" in text
+    assert "01/01/20" in text
+
+
 def test_sin_filtro_muestra_todo(run_view, db):
     _seed(db)
     at = run_view(VIEW, role="admin")
