@@ -216,6 +216,7 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
                 "label": "Contado" if inv["doc_type"] == "contado" else "Factura a crédito",
                 "overdue": inv["due_date"] < today,
                 "kind": "invoice",
+                "doc_type": inv["doc_type"],
                 "ref_id": inv["id"],
             })
 
@@ -258,6 +259,8 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
             "label": f"Gasto {x['kind']} · {x['category']}",
             "overdue": x["due_date"] < today,
             "kind": "expense",
+            "expense_kind": x["kind"],
+            "category": x["category"],
             "ref_id": x["id"],
         })
 
@@ -378,6 +381,68 @@ def weekly_buckets(events, weeks_ahead=WEEKS_AHEAD):
     for b in buckets:
         b["amount"] = dsum(b.pop("_items"))
     return buckets
+
+
+def weekly_balance(invoices, letras, expenses, weeks_back=8):
+    """Balance semanal histórico: para cada semana (de la primera deuda
+    registrada hasta la semana actual) cuánto se debía (por vencimiento),
+    cuánto se pagó de verdad (por fecha de pago) y el saldo pendiente
+    acumulado (deuda acumulada - pagado acumulado) a esa altura. Devuelve
+    solo las últimas `weeks_back` semanas, pero el acumulado se calcula
+    desde el principio para que el saldo sea correcto."""
+    debido = []
+    pagado = []
+
+    for inv in invoices:
+        if inv.get("doc_type") != "credito":
+            continue
+        debido.append((inv["due_date"], float(inv["amount"])))
+        if inv.get("status") == "pagada" and inv.get("paid_at"):
+            pagado.append((inv["paid_at"], float(inv["amount"])))
+
+    for l in letras:
+        debido.append((l["fecha_vencimiento"], float(l["monto"])))
+        if l.get("estado") == "pagada" and l.get("fecha_pago"):
+            pagado.append((l["fecha_pago"], float(l["monto"])))
+
+    for x in (expenses or []):
+        debido.append((x["due_date"], float(x["amount"])))
+        if x.get("status") == "pagado" and x.get("paid_at"):
+            pagado.append((x["paid_at"], float(x["amount"])))
+
+    if not debido and not pagado:
+        return []
+
+    today = today_str()
+    primera = min([d for d, _ in debido] + [d for d, _ in pagado])
+    ws = start_of_week(min(primera, today))
+    ultima_semana = start_of_week(today)
+
+    debido_por_semana = {}
+    for d, amt in debido:
+        wk = start_of_week(d)
+        debido_por_semana[wk] = debido_por_semana.get(wk, 0.0) + amt
+    pagado_por_semana = {}
+    for d, amt in pagado:
+        wk = start_of_week(d)
+        pagado_por_semana[wk] = pagado_por_semana.get(wk, 0.0) + amt
+
+    buckets = []
+    acum_debido = 0.0
+    acum_pagado = 0.0
+    while ws <= ultima_semana:
+        d = debido_por_semana.get(ws, 0.0)
+        p = pagado_por_semana.get(ws, 0.0)
+        acum_debido += d
+        acum_pagado += p
+        buckets.append({
+            "start": ws, "end": add_days(ws, 6),
+            "debido": round2(d), "pagado": round2(p),
+            "saldo": round2(acum_debido - acum_pagado),
+        })
+        ws = add_days(ws, 7)
+
+    return buckets[-weeks_back:]
 
 
 def events_dataframe(events):

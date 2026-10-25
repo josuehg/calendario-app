@@ -205,3 +205,33 @@ def test_compute_stats_and_weekly_buckets(utils, monkeypatch):
     assert s["total_pendiente"] == 200.0
     buckets = utils.weekly_buckets(events, weeks_ahead=13)
     assert sum(b["count"] for b in buckets) >= 3
+
+
+# ---------- balance semanal (Presupuesto) ----------
+
+def test_weekly_balance_tracks_debido_pagado_y_saldo(utils, monkeypatch):
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-09-21")
+    invoices = [
+        {"doc_type": "credito", "due_date": "2026-09-01", "amount": 100.0, "status": "pendiente", "paid_at": None},
+        {"doc_type": "credito", "due_date": "2026-09-08", "amount": 50.0, "status": "pagada", "paid_at": "2026-09-10"},
+        {"doc_type": "contado", "due_date": "2026-09-05", "amount": 999.0, "status": "pendiente", "paid_at": None},
+    ]
+    letras = [{"fecha_vencimiento": "2026-09-15", "monto": 30.0, "estado": "pendiente", "fecha_pago": None}]
+    expenses = [{"due_date": "2026-09-20", "amount": 20.0, "status": "pendiente", "paid_at": None}]
+
+    buckets = utils.weekly_balance(invoices, letras, expenses, weeks_back=8)
+    assert buckets
+    assert sum(b["debido"] for b in buckets) == 200.0   # 100 + 50 + 30 + 20, sin el contado
+    assert sum(b["pagado"] for b in buckets) == 50.0
+    assert buckets[-1]["saldo"] == 150.0                # 200 - 50, acumulado hasta la última semana
+
+
+def test_weekly_balance_respects_weeks_back_limit(utils, monkeypatch):
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-12-01")
+    invoices = [{"doc_type": "credito", "due_date": "2026-01-05", "amount": 10.0, "status": "pendiente", "paid_at": None}]
+    buckets = utils.weekly_balance(invoices, [], [], weeks_back=4)
+    assert len(buckets) == 4
+
+
+def test_weekly_balance_empty_when_no_data(utils):
+    assert utils.weekly_balance([], [], []) == []
