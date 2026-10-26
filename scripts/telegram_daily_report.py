@@ -13,9 +13,14 @@ un .streamlit/secrets.toml con SUPABASE_URL / SUPABASE_SERVICE_KEY
 (el workflow lo genera a partir de GitHub Secrets antes de ejecutar esto).
 """
 import os
+import pathlib
 import sys
 import urllib.request
 import urllib.parse
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import db
 import utils
