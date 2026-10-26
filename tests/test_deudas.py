@@ -113,3 +113,106 @@ def test_search_filters_by_creditor(run_view, db):
             break
     text = " ".join(str(m.value) for m in at.markdown)
     assert "Carmen" in text and "Scotiabank" not in text
+
+
+# ---------- vinculación con Gastos Fijos ----------
+
+def _fx_link_selectbox(at):
+    for sb in at.selectbox:
+        if sb.key == "dd_fx_link":
+            return sb
+    raise AssertionError("no se encontró el selectbox dd_fx_link")
+
+
+def test_selectbox_solo_ofrece_categorias_de_prestamo(run_view, db):
+    db.create_fixed_expense({"name": "Scotiabank", "category": "Préstamos Pers. Jur.",
+                             "branch": None, "amount": 15866.13, "pay_day": 5})
+    db.create_fixed_expense({"name": "Sra Carmen", "category": "Préstamos Usu",
+                             "branch": None, "amount": 9400.0, "pay_day": 18})
+    db.create_fixed_expense({"name": "Alquiler Colón", "category": "Alquiler",
+                             "branch": "COLON", "amount": 3000.0, "pay_day": 1})
+    at = run_view(VIEW, role="admin")
+    click(at, "➕ Nueva deuda")
+    sb = _fx_link_selectbox(at)
+    assert any("Scotiabank" in o for o in sb.options)
+    assert any("Sra Carmen" in o for o in sb.options)
+    assert not any("Alquiler" in o for o in sb.options)
+
+
+def test_vincular_prestamo_precarga_acreedor_y_tipo(run_view, db):
+    db.create_fixed_expense({"name": "Sra Carmen", "category": "Préstamos Usu",
+                             "branch": None, "amount": 9400.0, "pay_day": 18})
+    at = run_view(VIEW, role="admin")
+    click(at, "➕ Nueva deuda")
+    sb = _fx_link_selectbox(at)
+    opcion = next(o for o in sb.options if "Sra Carmen" in o)
+    sb.set_value(opcion).run()
+    assert any("Sra Carmen" in ti.value for ti in at.text_input if ti.key == "dd_creditor_linked")
+    radio = next(r for r in at.radio if r.key == "dd_type")
+    assert radio.value == "informal"
+
+
+def test_guardar_vinculado_guarda_fixed_expense_id_y_cuota(run_view, db):
+    fx = db.create_fixed_expense({"name": "Sra Carmen", "category": "Préstamos Usu",
+                                  "branch": None, "amount": 9400.0, "pay_day": 18})
+    at = run_view(VIEW, role="admin")
+    click(at, "➕ Nueva deuda")
+    sb = _fx_link_selectbox(at)
+    sb.set_value(next(o for o in sb.options if "Sra Carmen" in o)).run()
+    widget(at, "dd_principal", "number_input").set_value(94000.0).run()
+    widget(at, "dd_balance", "number_input").set_value(94000.0).run()
+    click(at, "Guardar")
+    assert not at.exception
+    assert db.debts[0]["fixed_expense_id"] == fx["id"]
+    assert db.debts[0]["creditor"] == "Sra Carmen"
+    assert db.debts[0]["monthly_payment"] == 9400.0
+
+
+def test_prestamo_ya_vinculado_no_se_ofrece_de_nuevo(run_view, db):
+    fx = db.create_fixed_expense({"name": "Sra Carmen", "category": "Préstamos Usu",
+                                  "branch": None, "amount": 9400.0, "pay_day": 18})
+    db.create_debt({"creditor": "Sra Carmen", "debt_type": "informal", "fixed_expense_id": fx["id"],
+                    "principal": 94000.0, "balance": 94000.0, "monthly_payment": 9400.0})
+    at = run_view(VIEW, role="admin")
+    click(at, "➕ Nueva deuda")
+    sb = _fx_link_selectbox(at)
+    assert not any("Sra Carmen" in o for o in sb.options)
+
+
+def test_editar_deuda_vinculada_preselecciona_su_propio_prestamo(run_view, db):
+    fx = db.create_fixed_expense({"name": "Sra Carmen", "category": "Préstamos Usu",
+                                  "branch": None, "amount": 9400.0, "pay_day": 18})
+    db.create_debt({"creditor": "Sra Carmen", "debt_type": "informal", "fixed_expense_id": fx["id"],
+                    "principal": 94000.0, "balance": 94000.0, "monthly_payment": 9400.0})
+    at = run_view(VIEW, role="admin")
+    click(at, "Editar")
+    sb = _fx_link_selectbox(at)
+    assert "Sra Carmen" in sb.value
+
+
+def test_listado_muestra_cuota_en_vivo_del_gasto_fijo(run_view, db):
+    """Si se actualiza la cuota en Gastos Fijos, Deudas debe reflejarla sola,
+    sin tener que re-editar la deuda."""
+    fx = db.create_fixed_expense({"name": "Sra Carmen", "category": "Préstamos Usu",
+                                  "branch": None, "amount": 9400.0, "pay_day": 18})
+    db.create_debt({"creditor": "Sra Carmen", "debt_type": "informal", "fixed_expense_id": fx["id"],
+                    "principal": 94000.0, "balance": 94000.0, "monthly_payment": 9400.0})
+    db.update_fixed_expense(fx["id"], {"name": "Sra Carmen", "category": "Préstamos Usu", "branch": None,
+                                       "amount": 11000.0, "pay_day": 18, "active": True,
+                                       "start_month": None, "end_month": None})
+    at = run_view(VIEW, role="admin")
+    text = " ".join(str(c.value) for c in at.caption)
+    assert "S/ 11,000.00" in text
+    assert "S/ 9,400.00" not in text
+
+
+def test_listado_marca_vinculada(run_view, db):
+    fx = db.create_fixed_expense({"name": "Sra Carmen", "category": "Préstamos Usu",
+                                  "branch": None, "amount": 9400.0, "pay_day": 18})
+    db.create_debt({"creditor": "Sra Carmen", "debt_type": "informal", "fixed_expense_id": fx["id"],
+                    "principal": 94000.0, "balance": 94000.0, "monthly_payment": 9400.0})
+    db.create_debt({"creditor": "Deuda Suelta", "debt_type": "bancario",
+                    "principal": 1000.0, "balance": 1000.0})
+    at = run_view(VIEW, role="admin")
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "🔗 vinculada a Gastos Fijos" in text

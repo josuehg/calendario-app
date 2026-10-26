@@ -140,6 +140,7 @@ create table if not exists debts (
   id uuid primary key default gen_random_uuid(),
   creditor text not null,
   debt_type text not null default 'bancario' check (debt_type in ('bancario', 'informal')),
+  fixed_expense_id int references fixed_expenses(id) on delete set null,
   principal numeric(12,2) not null check (principal > 0),
   balance numeric(12,2) not null check (balance >= 0),
   rate_pct numeric(6,3),
