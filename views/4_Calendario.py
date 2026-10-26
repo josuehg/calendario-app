@@ -133,19 +133,52 @@ for week in weeks:
     wc2.write(f"{len(week_items)} pago(s)")
     wc3.write(f"**{utils.money(utils.dsum(e['amount'] for e in week_items))}**")
 
-if st.session_state.get("_cal_day"):
+# Un solo diálogo a la vez: mientras se confirma un pago, se cierra el del día.
+if st.session_state.get("_cal_day") and not st.session_state.get("_cal_pay_target"):
     ds = st.session_state["_cal_day"]
     day_events = by_date.get(ds, {"items": []})["items"]
 
     @st.dialog(f"Pagos del {utils.fmt_long(ds)}")
     def _day_dialog():
         for e in day_events:
-            if e["kind"] == "expense":
-                st.write(f"**{e['vendor']}** · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
-            else:
-                st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                if e["kind"] == "expense":
+                    st.write(f"**{e['vendor']}** · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
+                else:
+                    st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
+            with c2:
+                if st.button("Pagado", key=f"cal_pay_{e['kind']}_{e['ref_id']}", width="stretch"):
+                    st.session_state["_cal_pay_target"] = e
+                    st.rerun()
         if st.button("Cerrar"):
             st.session_state["_cal_day"] = None
             st.rerun()
 
     _day_dialog()
+
+# ---------- diálogo: confirmar pago (se puede abrir desde el del día) ----------
+if st.session_state.get("_cal_pay_target"):
+    _pe = st.session_state["_cal_pay_target"]
+
+    @st.dialog("Marcar como pagado")
+    def _cal_pay_dialog():
+        st.write(f"**{_pe['vendor']}** · {_pe['label']} · {utils.money(_pe['amount'])}")
+        fecha = st.date_input("Fecha de pago", value=None, key="cal_pay_fecha")
+        col_a, col_b = st.columns(2)
+        if col_a.button("Cancelar", width="stretch"):
+            st.session_state["_cal_pay_target"] = None
+            st.rerun()
+        if col_b.button("Confirmar pago", type="primary", width="stretch"):
+            fecha_str = (fecha or date.today()).isoformat()
+            actor = utils.current_actor()
+            if _pe["kind"] == "letra":
+                db.mark_letra_paid(_pe["ref_id"], fecha_str, paid_by=actor)
+            elif _pe["kind"] == "expense":
+                db.set_expense_status(_pe["ref_id"], "pagado", paid_at=fecha_str, paid_by=actor)
+            else:
+                db.mark_invoice_paid(_pe["ref_id"], fecha_str, paid_by=actor)
+            st.session_state["_cal_pay_target"] = None
+            st.rerun()
+
+    _cal_pay_dialog()
