@@ -137,6 +137,70 @@ def test_confirmar_eliminar_borra_gasto(run_view, db):
     assert db.expenses == []
 
 
+def _seed_gasto_fijo_con_futuros(db):
+    fx = db.create_fixed_expense({"name": "Alquiler", "category": "Alquiler", "branch": "Sucursal 1",
+                                  "amount": 1000.0, "pay_day": 15})
+    db.create_expense({"kind": "fijo", "name": "Alquiler", "category": "Alquiler", "branch": "Sucursal 1",
+                       "amount": 1000.0, "due_date": "2020-01-15", "status": "pendiente",
+                       "fixed_expense_id": fx["id"], "period": "2020-01"})
+    db.create_expense({"kind": "fijo", "name": "Alquiler", "category": "Alquiler", "branch": "Sucursal 1",
+                       "amount": 1000.0, "due_date": "2020-02-15", "status": "pendiente",
+                       "fixed_expense_id": fx["id"], "period": "2020-02"})
+    # una ya pagada, de un mes anterior: no debe tocarse
+    db.create_expense({"kind": "fijo", "name": "Alquiler", "category": "Alquiler", "branch": "Sucursal 1",
+                       "amount": 1000.0, "due_date": "2019-12-15", "status": "pagado",
+                       "fixed_expense_id": fx["id"], "period": "2019-12", "paid_at": "2019-12-15"})
+    return fx
+
+
+def test_eliminar_gasto_fijo_ofrece_solo_este_o_futuros(run_view, db):
+    _seed_gasto_fijo_con_futuros(db)
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    click(at, "Eliminar")
+    assert not at.exception
+    assert any(b.label == "Solo este" for b in at.button)
+    assert any(b.label == "Este y los futuros" for b in at.button)
+    assert not any(b.label == "Sí, eliminar" for b in at.button)
+
+
+def test_eliminar_solo_este_no_toca_futuros_ni_desactiva(run_view, db):
+    # Nota: Calendario llama a ensure_expense_instances() al cargar, que
+    # genera instancias reales alrededor de la fecha de HOY para cualquier
+    # gasto fijo activo — por eso se revisan periodos puntuales en vez del
+    # total de db.expenses (que sí va a traer esas de más).
+    fx = _seed_gasto_fijo_con_futuros(db)
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    click(at, "Eliminar")
+    click(at, "Solo este")
+    assert not at.exception
+    periods = [e["period"] for e in db.expenses if e["fixed_expense_id"] == fx["id"]]
+    assert "2020-01" not in periods
+    assert "2020-02" in periods
+    assert "2019-12" in periods
+    assert db.fixed_expenses[0]["active"] is True
+
+
+def test_eliminar_este_y_futuros_borra_pendientes_y_desactiva_plantilla(run_view, db):
+    fx = _seed_gasto_fijo_con_futuros(db)
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    click(at, "Eliminar")
+    click(at, "Este y los futuros")
+    assert not at.exception
+    propias = [e for e in db.expenses if e["fixed_expense_id"] == fx["id"]]
+    assert all(e["status"] == "pagado" for e in propias)
+    assert any(e["period"] == "2019-12" for e in propias)   # la pagada se mantiene intacta
+    assert db.fixed_expenses[0]["id"] == fx["id"] and db.fixed_expenses[0]["active"] is False
+
+
+def test_eliminar_gasto_variable_sigue_con_un_solo_boton(run_view, db):
+    db.create_expense({"kind": "variable", "name": "Reparación", "category": "Servicios",
+                       "branch": "Sucursal 1", "amount": 75.0, "due_date": "2020-01-15", "status": "pendiente"})
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    click(at, "Eliminar")
+    assert not any(b.label == "Solo este" for b in at.button)
+    assert any(b.label == "Sí, eliminar" for b in at.button)
+
+
 def test_cancelar_eliminar_no_borra_y_vuelve_al_dia(run_view, db):
     _seed_invoice(db)
     at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")

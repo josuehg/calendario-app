@@ -277,6 +277,7 @@ if st.session_state.get("_cal_edit_target"):
 # ---------- diálogo: eliminar con confirmación ----------
 if st.session_state.get("_cal_del_target"):
     _de = st.session_state["_cal_del_target"]
+    _es_gasto_fijo = _de["kind"] == "expense" and _de.get("expense_kind") == "fijo"
 
     @st.dialog("Eliminar")
     def _cal_del_dialog():
@@ -284,18 +285,36 @@ if st.session_state.get("_cal_del_target"):
             f"¿Eliminar **{_de['vendor']}** · {_de['label']} · {utils.money(_de['amount'])}? "
             "Esta acción no se puede deshacer."
         )
-        c1, c2 = st.columns(2)
-        if c1.button("No, cancelar", width="stretch"):
-            st.session_state["_cal_del_target"] = None
-            st.rerun()
-        if c2.button("Sí, eliminar", type="primary", width="stretch"):
-            if _de["kind"] == "invoice":
-                db.delete_invoice(_de["ref_id"])
-            elif _de["kind"] == "letra":
-                db.delete_letra(_de["ref_id"])
-            else:
+        if _es_gasto_fijo:
+            st.caption(
+                "Es un gasto fijo recurrente — ¿eliminas solo este pago, o este y todos "
+                "los que vienen después (deja de generarse este gasto de aquí en adelante)?"
+            )
+            e1, e2, e3 = st.columns(3)
+            if e1.button("Solo este", width="stretch"):
                 db.delete_expense(_de["ref_id"])
-            st.session_state["_cal_del_target"] = None
-            st.rerun()
+                st.session_state["_cal_del_target"] = None
+                st.rerun()
+            if e2.button("Este y los futuros", type="primary", width="stretch"):
+                db.delete_future_fixed_expenses(_de["fixed_expense_id"], _de["date"])
+                st.session_state["_cal_del_target"] = None
+                st.rerun()
+            if e3.button("Cancelar", width="stretch"):
+                st.session_state["_cal_del_target"] = None
+                st.rerun()
+        else:
+            c1, c2 = st.columns(2)
+            if c1.button("No, cancelar", width="stretch"):
+                st.session_state["_cal_del_target"] = None
+                st.rerun()
+            if c2.button("Sí, eliminar", type="primary", width="stretch"):
+                if _de["kind"] == "invoice":
+                    db.delete_invoice(_de["ref_id"])
+                elif _de["kind"] == "letra":
+                    db.delete_letra(_de["ref_id"])
+                else:
+                    db.delete_expense(_de["ref_id"])
+                st.session_state["_cal_del_target"] = None
+                st.rerun()
 
     _cal_del_dialog()

@@ -261,6 +261,7 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
             "kind": "expense",
             "expense_kind": x["kind"],
             "category": x["category"],
+            "fixed_expense_id": x.get("fixed_expense_id"),
             "ref_id": x["id"],
         })
 
