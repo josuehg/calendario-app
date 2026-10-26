@@ -49,9 +49,9 @@ def test_fixed_expense_generates_instances(db):
     })
     db.ensure_expense_instances()
     gen = [e for e in db.expenses if e["fixed_expense_id"]]
-    assert len(gen) == 4                       # mes actual + 3
+    assert len(gen) == 7                       # mes actual + 6
     db.ensure_expense_instances()              # idempotente
-    assert len([e for e in db.expenses if e["fixed_expense_id"]]) == 4
+    assert len([e for e in db.expenses if e["fixed_expense_id"]]) == 7
 
 
 def test_inactive_fixed_expense_not_generated(db):
@@ -276,7 +276,7 @@ def test_remove_end_date_makes_it_indefinite(db):
     db.update_fixed_expense(fx["id"], {"end_month": None})
     db.ensure_expense_instances()
     periods = sorted({e["period"] for e in db.expenses})
-    assert len(periods) == 4  # vuelve a generar mes actual + 3, sin tope
+    assert len(periods) == 7  # vuelve a generar mes actual + 6, sin tope
 
 
 def test_update_fixed_expense_syncs_pending_instances(db):

@@ -319,7 +319,7 @@ class FakeDB:
     def set_expense_status(self, eid, status, paid_at=None, paid_by=None):
         self.update_expense(eid, {"status": status, "paid_at": paid_at, "paid_by": paid_by})
 
-    def ensure_expense_instances(self, months_ahead=3):
+    def ensure_expense_instances(self, months_ahead=6):
         import utils
 
         active = self.list_fixed_expenses(active_only=True)

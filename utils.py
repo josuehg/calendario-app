@@ -305,7 +305,7 @@ def occurrences_per_month(fixed_expense):
     return 1
 
 
-def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_ahead=3):
+def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_ahead=6):
     """Filas de 'expenses' que faltan para cada gasto fijo activo, desde el mes
     de 'today' hasta months_ahead meses adelante. Pura (sin BD) para poder
     testearla; db.ensure_expense_instances la usa y luego inserta."""
