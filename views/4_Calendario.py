@@ -133,23 +133,30 @@ for week in weeks:
     wc2.write(f"{len(week_items)} pago(s)")
     wc3.write(f"**{utils.money(utils.dsum(e['amount'] for e in week_items))}**")
 
-# Un solo diálogo a la vez: mientras se confirma un pago, se cierra el del día.
-if st.session_state.get("_cal_day") and not st.session_state.get("_cal_pay_target"):
+_CAL_ACTION_KEYS = ["_cal_pay_target", "_cal_edit_target", "_cal_del_target"]
+
+# Un solo diálogo a la vez: mientras se paga/edita/elimina algo, se cierra el del día.
+if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in _CAL_ACTION_KEYS):
     ds = st.session_state["_cal_day"]
     day_events = by_date.get(ds, {"items": []})["items"]
 
     @st.dialog(f"Pagos del {utils.fmt_long(ds)}")
     def _day_dialog():
         for e in day_events:
-            c1, c2 = st.columns([4, 1])
-            with c1:
+            with st.container(border=True):
                 if e["kind"] == "expense":
                     st.write(f"**{e['vendor']}** · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
                 else:
                     st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
-            with c2:
-                if st.button("Pagado", key=f"cal_pay_{e['kind']}_{e['ref_id']}", width="stretch"):
+                bc1, bc2, bc3 = st.columns(3)
+                if bc1.button("Pagado", key=f"cal_pay_{e['kind']}_{e['ref_id']}", width="stretch"):
                     st.session_state["_cal_pay_target"] = e
+                    st.rerun()
+                if bc2.button("Editar", key=f"cal_edit_{e['kind']}_{e['ref_id']}", width="stretch"):
+                    st.session_state["_cal_edit_target"] = e
+                    st.rerun()
+                if bc3.button("Eliminar", key=f"cal_del_{e['kind']}_{e['ref_id']}", width="stretch"):
+                    st.session_state["_cal_del_target"] = e
                     st.rerun()
         if st.button("Cerrar"):
             st.session_state["_cal_day"] = None
@@ -182,3 +189,63 @@ if st.session_state.get("_cal_pay_target"):
             st.rerun()
 
     _cal_pay_dialog()
+
+# ---------- diálogo: editar monto/fecha rápido ----------
+if st.session_state.get("_cal_edit_target"):
+    _ee = st.session_state["_cal_edit_target"]
+
+    @st.dialog("Editar")
+    def _cal_edit_dialog():
+        st.caption(f"{_ee['vendor']} · {_ee['label']}")
+        st.caption(
+            "Aquí solo se ajusta monto y fecha. Para cambiar otros datos "
+            "(proveedor, categoría, etc.) ve a la pantalla correspondiente."
+        )
+        monto = st.number_input(
+            "Monto (S/)", min_value=0.0, step=0.01, format="%.2f",
+            value=float(_ee["amount"]), key="cal_edit_monto",
+        )
+        fecha = st.date_input("Fecha", value=date.fromisoformat(_ee["date"]), key="cal_edit_fecha")
+        c1, c2 = st.columns(2)
+        if c1.button("Cancelar", width="stretch"):
+            st.session_state["_cal_edit_target"] = None
+            st.rerun()
+        if c2.button("Guardar", type="primary", width="stretch"):
+            monto_r = utils.round2(monto)
+            fecha_str = fecha.isoformat()
+            if _ee["kind"] == "invoice":
+                db.update_invoice(_ee["ref_id"], {"amount": monto_r, "due_date": fecha_str})
+            elif _ee["kind"] == "letra":
+                db.update_letra(_ee["ref_id"], {"monto": monto_r, "fecha_vencimiento": fecha_str})
+            else:
+                db.update_expense(_ee["ref_id"], {"amount": monto_r, "due_date": fecha_str})
+            st.session_state["_cal_edit_target"] = None
+            st.rerun()
+
+    _cal_edit_dialog()
+
+# ---------- diálogo: eliminar con confirmación ----------
+if st.session_state.get("_cal_del_target"):
+    _de = st.session_state["_cal_del_target"]
+
+    @st.dialog("Eliminar")
+    def _cal_del_dialog():
+        st.warning(
+            f"¿Eliminar **{_de['vendor']}** · {_de['label']} · {utils.money(_de['amount'])}? "
+            "Esta acción no se puede deshacer."
+        )
+        c1, c2 = st.columns(2)
+        if c1.button("No, cancelar", width="stretch"):
+            st.session_state["_cal_del_target"] = None
+            st.rerun()
+        if c2.button("Sí, eliminar", type="primary", width="stretch"):
+            if _de["kind"] == "invoice":
+                db.delete_invoice(_de["ref_id"])
+            elif _de["kind"] == "letra":
+                db.delete_letra(_de["ref_id"])
+            else:
+                db.delete_expense(_de["ref_id"])
+            st.session_state["_cal_del_target"] = None
+            st.rerun()
+
+    _cal_del_dialog()
