@@ -47,8 +47,14 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
 
 4. **Desplegar la función:**
    ```bash
-   npx supabase functions deploy telegram-bot
+   npx supabase functions deploy telegram-bot --no-verify-jwt
    ```
+   El flag `--no-verify-jwt` es obligatorio: por defecto Supabase exige un
+   login válido (JWT) en cada llamada a la función, pero Telegram no manda
+   eso — manda nuestro propio `secret_token` en su lugar (que sí se valida
+   dentro del código). Sin este flag, Telegram recibe "401 Unauthorized" y
+   el bot nunca responde, aunque el `setWebhook` del paso 5 haya salido OK.
+
    Al terminar te muestra la URL pública de la función, algo como:
    `https://<PROJECT_REF>.supabase.co/functions/v1/telegram-bot`
 
