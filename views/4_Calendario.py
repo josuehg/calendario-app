@@ -133,7 +133,7 @@ for week in weeks:
     wc2.write(f"{len(week_items)} pago(s)")
     wc3.write(f"**{utils.money(utils.dsum(e['amount'] for e in week_items))}**")
 
-_CAL_ACTION_KEYS = ["_cal_pay_target", "_cal_edit_target", "_cal_del_target"]
+_CAL_ACTION_KEYS = ["_cal_pay_target", "_cal_edit_target", "_cal_del_target", "_cal_bulk_pay_targets"]
 
 # Un solo diálogo a la vez: mientras se paga/edita/elimina algo, se cierra el del día.
 if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in _CAL_ACTION_KEYS):
@@ -142,12 +142,20 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
 
     @st.dialog(f"Pagos del {utils.fmt_long(ds)}")
     def _day_dialog():
+        seleccionadas = []
         for e in day_events:
             with st.container(border=True):
-                if e["kind"] == "expense":
-                    st.write(f"**{e['vendor']}** · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
-                else:
-                    st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
+                cb_col, info_col = st.columns([0.4, 4.6])
+                marcada = cb_col.checkbox(
+                    "sel", key=f"cal_sel_{e['kind']}_{e['ref_id']}", label_visibility="collapsed",
+                )
+                if marcada:
+                    seleccionadas.append(e)
+                with info_col:
+                    if e["kind"] == "expense":
+                        st.write(f"**{e['vendor']}** · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
+                    else:
+                        st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
                 bc1, bc2, bc3 = st.columns(3)
                 if bc1.button("Pagado", key=f"cal_pay_{e['kind']}_{e['ref_id']}", width="stretch"):
                     st.session_state["_cal_pay_target"] = e
@@ -158,11 +166,53 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
                 if bc3.button("Eliminar", key=f"cal_del_{e['kind']}_{e['ref_id']}", width="stretch"):
                     st.session_state["_cal_del_target"] = e
                     st.rerun()
+
+        if len(day_events) > 1:
+            st.divider()
+            n = len(seleccionadas)
+            if st.button(
+                f"✅ Marcar {n} seleccionada(s) como pagadas" if n else "✅ Marcar seleccionadas como pagadas",
+                type="primary", width="stretch", disabled=n == 0,
+            ):
+                st.session_state["_cal_bulk_pay_targets"] = seleccionadas
+                st.rerun()
+
         if st.button("Cerrar"):
             st.session_state["_cal_day"] = None
             st.rerun()
 
     _day_dialog()
+
+# ---------- diálogo: marcar varias como pagadas de una sola vez ----------
+if st.session_state.get("_cal_bulk_pay_targets"):
+    _targets = st.session_state["_cal_bulk_pay_targets"]
+
+    @st.dialog("Marcar varias como pagadas")
+    def _cal_bulk_pay_dialog():
+        st.write(f"Se marcarán **{len(_targets)}** pago(s) como pagados, con la misma fecha:")
+        for t in _targets:
+            st.caption(f"· {t['vendor']} · {t['label']} · {utils.money(t['amount'])}")
+        st.markdown(f"**Total: {utils.money(utils.dsum(t['amount'] for t in _targets))}**")
+        fecha = st.date_input("Fecha de pago (se aplica a todas)", value=None, key="cal_bulk_pay_fecha")
+        c1, c2 = st.columns(2)
+        if c1.button("Cancelar", width="stretch"):
+            st.session_state["_cal_bulk_pay_targets"] = None
+            st.rerun()
+        if c2.button(f"Confirmar pago de {len(_targets)}", type="primary", width="stretch"):
+            fecha_str = (fecha or date.today()).isoformat()
+            actor = utils.current_actor()
+            for t in _targets:
+                if t["kind"] == "letra":
+                    db.mark_letra_paid(t["ref_id"], fecha_str, paid_by=actor)
+                elif t["kind"] == "expense":
+                    db.set_expense_status(t["ref_id"], "pagado", paid_at=fecha_str, paid_by=actor)
+                else:
+                    db.mark_invoice_paid(t["ref_id"], fecha_str, paid_by=actor)
+                st.session_state.pop(f"cal_sel_{t['kind']}_{t['ref_id']}", None)
+            st.session_state["_cal_bulk_pay_targets"] = None
+            st.rerun()
+
+    _cal_bulk_pay_dialog()
 
 # ---------- diálogo: confirmar pago (se puede abrir desde el del día) ----------
 if st.session_state.get("_cal_pay_target"):
