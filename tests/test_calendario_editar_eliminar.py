@@ -53,10 +53,16 @@ def test_guardar_edicion_actualiza_factura(run_view, db):
 
 
 def test_editar_letra_actualiza_monto_y_vencimiento(run_view, db):
+    # La letra aparece en el Calendario 8 días después de su vencimiento
+    # (plazo típico de pago por defecto), no en la fecha contractual.
     db.create_letra({"numero": "L-1", "monto": 500.0, "fecha_vencimiento": "2020-01-15",
                      "vendor": "Prov Letra", "branch": "Sucursal 1"})
-    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-23")
     click(at, "Editar")
+    # El campo de fecha debe precargar el vencimiento REAL (15), no la fecha
+    # ajustada que se usa para ubicarla en el calendario (23).
+    fi = next(d for d in at.date_input if d.key == "cal_edit_fecha")
+    assert fi.value == date(2020, 1, 15)
     for ni in at.number_input:
         if ni.key == "cal_edit_monto":
             ni.set_value(480.0)
@@ -64,6 +70,7 @@ def test_editar_letra_actualiza_monto_y_vencimiento(run_view, db):
     click(at, "Guardar")
     assert not at.exception
     assert db.letras[0]["monto"] == 480.0
+    assert db.letras[0]["fecha_vencimiento"] == "2020-01-15"   # no se corrió de fecha
 
 
 def test_editar_gasto_actualiza_monto(run_view, db):
@@ -120,7 +127,7 @@ def test_confirmar_eliminar_borra_factura(run_view, db):
 def test_confirmar_eliminar_borra_letra(run_view, db):
     db.create_letra({"numero": "L-1", "monto": 500.0, "fecha_vencimiento": "2020-01-15",
                      "vendor": "Prov Letra", "branch": "Sucursal 1"})
-    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-23")
     click(at, "Eliminar")
     click(at, "Sí, eliminar")
     assert not at.exception

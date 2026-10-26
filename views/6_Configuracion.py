@@ -23,6 +23,36 @@ if track_contado != settings.get("track_contado", True):
 
 st.divider()
 
+# ---------- plazo real de pago de letras ----------
+st.subheader("Plazo real de pago de letras")
+st.caption(
+    "Las letras no se pagan exacto en su vencimiento — hay un plazo de gracia real "
+    "con el proveedor. Esto se usa para ubicar cada letra en Calendario/Resumen/"
+    "Presupuesto (vencimiento + plazo típico) y para decidir cuándo se considera "
+    "de verdad vencida (vencimiento + plazo máximo), en vez de marcarla vencida "
+    "al día siguiente de su fecha contractual."
+)
+lc1, lc2 = st.columns(2)
+dias_tipico = lc1.number_input(
+    "Plazo típico de pago (días después del vencimiento)", min_value=0, max_value=60, step=1,
+    value=int(settings.get("letra_dias_pago_tipico", 8)), key="cfg_letra_tipico",
+    help="Con cuántos días después del vencimiento sueles pagar normalmente — así aparece en Calendario y Presupuesto.",
+)
+dias_max = lc2.number_input(
+    "Plazo máximo de gracia (días)", min_value=0, max_value=60, step=1,
+    value=int(settings.get("letra_dias_gracia_max", 10)), key="cfg_letra_max",
+    help="El máximo que te da el proveedor — pasado esto, recién se marca 🔴 vencida.",
+)
+if dias_max < dias_tipico:
+    st.error("El plazo máximo no puede ser menor al plazo típico.")
+elif dias_tipico != settings.get("letra_dias_pago_tipico", 8) or dias_max != settings.get("letra_dias_gracia_max", 10):
+    if st.button("Guardar plazos de letras", type="primary"):
+        db.save_settings({"letra_dias_pago_tipico": int(dias_tipico), "letra_dias_gracia_max": int(dias_max)})
+        st.success("Guardado.")
+        st.rerun()
+
+st.divider()
+
 # ---------- consistencia de vencimientos ----------
 st.subheader("⚠️ Vencimientos sospechosos")
 st.caption(

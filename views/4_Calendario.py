@@ -11,8 +11,13 @@ invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
 expenses = db.list_expenses()
-track_contado = db.get_settings().get("track_contado", True)
-events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado, expenses)
+settings = db.get_settings()
+track_contado = settings.get("track_contado", True)
+events = utils.get_payment_events(
+    invoices, letras, canje_facturas, track_contado, expenses,
+    letra_dias_pago_tipico=settings.get("letra_dias_pago_tipico", 8),
+    letra_dias_gracia_max=settings.get("letra_dias_gracia_max", 10),
+)
 
 TIPOS_CAL = ["Todos", "Facturas a crédito", "Contado", "Letras", "Gastos fijos", "Gastos variables"]
 fc1, fc2 = st.columns(2)
@@ -293,7 +298,14 @@ if st.session_state.get("_cal_edit_target"):
             "Monto (S/)", min_value=0.0, step=0.01, format="%.2f",
             value=float(_ee["amount"]), key="cal_edit_monto",
         )
-        fecha = st.date_input("Fecha", value=date.fromisoformat(_ee["date"]), key="cal_edit_fecha")
+        # Para letras, "date" es la fecha esperada de pago (vencimiento +
+        # plazo típico), no el vencimiento contractual real — si se editara
+        # esa fecha se guardaría por error como el vencimiento. Se edita
+        # siempre el vencimiento real (vencimiento_real), que es el que
+        # manda en la base de datos.
+        fecha_actual = _ee.get("vencimiento_real") if _ee["kind"] == "letra" else _ee["date"]
+        label_fecha = "Vencimiento" if _ee["kind"] == "letra" else "Fecha"
+        fecha = st.date_input(label_fecha, value=date.fromisoformat(fecha_actual), key="cal_edit_fecha")
         c1, c2 = st.columns(2)
         if c1.button("Cancelar", width="stretch"):
             st.session_state["_cal_edit_target"] = None

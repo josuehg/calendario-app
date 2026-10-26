@@ -36,7 +36,14 @@ create table if not exists vendors (
 -- Ajustes globales de la app (una sola fila, id = 1).
 create table if not exists app_settings (
   id int primary key default 1,
-  track_contado boolean not null default true
+  track_contado boolean not null default true,
+  -- Las letras no se pagan exacto en su vencimiento: hay un plazo de gracia
+  -- real con el proveedor (normalmente se paga unos días después). Se usan
+  -- para calcular cuándo aparece una letra en Calendario/Presupuesto (fecha
+  -- de vencimiento + dias_pago_tipico) y cuándo se considera de verdad
+  -- vencida (fecha de vencimiento + dias_gracia_max).
+  letra_dias_pago_tipico int not null default 8,
+  letra_dias_gracia_max int not null default 10
 );
 insert into app_settings (id) values (1) on conflict (id) do nothing;
 

@@ -13,7 +13,9 @@ def _seed_tres(db):
         "document_type": "Factura", "doc_type": "credito", "term_days": 30, "amount": 100.0,
         "issue_date": "2020-01-01", "due_date": "2020-01-15", "status": "pendiente",
     })
-    db.create_letra({"numero": "L-1", "monto": 200.0, "fecha_vencimiento": "2020-01-15",
+    # vencimiento al 07 para que, con el plazo típico de 8 días, caiga el
+    # mismo 15 que la factura y el gasto (así los tres quedan el mismo día).
+    db.create_letra({"numero": "L-1", "monto": 200.0, "fecha_vencimiento": "2020-01-07",
                      "vendor": "Prov Letra", "branch": "Sucursal 1"})
     db.create_expense({"kind": "fijo", "name": "Alquiler", "category": "Alquiler",
                        "branch": "Sucursal 1", "amount": 300.0, "due_date": "2020-01-15", "status": "pendiente"})
