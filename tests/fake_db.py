@@ -324,7 +324,7 @@ class FakeDB:
 
     def create_debt(self, data):
         row = {
-            "id": self._nid("debt"), "debt_type": "bancario", "rate_pct": None,
+            "id": self._nid("debt"), "debt_type": "bancario", "fixed_expense_id": None, "rate_pct": None,
             "rate_period": None, "monthly_payment": None, "start_date": None,
             "end_date": None, "notes": None, "active": True,
             **data,
