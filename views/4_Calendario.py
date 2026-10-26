@@ -82,56 +82,94 @@ mc4.metric("N° de pagos", len(month_items))
 
 st.divider()
 
-dow_cols = st.columns(7)
-for i, d in enumerate(["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]):
-    dow_cols[i].markdown(f"<div style='text-align:center;font-size:12px;color:gray;font-weight:600'>{d}</div>", unsafe_allow_html=True)
+vista = st.radio("Vista", ["📅 Mes", "📋 Lista"], horizontal=True, key="cal_vista")
 
 weeks = cal.Calendar(firstweekday=0).monthdayscalendar(y, m)
+DOW_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
-for week in weeks:
-    cols = st.columns(7)
-    for i, day in enumerate(week):
-        with cols[i]:
-            if day == 0:
-                st.write("")
-                continue
-            ds = f"{y:04d}-{m:02d}-{day:02d}"
-            info = by_date.get(ds)
-            is_today = ds == today_str
-            border = "2px solid #0b5d68" if is_today else "1px solid #d7dee1"
-            if info:
-                color = "#b33f3f" if ds < today_str else ("#b8802e" if (date.fromisoformat(ds) - today).days <= 7 else "#1b242b")
-                st.markdown(
-                    f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
-                    f"<div style='font-size:12px;color:gray'>{day}</div>"
-                    f"<div style='font-family:monospace;font-size:12.5px;font-weight:600;color:{color}'>{utils.money(info['amount'])}</div>"
-                    f"<div style='font-size:11px;color:gray'>{info['count']} pago(s)</div>"
-                    f"</div>", unsafe_allow_html=True)
-                if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
-                    st.session_state["_cal_day"] = ds
-                    st.rerun()
-            else:
-                st.markdown(
-                    f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
-                    f"<div style='font-size:12px;color:gray'>{day}</div></div>", unsafe_allow_html=True)
 
-st.divider()
-st.markdown(
-    "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante",
-)
+def _day_color(ds):
+    return "#b33f3f" if ds < today_str else ("#b8802e" if (date.fromisoformat(ds) - today).days <= 7 else "#1b242b")
 
-st.divider()
-st.subheader("Resumen semanal")
-for week in weeks:
-    days_in_week = [d for d in week if d != 0]
-    if not days_in_week:
-        continue
-    ds_list = [f"{y:04d}-{m:02d}-{d:02d}" for d in days_in_week]
-    week_items = [e for ds in ds_list for e in by_date.get(ds, {"items": []})["items"]]
-    wc1, wc2, wc3 = st.columns([3, 1, 1])
-    wc1.write(f"**{days_in_week[0]:02d} – {days_in_week[-1]:02d} de {utils.MONTHS_ES[m-1]}**")
-    wc2.write(f"{len(week_items)} pago(s)")
-    wc3.write(f"**{utils.money(utils.dsum(e['amount'] for e in week_items))}**")
+
+if vista == "📅 Mes":
+    dow_cols = st.columns(7)
+    for i, d in enumerate(DOW_ES):
+        dow_cols[i].markdown(f"<div style='text-align:center;font-size:12px;color:gray;font-weight:600'>{d}</div>", unsafe_allow_html=True)
+
+    for week in weeks:
+        cols = st.columns(7)
+        for i, day in enumerate(week):
+            with cols[i]:
+                if day == 0:
+                    st.write("")
+                    continue
+                ds = f"{y:04d}-{m:02d}-{day:02d}"
+                info = by_date.get(ds)
+                is_today = ds == today_str
+                border = "2px solid #0b5d68" if is_today else "1px solid #d7dee1"
+                if info:
+                    st.markdown(
+                        f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
+                        f"<div style='font-size:12px;color:gray'>{day}</div>"
+                        f"<div style='font-family:monospace;font-size:12.5px;font-weight:600;color:{_day_color(ds)}'>{utils.money(info['amount'])}</div>"
+                        f"<div style='font-size:11px;color:gray'>{info['count']} pago(s)</div>"
+                        f"</div>", unsafe_allow_html=True)
+                    if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
+                        st.session_state["_cal_day"] = ds
+                        st.rerun()
+                else:
+                    st.markdown(
+                        f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
+                        f"<div style='font-size:12px;color:gray'>{day}</div></div>", unsafe_allow_html=True)
+
+    st.divider()
+    st.markdown(
+        "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante",
+    )
+
+    st.divider()
+    st.subheader("Resumen semanal")
+    for week in weeks:
+        days_in_week = [d for d in week if d != 0]
+        if not days_in_week:
+            continue
+        ds_list = [f"{y:04d}-{m:02d}-{d:02d}" for d in days_in_week]
+        week_items = [e for ds in ds_list for e in by_date.get(ds, {"items": []})["items"]]
+        wc1, wc2, wc3 = st.columns([3, 1, 1])
+        wc1.write(f"**{days_in_week[0]:02d} – {days_in_week[-1]:02d} de {utils.MONTHS_ES[m-1]}**")
+        wc2.write(f"{len(week_items)} pago(s)")
+        wc3.write(f"**{utils.money(utils.dsum(e['amount'] for e in week_items))}**")
+else:
+    # Vista de lista: un renglón por día con pagos, más cómoda en celular o
+    # cuando hay mucho que revisar en un mes (en vez de un grid apretado).
+    days_in_month = cal.monthrange(y, m)[1]
+    hubo_algun_dia = False
+    for day in range(1, days_in_month + 1):
+        ds = f"{y:04d}-{m:02d}-{day:02d}"
+        info = by_date.get(ds)
+        if not info:
+            continue
+        hubo_algun_dia = True
+        dow_label = DOW_ES[date.fromisoformat(ds).weekday()]
+        with st.container(border=True):
+            lc1, lc2, lc3, lc4 = st.columns([2.2, 1.3, 1, 1])
+            tag = " 🟢" if ds == today_str else ""
+            lc1.markdown(f"**{dow_label} {day:02d} de {utils.MONTHS_ES[m-1]}**{tag}")
+            lc2.markdown(
+                f"<span style='font-family:monospace;font-weight:600;color:{_day_color(ds)}'>{utils.money(info['amount'])}</span>",
+                unsafe_allow_html=True,
+            )
+            lc3.write(f"{info['count']} pago(s)")
+            if lc4.button("Ver", key=f"list_day_{ds}", width="stretch"):
+                st.session_state["_cal_day"] = ds
+                st.rerun()
+    if not hubo_algun_dia:
+        st.caption("No hay pagos este mes con estos filtros.")
+    st.divider()
+    st.markdown(
+        "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante",
+    )
 
 _CAL_ACTION_KEYS = ["_cal_pay_target", "_cal_edit_target", "_cal_del_target", "_cal_bulk_pay_targets"]
 
