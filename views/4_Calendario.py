@@ -277,7 +277,12 @@ if st.session_state.get("_cal_edit_target"):
 # ---------- diálogo: eliminar con confirmación ----------
 if st.session_state.get("_cal_del_target"):
     _de = st.session_state["_cal_del_target"]
-    _es_gasto_fijo = _de["kind"] == "expense" and _de.get("expense_kind") == "fijo"
+    # Algunos gastos fijos antiguos pueden no tener fixed_expense_id guardado
+    # (p. ej. creados antes de que ese enlace existiera); sin él no hay cómo
+    # ubicar "los futuros", así que en ese caso se cae al flujo simple.
+    _es_gasto_fijo = (
+        _de["kind"] == "expense" and _de.get("expense_kind") == "fijo" and _de.get("fixed_expense_id")
+    )
 
     @st.dialog("Eliminar")
     def _cal_del_dialog():

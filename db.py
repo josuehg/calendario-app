@@ -425,6 +425,8 @@ def delete_future_fixed_expenses(fixed_expense_id: int, from_date: str):
     """Elimina las instancias 'pendiente' de un gasto fijo desde from_date
     (inclusive) en adelante, y desactiva la plantilla para que no se sigan
     generando más meses. Las ya pagadas quedan intactas, como historial."""
+    if not fixed_expense_id:
+        return
     sb = get_client()
     sb.table("expenses").delete().eq("fixed_expense_id", fixed_expense_id).eq(
         "status", "pendiente"
