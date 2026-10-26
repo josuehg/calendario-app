@@ -179,12 +179,19 @@ def to_lima_date_str(ts):
 
 # ---------- eventos de pago (calendario / presupuesto) ----------
 
-def get_payment_events(invoices, letras, canje_facturas, track_contado=True, expenses=None):
+def get_payment_events(
+    invoices, letras, canje_facturas, track_contado=True, expenses=None,
+    letra_dias_pago_tipico=8, letra_dias_gracia_max=10,
+):
     """
     Devuelve una lista de eventos de pago futuros/pendientes:
     - una factura 'pendiente' (no canjeada) aporta un evento en su due_date.
-    - cada letra 'pendiente' de un canje aporta un evento en su fecha_vencimiento,
-      representando a TODAS las facturas agrupadas en ese canje.
+    - cada letra 'pendiente' de un canje aporta un evento, no en su
+      fecha_vencimiento contractual sino en vencimiento + letra_dias_pago_tipico
+      (el plazo real con el que normalmente se paga, no exacto en vcto),
+      representando a TODAS las facturas agrupadas en ese canje. Se considera
+      vencida solo pasado vencimiento + letra_dias_gracia_max (el máximo real
+      que da el proveedor), no el día siguiente al vencimiento contractual.
     - si se pasa 'expenses', cada gasto 'pendiente' aporta un evento en su
       due_date (los 'pagado' y 'omitido' no).
     Las facturas 'pagada' o 'canjeada' no generan evento por sí mismas.
@@ -235,14 +242,17 @@ def get_payment_events(invoices, letras, canje_facturas, track_contado=True, exp
             branches = l.get("branch") or "—"
             facturas = "—"
             label = f"Letra {l.get('numero') or '—'} (programada)"
+        fecha_esperada = add_days(l["fecha_vencimiento"], letra_dias_pago_tipico)
+        fecha_limite = add_days(l["fecha_vencimiento"], letra_dias_gracia_max)
         events.append({
-            "date": l["fecha_vencimiento"],
+            "date": fecha_esperada,
+            "vencimiento_real": l["fecha_vencimiento"],
             "amount": float(l["monto"]),
             "vendor": vendors,
             "branch": branches,
             "invoice_number": facturas,
             "label": label,
-            "overdue": l["fecha_vencimiento"] < today,
+            "overdue": fecha_limite < today,
             "kind": "letra",
             "ref_id": l["id"],
         })
@@ -384,13 +394,17 @@ def weekly_buckets(events, weeks_ahead=WEEKS_AHEAD):
     return buckets
 
 
-def weekly_balance(invoices, letras, expenses, weeks_back=8):
+def weekly_balance(invoices, letras, expenses, weeks_back=8, letra_dias_pago_tipico=8):
     """Balance semanal histórico: para cada semana (de la primera deuda
     registrada hasta la semana actual) cuánto se debía (por vencimiento),
     cuánto se pagó de verdad (por fecha de pago) y el saldo pendiente
     acumulado (deuda acumulada - pagado acumulado) a esa altura. Devuelve
     solo las últimas `weeks_back` semanas, pero el acumulado se calcula
-    desde el principio para que el saldo sea correcto."""
+    desde el principio para que el saldo sea correcto.
+
+    Las letras no se ubican en su vencimiento contractual sino en
+    vencimiento + letra_dias_pago_tipico (el plazo real con el que se suele
+    pagar), para que "Debido" refleje cuándo de verdad sale la plata."""
     debido = []
     pagado = []
 
@@ -402,7 +416,7 @@ def weekly_balance(invoices, letras, expenses, weeks_back=8):
             pagado.append((inv["paid_at"], float(inv["amount"])))
 
     for l in letras:
-        debido.append((l["fecha_vencimiento"], float(l["monto"])))
+        debido.append((add_days(l["fecha_vencimiento"], letra_dias_pago_tipico), float(l["monto"])))
         if l.get("estado") == "pagada" and l.get("fecha_pago"):
             pagado.append((l["fecha_pago"], float(l["monto"])))
 

@@ -27,6 +27,41 @@ def test_standalone_letra_event_uses_its_own_data(utils):
     assert e["amount"] == 5000.0
 
 
+def test_letra_aparece_en_vencimiento_mas_plazo_tipico(utils, monkeypatch):
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-10-05")
+    letras = [{"id": "L1", "canje_id": None, "estado": "pendiente", "numero": "L-1",
+               "monto": 1000.0, "fecha_vencimiento": "2026-10-01",
+               "vendor": "Prov", "branch": "Sucursal 1"}]
+    ev = utils.get_payment_events([], letras, [], True)
+    e = ev[0]
+    assert e["date"] == "2026-10-09"           # 01 + 8 días (plazo típico por defecto)
+    assert e["vencimiento_real"] == "2026-10-01"
+
+
+def test_letra_no_vencida_dentro_del_plazo_de_gracia(utils, monkeypatch):
+    letras = [{"id": "L1", "canje_id": None, "estado": "pendiente", "numero": "L-1",
+               "monto": 1000.0, "fecha_vencimiento": "2026-10-01",
+               "vendor": "Prov", "branch": "Sucursal 1"}]
+    # 9 días después del vencimiento: todavía dentro del máximo de 10, no vencida.
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-10-10")
+    assert utils.get_payment_events([], letras, [], True)[0]["overdue"] is False
+    # 11 días después: ya pasó el máximo de gracia, sí vencida.
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-10-12")
+    assert utils.get_payment_events([], letras, [], True)[0]["overdue"] is True
+
+
+def test_plazos_de_letra_son_configurables(utils, monkeypatch):
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-10-05")
+    letras = [{"id": "L1", "canje_id": None, "estado": "pendiente", "numero": "L-1",
+               "monto": 1000.0, "fecha_vencimiento": "2026-10-01",
+               "vendor": "Prov", "branch": "Sucursal 1"}]
+    ev = utils.get_payment_events(
+        [], letras, [], True, letra_dias_pago_tipico=3, letra_dias_gracia_max=5,
+    )
+    assert ev[0]["date"] == "2026-10-04"       # 01 + 3
+    assert ev[0]["overdue"] is False           # hoy 05, límite 06 (01 + 5)
+
+
 def test_canje_letra_still_derives_from_invoices(utils):
     invoices = [{"id": "i1", "vendor": "Prov Z", "invoice_number": "F9", "branch": "Sucursal 1",
                  "doc_type": "credito", "amount": 300.0, "due_date": "2026-09-01", "status": "canjeada"}]

@@ -70,6 +70,7 @@ def test_lista_respeta_filtro_de_tipo(run_view, db):
             sb.set_value("Letras").run()
             break
     at = _goto_lista(at)
+    # la letra aparece 8 días (plazo típico) después de su vencimiento real.
     text = " ".join(str(m.value) for m in at.markdown)
-    assert "20 de enero" in text
+    assert "28 de enero" in text   # 20 + 8 días de plazo típico
     assert "15 de enero" not in text

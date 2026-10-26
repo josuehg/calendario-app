@@ -120,7 +120,9 @@ def delete_vendor(vendor_id):
 def get_settings():
     sb = get_client()
     res = sb.table("app_settings").select("*").eq("id", 1).limit(1).execute()
-    return res.data[0] if res.data else {"track_contado": True}
+    return res.data[0] if res.data else {
+        "track_contado": True, "letra_dias_pago_tipico": 8, "letra_dias_gracia_max": 10,
+    }
 
 
 def save_settings(data: dict):

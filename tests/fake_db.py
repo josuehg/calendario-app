@@ -18,7 +18,7 @@ class FakeDB:
         self.canjes = []
         self.canje_facturas = []
         self.letras = []
-        self.settings = {"track_contado": True}
+        self.settings = {"track_contado": True, "letra_dias_pago_tipico": 8, "letra_dias_gracia_max": 10}
         self.expense_categories = [
             {"id": 1, "name": "Alquiler", "sort_order": 1},
             {"id": 2, "name": "Servicios", "sort_order": 2},

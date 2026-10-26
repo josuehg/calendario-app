@@ -17,8 +17,13 @@ invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
 expenses = db.list_expenses()
-track_contado = db.get_settings().get("track_contado", True)
-events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado, expenses)
+settings = db.get_settings()
+track_contado = settings.get("track_contado", True)
+events = utils.get_payment_events(
+    invoices, letras, canje_facturas, track_contado, expenses,
+    letra_dias_pago_tipico=settings.get("letra_dias_pago_tipico", 8),
+    letra_dias_gracia_max=settings.get("letra_dias_gracia_max", 10),
+)
 buckets = utils.weekly_buckets(events, weeks_ahead=horizon)
 today = utils.today_str()
 
@@ -59,7 +64,10 @@ weeks_back = st.radio(
     "Semanas hacia atrás", WEEKS_BACK_OPTIONS, index=1, horizontal=True, key="pp_weeks_back",
     format_func=lambda w: f"{w} semanas",
 )
-balance = utils.weekly_balance(invoices, letras, expenses, weeks_back=weeks_back)
+balance = utils.weekly_balance(
+    invoices, letras, expenses, weeks_back=weeks_back,
+    letra_dias_pago_tipico=settings.get("letra_dias_pago_tipico", 8),
+)
 if not balance:
     st.caption("No hay movimientos registrados todavía.")
 else:

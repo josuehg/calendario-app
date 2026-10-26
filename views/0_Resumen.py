@@ -5,8 +5,13 @@ import utils
 invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
-track_contado = db.get_settings().get("track_contado", True)
-events = utils.get_payment_events(invoices, letras, canje_facturas, track_contado)
+settings = db.get_settings()
+track_contado = settings.get("track_contado", True)
+events = utils.get_payment_events(
+    invoices, letras, canje_facturas, track_contado,
+    letra_dias_pago_tipico=settings.get("letra_dias_pago_tipico", 8),
+    letra_dias_gracia_max=settings.get("letra_dias_gracia_max", 10),
+)
 stats = utils.compute_stats(events)
 
 st.title("🗓️ Control Compras")

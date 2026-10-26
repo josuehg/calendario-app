@@ -53,7 +53,7 @@ def test_confirmar_pago_marca_factura_pagada(run_view, db):
 def test_confirmar_pago_de_letra(run_view, db):
     db.create_letra({"numero": "L-1", "monto": 500.0, "fecha_vencimiento": "2020-01-15",
                      "vendor": "Prov Letra", "branch": "Sucursal 1"})
-    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-23")
     click(at, "Pagado")
     click(at, "Confirmar pago")
     assert not at.exception

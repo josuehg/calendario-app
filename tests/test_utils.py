@@ -235,3 +235,11 @@ def test_weekly_balance_respects_weeks_back_limit(utils, monkeypatch):
 
 def test_weekly_balance_empty_when_no_data(utils):
     assert utils.weekly_balance([], [], []) == []
+
+
+def test_weekly_balance_ubica_letra_en_fecha_esperada_no_en_vencimiento(utils, monkeypatch):
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-09-21")
+    letras = [{"fecha_vencimiento": "2026-09-01", "monto": 100.0, "estado": "pendiente", "fecha_pago": None}]
+    buckets = utils.weekly_balance([], letras, [], weeks_back=8, letra_dias_pago_tipico=8)
+    semana_del_09_09 = next(b for b in buckets if b["start"] <= "2026-09-09" <= b["end"])
+    assert semana_del_09_09["debido"] == 100.0   # 01 + 8 días = 09, no el 01
