@@ -57,6 +57,21 @@ for e in events:
 for _info in by_date.values():
     _info["amount"] = utils.dsum(i["amount"] for i in _info["items"])
 
+# Marca aparte (sin montos) de la "ventana de pago" de cada letra pendiente:
+# el día de su vencimiento real y el día límite (vencimiento + plazo máximo
+# de gracia). No se suma a info['amount']/['count'] de ningún día — solo es
+# una referencia visual de cuándo arranca y hasta cuándo se puede pagar.
+_dias_gracia_max = settings.get("letra_dias_gracia_max", 10)
+ventana_marcas = {}
+for e in events:
+    if e["kind"] != "letra":
+        continue
+    venc = e["vencimiento_real"]
+    limite = utils.add_days(venc, _dias_gracia_max)
+    ventana_marcas.setdefault(venc, []).append(("🧾", "Vence"))
+    if limite != venc:
+        ventana_marcas.setdefault(limite, []).append(("⏰", "Límite de pago"))
+
 c1, c2, c3 = st.columns([1, 2, 1])
 if c1.button("← Anterior"):
     m = st.session_state["cal_month"] - 1
@@ -113,12 +128,18 @@ if vista == "📅 Mes":
                 info = by_date.get(ds)
                 is_today = ds == today_str
                 border = "2px solid #0b5d68" if is_today else "1px solid #d7dee1"
+                marcas = ventana_marcas.get(ds)
+                marcas_html = (
+                    f"<div style='font-size:10px' title='{' / '.join(t for _, t in marcas)}'>"
+                    f"{' '.join(ic for ic, _ in marcas)}</div>"
+                ) if marcas else ""
                 if info:
                     st.markdown(
                         f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
                         f"<div style='font-size:12px;color:gray'>{day}</div>"
                         f"<div style='font-family:monospace;font-size:12.5px;font-weight:600;color:{_day_color(ds)}'>{utils.money(info['amount'])}</div>"
                         f"<div style='font-size:11px;color:gray'>{info['count']} pago(s)</div>"
+                        f"{marcas_html}"
                         f"</div>", unsafe_allow_html=True)
                     if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
                         st.session_state["_cal_day"] = ds
@@ -126,12 +147,16 @@ if vista == "📅 Mes":
                 else:
                     st.markdown(
                         f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
-                        f"<div style='font-size:12px;color:gray'>{day}</div></div>", unsafe_allow_html=True)
+                        f"<div style='font-size:12px;color:gray'>{day}</div>{marcas_html}</div>", unsafe_allow_html=True)
 
     st.divider()
-    st.markdown(
-        "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante",
-    )
+    _leyenda = "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante"
+    if ventana_marcas:
+        _leyenda += (
+            " &nbsp;&nbsp;&nbsp; 🧾 Vencimiento real de una letra &nbsp;&nbsp; "
+            "⏰ Límite de pago (sin contar en el total de ese día)"
+        )
+    st.markdown(_leyenda)
 
     st.divider()
     st.subheader("Resumen semanal")
@@ -199,6 +224,9 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
                         st.write(f"**{e['vendor']}** · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
                     else:
                         st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
+                    if e["kind"] == "letra":
+                        _limite = utils.add_days(e["vencimiento_real"], _dias_gracia_max)
+                        st.caption(f"🧾 Vence: {utils.fmt_short(e['vencimiento_real'])} · ⏰ Límite de pago: {utils.fmt_short(_limite)}")
                 bc1, bc2, bc3 = st.columns(3)
                 if bc1.button("Pagado", key=f"cal_pay_{e['kind']}_{e['ref_id']}", width="stretch"):
                     st.session_state["_cal_pay_target"] = e
