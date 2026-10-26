@@ -17,6 +17,7 @@ import pathlib
 import sys
 import urllib.request
 import urllib.parse
+from datetime import date
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -26,8 +27,28 @@ import db
 import utils
 
 
+def _referencia_vencimiento(e, gracia_max):
+    """Fecha contra la que se cuentan los días de atraso: para una letra es su
+    límite real de pago (vencimiento + plazo máximo de gracia), no la fecha en
+    la que 'vive' para efectos de totales (vencimiento + plazo típico)."""
+    if e["kind"] == "letra":
+        return utils.add_days(e["vencimiento_real"], gracia_max)
+    return e["date"]
+
+
+def _dias_atraso(e, today, gracia_max):
+    ref = _referencia_vencimiento(e, gracia_max)
+    return (date.fromisoformat(today) - date.fromisoformat(ref)).days
+
+
+def _linea(e):
+    ref = f" · Fact. {e['invoice_number']}" if e.get("invoice_number") and e["kind"] != "expense" else ""
+    return f"• {e['vendor']}{ref} · {e['label']} · {e['branch']} · {utils.money(e['amount'])}"
+
+
 def build_message(today):
     settings = db.get_settings()
+    gracia_max = settings.get("letra_dias_gracia_max", 10)
     invoices = db.list_invoices()
     letras = db.list_letras()
     canje_facturas = db.list_canje_facturas()
@@ -36,25 +57,33 @@ def build_message(today):
         invoices, letras, canje_facturas,
         settings.get("track_contado", True), expenses,
         letra_dias_pago_tipico=settings.get("letra_dias_pago_tipico", 8),
-        letra_dias_gracia_max=settings.get("letra_dias_gracia_max", 10),
+        letra_dias_gracia_max=gracia_max,
     )
-    hoy = sorted(
-        (e for e in events if e["date"] == today),
-        key=lambda e: -e["amount"],
+    hoy = sorted((e for e in events if e["date"] == today), key=lambda e: -e["amount"])
+    atrasados = sorted(
+        (e for e in events if e["overdue"]),
+        key=lambda e: -_dias_atraso(e, today, gracia_max),
     )
 
     lines = [f"📅 Pagos de hoy, {utils.fmt_long(today)}", ""]
-    if not hoy:
+    if hoy:
+        lines += [_linea(e) for e in hoy]
+        total = utils.dsum(e["amount"] for e in hoy)
+        lines.append("")
+        lines.append(f"Total del día: {utils.money(total)}")
+    else:
         lines.append("No hay pagos programados para hoy. 🎉")
-        return "\n".join(lines)
 
-    for e in hoy:
-        ref = f" · Fact. {e['invoice_number']}" if e.get("invoice_number") and e["kind"] != "expense" else ""
-        lines.append(f"• {e['vendor']}{ref} · {e['label']} · {e['branch']} · {utils.money(e['amount'])}")
+    if atrasados:
+        lines.append("")
+        lines.append("⚠️ Atrasados (aún sin pagar):")
+        for e in atrasados:
+            dias = _dias_atraso(e, today, gracia_max)
+            lines.append(f"{_linea(e)} · {dias} día(s) de atraso")
+        total_atrasado = utils.dsum(e["amount"] for e in atrasados)
+        lines.append("")
+        lines.append(f"Total atrasado: {utils.money(total_atrasado)}")
 
-    total = utils.dsum(e["amount"] for e in hoy)
-    lines.append("")
-    lines.append(f"Total del día: {utils.money(total)}")
     return "\n".join(lines)
 
 
