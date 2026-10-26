@@ -192,6 +192,22 @@ def test_eliminar_este_y_futuros_borra_pendientes_y_desactiva_plantilla(run_view
     assert db.fixed_expenses[0]["id"] == fx["id"] and db.fixed_expenses[0]["active"] is False
 
 
+def test_eliminar_gasto_fijo_sin_fixed_expense_id_usa_flujo_simple(run_view, db):
+    """Regresión real de producción: una cuota de gasto fijo antigua sin
+    fixed_expense_id guardado no debe ofrecer "este y los futuros" (rompía
+    con un error de Postgres al intentar comparar contra None)."""
+    db.create_expense({"kind": "fijo", "name": "IBK 150K", "category": "Préstamos Pers. Jur.",
+                       "branch": None, "amount": 7575.83, "due_date": "2020-01-15", "status": "pendiente"})
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1, _cal_day="2020-01-15")
+    click(at, "Eliminar")
+    assert not at.exception
+    assert not any(b.label == "Este y los futuros" for b in at.button)
+    assert any(b.label == "Sí, eliminar" for b in at.button)
+    click(at, "Sí, eliminar")
+    assert not at.exception
+    assert db.expenses == []
+
+
 def test_eliminar_gasto_variable_sigue_con_un_solo_boton(run_view, db):
     db.create_expense({"kind": "variable", "name": "Reparación", "category": "Servicios",
                        "branch": "Sucursal 1", "amount": 75.0, "due_date": "2020-01-15", "status": "pendiente"})
