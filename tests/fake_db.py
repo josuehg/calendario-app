@@ -306,6 +306,16 @@ class FakeDB:
     def delete_expense(self, eid):
         self.expenses[:] = [e for e in self.expenses if e["id"] != eid]
 
+    def delete_future_fixed_expenses(self, fixed_expense_id, from_date):
+        self.expenses[:] = [
+            e for e in self.expenses
+            if not (e.get("fixed_expense_id") == fixed_expense_id and e["status"] == "pendiente"
+                    and e["due_date"] >= from_date)
+        ]
+        for f in self.fixed_expenses:
+            if f["id"] == fixed_expense_id:
+                f["active"] = False
+
     def set_expense_status(self, eid, status, paid_at=None, paid_by=None):
         self.update_expense(eid, {"status": status, "paid_at": paid_at, "paid_by": paid_by})
 

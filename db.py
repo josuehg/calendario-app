@@ -421,6 +421,17 @@ def delete_expense(expense_id: str):
     return sb.table("expenses").delete().eq("id", expense_id).execute()
 
 
+def delete_future_fixed_expenses(fixed_expense_id: int, from_date: str):
+    """Elimina las instancias 'pendiente' de un gasto fijo desde from_date
+    (inclusive) en adelante, y desactiva la plantilla para que no se sigan
+    generando más meses. Las ya pagadas quedan intactas, como historial."""
+    sb = get_client()
+    sb.table("expenses").delete().eq("fixed_expense_id", fixed_expense_id).eq(
+        "status", "pendiente"
+    ).gte("due_date", from_date).execute()
+    sb.table("fixed_expenses").update({"active": False}).eq("id", fixed_expense_id).execute()
+
+
 def set_expense_status(expense_id: str, status: str, paid_at: str | None = None, paid_by: str | None = None):
     return update_expense(expense_id, {"status": status, "paid_at": paid_at, "paid_by": paid_by})
 
