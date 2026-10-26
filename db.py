@@ -438,7 +438,7 @@ def set_expense_status(expense_id: str, status: str, paid_at: str | None = None,
     return update_expense(expense_id, {"status": status, "paid_at": paid_at, "paid_by": paid_by})
 
 
-def ensure_expense_instances(months_ahead: int = 3):
+def ensure_expense_instances(months_ahead: int = 6):
     """Genera las filas de 'expenses' que faltan para cada gasto fijo activo,
     desde el mes actual hasta months_ahead meses adelante. Idempotente: solo
     inserta lo que no existe (además del índice único como red de seguridad).
