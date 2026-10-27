@@ -7,6 +7,7 @@ grupo de Telegram:
 - `/hoy` — pagos de hoy
 - `/manana` — pagos de mañana
 - `/semana` — resumen de los próximos 7 días
+- `/meses` — totales por semana del mes actual y el próximo
 - `/atrasados` — lo vencido que aún no se paga, con días de atraso
 
 Reusa la misma lógica de fechas que la app (`utils.get_payment_events`):

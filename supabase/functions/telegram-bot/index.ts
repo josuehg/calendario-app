@@ -38,6 +38,14 @@ function fmtLong(d: string): string {
   return `${dt.getUTCDate()} de ${MONTHS_ES[dt.getUTCMonth()]} ${dt.getUTCFullYear()}`;
 }
 
+function startOfWeek(d: string): string {
+  // Semana de lunes a domingo, igual que utils.start_of_week en la app.
+  const dt = parseISO(d);
+  const dow = (dt.getUTCDay() + 6) % 7; // lunes=0 ... domingo=6
+  dt.setUTCDate(dt.getUTCDate() - dow);
+  return toISO(dt);
+}
+
 function money(n: number): string {
   const r = Math.round(n * 100) / 100;
   return "S/ " + r.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -245,6 +253,41 @@ async function handleSemana(supabase: any): Promise<string> {
   return lines.join("\n");
 }
 
+async function handleMeses(supabase: any): Promise<string> {
+  const today = todayLima();
+  const hoyDt = parseISO(today);
+  const year = hoyDt.getUTCFullYear();
+  const month = hoyDt.getUTCMonth(); // 0-indexado
+  const inicio = toISO(new Date(Date.UTC(year, month, 1)));
+  const fin = toISO(new Date(Date.UTC(year, month + 2, 0))); // último día del mes siguiente
+
+  const events = await buildEvents(supabase, today);
+  const items = events.filter((e) => e.date >= inicio && e.date <= fin);
+
+  const tituloMeses = `${MONTHS_ES[month]} y ${MONTHS_ES[(month + 1) % 12]}`;
+  const lines = [`📊 Pagos por semana — ${tituloMeses}`, ""];
+  if (!items.length) {
+    lines.push("No hay pagos programados en este periodo. 🎉");
+    return lines.join("\n");
+  }
+
+  const porSemana = new Map<string, Evento[]>();
+  for (const e of items) {
+    const wk = startOfWeek(e.date);
+    if (!porSemana.has(wk)) porSemana.set(wk, []);
+    porSemana.get(wk)!.push(e);
+  }
+  for (const wk of [...porSemana.keys()].sort()) {
+    const semana = porSemana.get(wk)!;
+    const finSemana = addDays(wk, 6);
+    lines.push(
+      `Semana del ${fmtLong(wk)} al ${fmtLong(finSemana)}: ${money(sumAmount(semana))} (${semana.length} pago(s))`,
+    );
+  }
+  lines.push("", `Total del periodo: ${money(sumAmount(items))}`);
+  return lines.join("\n");
+}
+
 async function handleAtrasados(supabase: any): Promise<string> {
   const today = todayLima();
   const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
@@ -271,6 +314,7 @@ const AYUDA = [
   "/hoy — pagos de hoy",
   "/manana — pagos de mañana",
   "/semana — resumen de los próximos 7 días",
+  "/meses — pagos por semana del mes actual y el próximo",
   "/atrasados — lo vencido que aún no se paga",
 ].join("\n");
 
@@ -285,6 +329,7 @@ async function responderComando(supabase: any, text: string): Promise<string | n
     case "/hoy": return await handleHoy(supabase);
     case "/manana": case "/mañana": return await handleManana(supabase);
     case "/semana": return await handleSemana(supabase);
+    case "/meses": return await handleMeses(supabase);
     case "/atrasados": return await handleAtrasados(supabase);
     case "/start": case "/ayuda": case "/help": return AYUDA;
     default: return `No entendí ese comando.\n\n${AYUDA}`;
