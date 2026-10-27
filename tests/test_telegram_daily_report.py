@@ -73,6 +73,28 @@ def test_letra_atrasada_cuenta_desde_el_limite_no_desde_la_fecha_esperada(tdr, d
     assert "10 día(s) de atraso" in text
 
 
+def test_avisa_de_sucursales_sin_ingreso_de_ayer(tdr, db):
+    text = tdr.build_message("2026-10-26")
+    assert "Falta registrar el ingreso de ayer" in text
+    assert "Sucursal 1" in text and "Sucursal 2" in text and "Sucursal 3" in text
+
+
+def test_no_avisa_si_todas_registraron_ingreso_de_ayer(tdr, db):
+    for b in db.get_branches():
+        db.create_income({"branch": b, "date": "2026-10-25", "amount": 100.0})
+    text = tdr.build_message("2026-10-26")
+    assert "Falta registrar" not in text
+
+
+def test_avisa_solo_de_las_sucursales_que_faltan(tdr, db):
+    db.create_income({"branch": "Sucursal 1", "date": "2026-10-25", "amount": 100.0})
+    text = tdr.build_message("2026-10-26")
+    assert "Falta registrar" in text
+    linea = next(l for l in text.splitlines() if "Falta registrar" in l)
+    assert "Sucursal 1" not in linea
+    assert "Sucursal 2" in linea and "Sucursal 3" in linea
+
+
 def test_send_telegram_llama_a_la_api_con_el_texto(tdr, monkeypatch):
     llamadas = []
 
