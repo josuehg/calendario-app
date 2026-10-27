@@ -525,6 +525,48 @@ def weekly_balance(invoices, letras, expenses, weeks_back=8, letra_dias_pago_tip
     return buckets[-weeks_back:]
 
 
+def expense_statement(invoices, letras, expenses, period_start, period_end, letra_dias_pago_tipico=8):
+    """Egresos del periodo [period_start, period_end] (inclusive), por
+    vencimiento/emisión — se hayan pagado o no todavía, igual criterio que
+    'Debido' en weekly_balance. Pensado como un estado de resultados de
+    egresos: compras a proveedores (un solo total) + gastos operativos por
+    categoría.
+
+    Igual que weekly_balance, una factura 'canjeada' no se cuenta por su
+    cuenta: su deuda ya está representada por la letra resultante (sumarlas
+    las dos duplicaría el mismo compromiso). Los gastos 'omitido' tampoco
+    cuentan — nunca llegaron a incurrirse."""
+    compras_amounts = []
+    for inv in invoices:
+        if inv.get("status") == "canjeada":
+            continue
+        fecha = inv["due_date"] if inv.get("doc_type") == "credito" else (inv.get("issue_date") or inv["due_date"])
+        if fecha and period_start <= fecha <= period_end:
+            compras_amounts.append(float(inv["amount"]))
+    for l in letras:
+        fecha = add_days(l["fecha_vencimiento"], letra_dias_pago_tipico)
+        if period_start <= fecha <= period_end:
+            compras_amounts.append(float(l["monto"]))
+    compras_proveedores = dsum(compras_amounts)
+
+    por_categoria = {}
+    for x in expenses:
+        if x.get("status") == "omitido":
+            continue
+        fecha = x["due_date"]
+        if period_start <= fecha <= period_end:
+            por_categoria.setdefault(x["category"], []).append(float(x["amount"]))
+    gastos_por_categoria = {cat: dsum(vals) for cat, vals in por_categoria.items()}
+    total_gastos_operativos = dsum(gastos_por_categoria.values())
+
+    return {
+        "compras_proveedores": compras_proveedores,
+        "gastos_por_categoria": gastos_por_categoria,
+        "total_gastos_operativos": total_gastos_operativos,
+        "total_egresos": dsum([compras_proveedores, total_gastos_operativos]),
+    }
+
+
 def compute_cash_balance(invoices, letras, expenses, incomes, saldo_inicial=0.0, saldo_inicial_fecha=None):
     """Saldo de caja real y cuánto queda libre para comprometer en un pedido
     nuevo, a partir de un saldo inicial que se configura una sola vez

@@ -34,6 +34,7 @@ else:
         st.Page("views/3_Canjear_a_Letras.py", title="Letras", icon="🔁"),
         st.Page("views/4_Calendario.py", title="Calendario", icon="📅"),
         st.Page("views/5_Presupuesto.py", title="Presupuesto", icon="📊"),
+        st.Page("views/11_Estado_Egresos.py", title="Estado de Egresos", icon="📑"),
         st.Page("views/10_Ingresos.py", title="Ingresos", icon="💵"),
         st.Page("views/7_Gastos.py", title="Gastos", icon="💸"),
         st.Page("views/9_Deudas.py", title="Deudas", icon="💰"),

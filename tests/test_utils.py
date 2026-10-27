@@ -297,6 +297,59 @@ def test_weekly_balance_no_duplica_factura_canjeada_y_su_letra(utils, monkeypatc
     assert buckets[-1]["saldo"] == 0.0
 
 
+# ---------- estado de egresos (expense_statement) ----------
+
+def test_expense_statement_compras_credito_usa_vencimiento(utils):
+    invoices = [
+        {"doc_type": "credito", "due_date": "2026-09-15", "issue_date": "2026-08-01",
+         "amount": 300.0, "status": "pendiente"},
+        {"doc_type": "credito", "due_date": "2026-10-01", "issue_date": "2026-09-01",
+         "amount": 999.0, "status": "pendiente"},   # vence fuera del periodo: no cuenta
+    ]
+    estado = utils.expense_statement(invoices, [], [], "2026-09-01", "2026-09-30")
+    assert estado["compras_proveedores"] == 300.0
+
+
+def test_expense_statement_compras_contado_usa_emision(utils):
+    invoices = [
+        {"doc_type": "contado", "due_date": "2026-09-05", "issue_date": "2026-09-05",
+         "amount": 80.0, "status": "pagada"},
+    ]
+    estado = utils.expense_statement(invoices, [], [], "2026-09-01", "2026-09-30")
+    assert estado["compras_proveedores"] == 80.0
+
+
+def test_expense_statement_no_duplica_factura_canjeada_con_su_letra(utils):
+    invoices = [
+        {"doc_type": "credito", "due_date": "2026-09-10", "issue_date": "2026-08-01",
+         "amount": 500.0, "status": "canjeada"},
+    ]
+    letras = [{"fecha_vencimiento": "2026-09-05", "monto": 500.0, "estado": "pendiente"}]  # 05 + 8 = 13-09
+    estado = utils.expense_statement(invoices, letras, [], "2026-09-01", "2026-09-30", letra_dias_pago_tipico=8)
+    assert estado["compras_proveedores"] == 500.0   # solo la letra, no 500 + 500
+
+
+def test_expense_statement_gastos_por_categoria_excluye_omitidos(utils):
+    expenses = [
+        {"due_date": "2026-09-05", "amount": 3000.0, "category": "Alquiler", "status": "pendiente"},
+        {"due_date": "2026-09-10", "amount": 200.0, "category": "Servicios", "status": "pagado"},
+        {"due_date": "2026-09-12", "amount": 150.0, "category": "Servicios", "status": "pagado"},
+        {"due_date": "2026-09-15", "amount": 999.0, "category": "Otros", "status": "omitido"},
+        {"due_date": "2026-10-01", "amount": 999.0, "category": "Alquiler", "status": "pendiente"},  # otro mes
+    ]
+    estado = utils.expense_statement([], [], expenses, "2026-09-01", "2026-09-30")
+    assert estado["gastos_por_categoria"] == {"Alquiler": 3000.0, "Servicios": 350.0}
+    assert estado["total_gastos_operativos"] == 3350.0
+
+
+def test_expense_statement_total_egresos_suma_compras_y_gastos(utils):
+    invoices = [{"doc_type": "credito", "due_date": "2026-09-10", "issue_date": "2026-08-01",
+                 "amount": 1000.0, "status": "pendiente"}]
+    expenses = [{"due_date": "2026-09-05", "amount": 500.0, "category": "Alquiler", "status": "pendiente"}]
+    estado = utils.expense_statement(invoices, [], expenses, "2026-09-01", "2026-09-30")
+    assert estado["total_egresos"] == 1500.0
+
+
 # ---------- saldo de caja (compute_cash_balance) ----------
 
 def test_cash_balance_sin_movimientos_es_el_saldo_inicial(utils):
