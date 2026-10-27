@@ -356,3 +356,29 @@ def test_purchase_limit_ignora_gastos_fijos_inactivos(utils):
     fixed = [_fx(id=1, amount=500.0, active=False), _fx(id=2, amount=100.0, active=True)]
     limite = utils.purchase_limit([], fixed, days_back=30, today="2026-09-10")
     assert limite["gastos_fijos_mensuales"] == 100.0
+
+
+# ---------- cuánto comprometer con un proveedor a X días (max_new_purchase) ----------
+
+def test_max_new_purchase_sin_comprometidos_es_saldo_mas_venta_proyectada(utils):
+    r = utils.max_new_purchase([], saldo_actual=1000.0, venta_diaria=50.0, term_days=60, today="2026-09-10")
+    assert r["fecha_vence"] == "2026-11-09"
+    assert r["proyectado"] == 1000.0 + 50.0 * 60
+    assert r["maximo"] == r["proyectado"]
+
+
+def test_max_new_purchase_resta_lo_que_vence_antes_o_en_esa_fecha(utils):
+    events = [
+        {"date": "2026-11-01", "amount": 2000.0},   # antes de que venza (09-11): resta
+        {"date": "2026-11-09", "amount": 500.0},     # mismo día: resta
+        {"date": "2026-11-10", "amount": 999.0},     # un día después: no resta
+    ]
+    r = utils.max_new_purchase(events, saldo_actual=1000.0, venta_diaria=0.0, term_days=60, today="2026-09-10")
+    assert r["comprometido_antes"] == 2500.0
+    assert r["proyectado"] == 1000.0 - 2500.0
+
+
+def test_max_new_purchase_nunca_es_negativo(utils):
+    r = utils.max_new_purchase([], saldo_actual=-500.0, venta_diaria=0.0, term_days=30, today="2026-09-10")
+    assert r["proyectado"] == -500.0
+    assert r["maximo"] == 0.0

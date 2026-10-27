@@ -32,7 +32,8 @@ today = utils.today_str()
 if not settings.get("caja_saldo_inicial_fecha"):
     st.info(
         "Configura el saldo inicial de caja en **Configuración** para ver aquí "
-        "cuánto tienes disponible para comprometer en un pedido nuevo."
+        "cuánto tienes disponible para comprometer en un pedido nuevo, y el "
+        "simulador por plazo de proveedor de más abajo."
     )
 else:
     caja = utils.compute_cash_balance(
@@ -46,6 +47,33 @@ else:
     cc3.metric("💰 Disponible para comprometer", utils.money(caja["disponible"]))
     if caja["disponible"] < 0:
         st.error("Ya tienes más comprometido que lo que hay en caja — cuidado con hacer un pedido nuevo.")
+    st.divider()
+
+    # ---------- simulador: cuánto comprometer con un proveedor a X días ----------
+    st.subheader("🧮 ¿Cuánto puedo comprometer con un proveedor nuevo?")
+    st.caption(
+        "Proyecta tu caja a la fecha en que vencería esa compra, según el "
+        "plazo del proveedor (30/45/60/75/90 días) — tu saldo actual, más lo "
+        "que esperas vender hasta esa fecha, menos TODO lo que ya está "
+        "comprometido y vence en o antes de esa fecha."
+    )
+    plazo_sim = st.radio(
+        "Plazo del proveedor", utils.TERM_OPTIONS, index=2, horizontal=True, key="pp_sim_plazo",
+        format_func=lambda d: f"{d} días",
+    )
+    venta_diaria_sim = utils.average_daily_income(incomes, days_back=30)
+    sim = utils.max_new_purchase(events, caja["saldo_actual"], venta_diaria_sim, plazo_sim, today)
+    st.metric(
+        f"Máximo recomendado a {plazo_sim} días (vencería el {utils.fmt_short(sim['fecha_vence'])})",
+        utils.money(sim["maximo"]),
+    )
+    if venta_diaria_sim == 0:
+        st.caption("Sin ingresos registrados, esto no suma venta proyectada — registra en **Ingresos** para un número más real.")
+    if sim["proyectado"] <= 0:
+        st.error(
+            f"Con un plazo de {plazo_sim} días ya proyectas caja en rojo para el "
+            f"{utils.fmt_short(sim['fecha_vence'])} — no es recomendable comprometer nada nuevo a ese plazo."
+        )
     st.divider()
 
 # ---------- límite de compra (fuera de los gastos fijos) ----------
