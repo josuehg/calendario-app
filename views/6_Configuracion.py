@@ -279,7 +279,11 @@ dialog_state = st.session_state.get("_vendor_dialog")
 if dialog_state:
     editing = dialog_state.get("data")
 
-    @st.dialog("Editar proveedor" if editing else "Nuevo proveedor")
+    def _cerrar_vendor_dialog():
+        st.session_state["_vendor_dialog"] = None
+        st.session_state.pop("_confirm_del_vendor", None)
+
+    @st.dialog("Editar proveedor" if editing else "Nuevo proveedor", on_dismiss=_cerrar_vendor_dialog)
     def _vendor_dialog():
         name = st.text_input("Nombre del proveedor", value=editing["name"] if editing else "", key="vd_name")
         ruc = st.text_input(

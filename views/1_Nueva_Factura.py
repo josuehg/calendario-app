@@ -301,7 +301,10 @@ if trigger_register and not done:
 if st.session_state.get("nf_pending"):
     p = st.session_state["nf_pending"]
 
-    @st.dialog("Confirmar registro")
+    def _cancelar_confirm_dialog():
+        st.session_state["nf_pending"] = None
+
+    @st.dialog("Confirmar registro", on_dismiss=_cancelar_confirm_dialog)
     def _confirm_dialog():
         tipo_txt = "Contado" if p["doc_type"] == "contado" else f"Crédito · {p['term_days']} días"
         filas = [
@@ -371,7 +374,7 @@ if st.session_state.get("nf_pending"):
 _done_msg = st.session_state.get("nf_done")
 if _done_msg and not st.session_state.get("nf_pending"):
 
-    @st.dialog("✅ Registro exitoso", width="large")
+    @st.dialog("✅ Registro exitoso", width="large", on_dismiss=_clear_form)
     def _success_dialog():
         st.success(_done_msg)
 

@@ -85,7 +85,11 @@ dialog_state = st.session_state.get("_debt_dialog")
 if dialog_state:
     editing = dialog_state.get("data")
 
-    @st.dialog("Editar deuda" if editing else "Nueva deuda")
+    def _cerrar_debt_dialog():
+        st.session_state["_debt_dialog"] = None
+        st.session_state.pop("_confirm_del_debt", None)
+
+    @st.dialog("Editar deuda" if editing else "Nueva deuda", on_dismiss=_cerrar_debt_dialog)
     def _debt_dialog():
         loan_fixed = [f for f in fixed_all if _es_prestamo(f["category"])]
         # No se ofrecen los que ya están vinculados a OTRA deuda (evita duplicados).

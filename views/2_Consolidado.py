@@ -121,7 +121,10 @@ else:
 if st.session_state.get("_edit_inv"):
     inv = st.session_state["_edit_inv"]
 
-    @st.dialog("Editar factura")
+    def _cerrar_edit_inv():
+        st.session_state["_edit_inv"] = None
+
+    @st.dialog("Editar factura", on_dismiss=_cerrar_edit_inv)
     def _edit_inv_dialog():
         if inv["status"] != "pendiente":
             st.warning(
@@ -190,7 +193,10 @@ if st.session_state.get("_edit_inv"):
 elif st.session_state.get("_direct_pay_id"):
     inv_id = st.session_state["_direct_pay_id"]
 
-    @st.dialog("Marcar como pagada")
+    def _cerrar_direct_pay():
+        st.session_state["_direct_pay_id"] = None
+
+    @st.dialog("Marcar como pagada", on_dismiss=_cerrar_direct_pay)
     def _direct_pay_dialog():
         fecha = st.date_input("Fecha de pago", value=None)
         c1, c2 = st.columns(2)
@@ -210,7 +216,10 @@ elif st.session_state.get("_confirm_delete_id"):
 
     _inv_del = next((x for x in invoices if x["id"] == inv_id), None)
 
-    @st.dialog("Confirmar eliminación")
+    def _cerrar_confirm_delete():
+        st.session_state["_confirm_delete_id"] = None
+
+    @st.dialog("Confirmar eliminación", on_dismiss=_cerrar_confirm_delete)
     def _confirm_delete_dialog():
         st.write("Esta acción eliminará la factura de forma permanente.")
         if _inv_del and _inv_del["status"] == "canjeada":

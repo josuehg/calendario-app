@@ -397,7 +397,10 @@ _mng = st.session_state.get("_gx_manage")
 if _fx:
     ed = _fx.get("data")
 
-    @st.dialog("Editar gasto fijo" if ed else "Nuevo gasto fijo")
+    def _cerrar_fx_dialog():
+        st.session_state["_fx_dialog"] = None
+
+    @st.dialog("Editar gasto fijo" if ed else "Nuevo gasto fijo", on_dismiss=_cerrar_fx_dialog)
     def _fx_dialog():
         name = st.text_input("Nombre", value=ed["name"] if ed else "", key="fx_name",
                              placeholder="Ej: Alquiler local Miraflores")
@@ -508,7 +511,10 @@ if _fx:
 elif _mng:
     mng = _mng
 
-    @st.dialog(f"Gasto: {mng['name']}")
+    def _cerrar_manage_dialog():
+        st.session_state["_gx_manage"] = None
+
+    @st.dialog(f"Gasto: {mng['name']}", on_dismiss=_cerrar_manage_dialog)
     def _manage_dialog():
         cat_line = mng["category"] + (f" · {mng['subcategory']}" if mng.get("subcategory") else "")
         st.write(f"{cat_line} · {mng.get('branch') or 'General'} · vence {utils.fmt_short(mng['due_date'])}")

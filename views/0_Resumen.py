@@ -101,7 +101,10 @@ else:
 if st.session_state.get("_show_pay_dialog"):
     e = st.session_state["_pay_target"]
 
-    @st.dialog("Marcar como pagado")
+    def _cerrar_pay_dialog():
+        st.session_state["_show_pay_dialog"] = False
+
+    @st.dialog("Marcar como pagado", on_dismiss=_cerrar_pay_dialog)
     def _pay_dialog():
         st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['label']} · {utils.money(e['amount'])}")
         fecha = st.date_input("Fecha de pago", value=None)

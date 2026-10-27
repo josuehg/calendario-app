@@ -141,7 +141,10 @@ with tab_todas:
     if mng and not st.session_state.get("_canje_pending"):
         de_canje = bool(mng.get("canje_id"))
 
-        @st.dialog(f"Letra {mng.get('numero') or ''}")
+        def _cerrar_letra_dialog():
+            st.session_state["_letra_manage"] = None
+
+        @st.dialog(f"Letra {mng.get('numero') or ''}", on_dismiss=_cerrar_letra_dialog)
         def _letra_dialog():
             if de_canje:
                 st.caption(
@@ -325,7 +328,10 @@ with tab_canje:
 if st.session_state.get("_canje_pending"):
     cp = st.session_state["_canje_pending"]
 
-    @st.dialog("Confirmar canje")
+    def _cancelar_canje_confirm():
+        st.session_state["_canje_pending"] = None
+
+    @st.dialog("Confirmar canje", on_dismiss=_cancelar_canje_confirm)
     def _canje_confirm_dialog():
         st.markdown(f"**{len(cp['invoices'])} factura(s) → {len(cp['letras'])} letra(s)**")
 
