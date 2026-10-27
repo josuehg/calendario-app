@@ -46,6 +46,15 @@ def _linea(e):
     return f"• {e['vendor']}{ref} · {e['label']} · {e['branch']} · {utils.money(e['amount'])}"
 
 
+def _sucursales_sin_ingreso(fecha):
+    """Sucursales que no tienen un ingreso registrado para esa fecha — para
+    avisar en el reporte y que el promedio de ventas (Presupuesto → Límite
+    de compra) no se desactualice por días sin registrar."""
+    branches = db.get_branches()
+    registradas = {i["branch"] for i in db.list_incomes() if i["date"] == fecha}
+    return [b for b in branches if b not in registradas]
+
+
 def build_message(today):
     settings = db.get_settings()
     gracia_max = settings.get("letra_dias_gracia_max", 10)
@@ -83,6 +92,13 @@ def build_message(today):
         total_atrasado = utils.dsum(e["amount"] for e in atrasados)
         lines.append("")
         lines.append(f"Total atrasado: {utils.money(total_atrasado)}")
+
+    ayer = utils.add_days(today, -1)
+    faltantes = _sucursales_sin_ingreso(ayer)
+    if faltantes:
+        lines.append("")
+        lines.append(f"⚠️ Falta registrar el ingreso de ayer ({utils.fmt_short(ayer)}) en: {', '.join(faltantes)}")
+        lines.append("Usa /ingreso <sucursal> <monto> en el bot para ponerlo al día.")
 
     return "\n".join(lines)
 
