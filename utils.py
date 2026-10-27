@@ -613,31 +613,45 @@ def purchase_limit(incomes, fixed_expenses, days_back=30, today=None):
 
 def max_new_purchase(events, saldo_actual, venta_diaria, term_days, today=None):
     """Cuánto se puede comprometer HOY con un proveedor a `term_days` de
-    plazo, sin proyectar caja en rojo para cuando venza esa compra (ej. 60,
-    75 o 90 días). A diferencia de 'disponible para comprometer' (que mira
-    TODO lo pendiente sin importar fecha) y de 'límite de compra' (que no
-    distingue plazos), esto responde la pregunta real: "si compro con este
-    proveedor, con SU plazo, ¿tendré con qué pagarle cuando venza?"
+    plazo, revisando semana por semana desde hoy hasta esa fecha (no solo el
+    día exacto del vencimiento) — si algo grande cae unos días antes, esa
+    semana es tu verdadero cuello de botella, no el día final (que puede
+    verse bien solo porque ya se acumuló más venta para entonces). A
+    diferencia de 'disponible para comprometer' (mira TODO lo pendiente sin
+    importar fecha) y de 'límite de compra' (no distingue plazos), esto
+    responde la pregunta real: "si compro con este proveedor, con SU plazo,
+    ¿tendré con qué pagarle en el camino hasta que venza?"
 
-      fecha_vence       = hoy + term_days.
-      comprometido_antes = todo lo YA pendiente (eventos de
-                            get_payment_events) que vence en o antes de esa
-                            fecha — hay que pagarlo pase lo que pase.
-      proyectado        = saldo_actual + (venta_diaria * term_days) -
-                            comprometido_antes.
-      máximo seguro      = proyectado, nunca negativo (si ya proyecta rojo
-                            sin la compra nueva, el máximo es 0 — no "menos
-                            cero").
+      fecha_vence           = hoy + term_days.
+      Para cada semana entre hoy y fecha_vence: saldo_actual + (venta_diaria
+      * días transcurridos hasta el fin de esa semana) - todo lo YA
+      pendiente que vence en o antes de esa semana.
+      semana_mas_ajustada   = la de menor saldo proyectado de ese camino.
+      máximo seguro         = ese saldo, nunca negativo (si ya proyecta rojo
+                              en algún punto, el máximo es 0 — no "menos
+                              cero").
     """
     today = today or today_str()
     fecha_vence = add_days(today, term_days)
-    comprometido_antes = dsum(e["amount"] for e in events if e["date"] <= fecha_vence)
-    proyectado = dsum([saldo_actual, venta_diaria * term_days, -comprometido_antes])
+
+    semanas = []
+    ws = start_of_week(today)
+    while ws <= fecha_vence:
+        fin_semana = min(add_days(ws, 6), fecha_vence)
+        dias = (date.fromisoformat(fin_semana) - date.fromisoformat(today)).days
+        comprometido = dsum(e["amount"] for e in events if e["date"] <= fin_semana)
+        proyectado = dsum([saldo_actual, venta_diaria * dias, -comprometido])
+        semanas.append({"fin_semana": fin_semana, "comprometido": comprometido, "proyectado": proyectado})
+        ws = add_days(ws, 7)
+
+    peor = min(semanas, key=lambda s: s["proyectado"])
+
     return {
         "fecha_vence": fecha_vence,
-        "comprometido_antes": comprometido_antes,
-        "proyectado": proyectado,
-        "maximo": max(0.0, proyectado),
+        "semana_mas_ajustada": peor["fin_semana"],
+        "comprometido_antes": peor["comprometido"],
+        "proyectado": peor["proyectado"],
+        "maximo": max(0.0, peor["proyectado"]),
     }
 
 

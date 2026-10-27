@@ -52,10 +52,11 @@ else:
     # ---------- simulador: cuánto comprometer con un proveedor a X días ----------
     st.subheader("🧮 ¿Cuánto puedo comprometer con un proveedor nuevo?")
     st.caption(
-        "Proyecta tu caja a la fecha en que vencería esa compra, según el "
-        "plazo del proveedor (30/45/60/75/90 días) — tu saldo actual, más lo "
-        "que esperas vender hasta esa fecha, menos TODO lo que ya está "
-        "comprometido y vence en o antes de esa fecha."
+        "Revisa semana por semana desde hoy hasta la fecha en que vencería "
+        "esa compra (según el plazo del proveedor) — tu saldo actual, más lo "
+        "que esperas vender hasta cada semana, menos TODO lo que ya está "
+        "comprometido hasta ahí. Usa la semana más ajustada del camino, no "
+        "solo el día final: si algo grande cae antes, ese es tu verdadero límite."
     )
     plazo_sim = st.radio(
         "Plazo del proveedor", utils.TERM_OPTIONS, index=2, horizontal=True, key="pp_sim_plazo",
@@ -67,12 +68,17 @@ else:
         f"Máximo recomendado a {plazo_sim} días (vencería el {utils.fmt_short(sim['fecha_vence'])})",
         utils.money(sim["maximo"]),
     )
+    if sim["semana_mas_ajustada"] != sim["fecha_vence"]:
+        st.caption(
+            f"📍 Limitado por la semana del {utils.fmt_short(sim['semana_mas_ajustada'])}, "
+            "no por el día final — ahí es donde más ajustada se pone la caja en el camino."
+        )
     if venta_diaria_sim == 0:
         st.caption("Sin ingresos registrados, esto no suma venta proyectada — registra en **Ingresos** para un número más real.")
     if sim["proyectado"] <= 0:
         st.error(
-            f"Con un plazo de {plazo_sim} días ya proyectas caja en rojo para el "
-            f"{utils.fmt_short(sim['fecha_vence'])} — no es recomendable comprometer nada nuevo a ese plazo."
+            f"Con un plazo de {plazo_sim} días ya proyectas caja en rojo para la semana del "
+            f"{utils.fmt_short(sim['semana_mas_ajustada'])} — no es recomendable comprometer nada nuevo a ese plazo."
         )
     st.divider()
 

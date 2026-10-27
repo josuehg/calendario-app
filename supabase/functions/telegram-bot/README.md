@@ -13,7 +13,7 @@ grupo de Telegram:
 - `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
 - `/ingreso <sucursal> <monto> [fecha]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 2026-10-25`. Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
 - `/saldo` — saldo de caja real y cuánto queda disponible para comprometer en un pedido nuevo (requiere configurar el saldo inicial una vez, en la app → Configuración)
-- `/simular <plazo_dias> [monto]` — ¿cuánto puedes comprometer con un proveedor a ese plazo (30/45/60/75/90 días)? Proyecta tu caja a la fecha en que vencería esa compra. Ej: `/simular 60` o `/simular 60 5000` para además saber si 5000 te alcanza. Mismo cálculo que el simulador de Presupuesto, y el que ya aparece al registrar una factura a crédito o armar un canje a letras.
+- `/simular <plazo_dias> [monto]` — ¿cuánto puedes comprometer con un proveedor a ese plazo (30/45/60/75/90 días)? Revisa tu caja semana por semana desde hoy hasta la fecha en que vencería esa compra, y usa la semana más ajustada del camino (no solo el día final) como límite real. Ej: `/simular 60` o `/simular 60 5000` para además saber si 5000 te alcanza. Mismo cálculo que el simulador de Presupuesto.
 
 `/ingreso` es el único comando que **escribe** datos — cualquiera en el
 grupo puede usarlo, no hay un control de permisos más fino que "está en
