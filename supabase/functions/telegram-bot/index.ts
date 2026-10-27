@@ -466,8 +466,9 @@ async function handleIngreso(supabase: any, argsText: string, fromName: string):
   }
 
   const monto = parseFloat(montoToken.replace(",", "."));
-  if (!monto || monto <= 0) {
-    return "El monto debe ser un número mayor a 0. Ej: /ingreso 1 1500";
+  // 0 es válido (local cerrado ese día); solo se rechaza negativo o no-numérico.
+  if (isNaN(monto) || monto < 0) {
+    return "El monto debe ser un número (0 o mayor). Ej: /ingreso 1 1500 o /ingreso 1 0";
   }
 
   let fecha = todayLima();

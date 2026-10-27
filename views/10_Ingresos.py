@@ -27,19 +27,17 @@ inc_monto = c3.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f
 inc_notas = st.text_input("Notas (opcional)", key="inc_notas")
 
 if st.button("Registrar", type="primary"):
-    if inc_monto <= 0:
-        st.error("El monto debe ser mayor a 0.")
-    else:
-        db.create_income({
-            "branch": inc_branch,
-            "date": inc_fecha.isoformat(),
-            "amount": utils.round2(inc_monto),
-            "notes": inc_notas.strip() or None,
-            "registered_by": utils.current_actor(),
-            "source": "app",
-        })
-        st.session_state["inc_msg"] = f"Registrado: {inc_branch} · {utils.money(inc_monto)} · {utils.fmt_short(inc_fecha.isoformat())}."
-        st.rerun()
+    # 0 es válido (local cerrado ese día); el widget ya impide negativos.
+    db.create_income({
+        "branch": inc_branch,
+        "date": inc_fecha.isoformat(),
+        "amount": utils.round2(inc_monto),
+        "notes": inc_notas.strip() or None,
+        "registered_by": utils.current_actor(),
+        "source": "app",
+    })
+    st.session_state["inc_msg"] = f"Registrado: {inc_branch} · {utils.money(inc_monto)} · {utils.fmt_short(inc_fecha.isoformat())}."
+    st.rerun()
 
 st.divider()
 st.subheader("Historial")
