@@ -157,6 +157,43 @@ def test_events_from_expenses_only_pending(utils):
     assert "Alquiler" in ev[0]["label"]
 
 
+# ---------- historial de pagados (get_paid_events) ----------
+
+def test_paid_events_solo_incluye_lo_pagado_con_fecha_de_pago(utils):
+    invs = [
+        _inv(id="a", status="pagada", paid_at="2026-09-18"),
+        _inv(id="b", status="pendiente"),
+        _inv(id="c", status="canjeada"),
+    ]
+    ev = utils.get_paid_events(invs, [], [])
+    assert [e["ref_id"] for e in ev] == ["a"]
+    assert ev[0]["date"] == "2026-09-18"
+
+
+def test_paid_events_de_letras_usa_fecha_pago(utils):
+    letras = [
+        {"id": "L1", "estado": "pagada", "fecha_pago": "2026-09-19", "monto": 500.0,
+         "numero": "001", "vendor": "Prov", "branch": "Sucursal 1", "paid_by": "Josue"},
+        {"id": "L2", "estado": "pendiente", "fecha_pago": None, "monto": 100.0,
+         "numero": "002", "vendor": "Prov", "branch": "Sucursal 1"},
+    ]
+    ev = utils.get_paid_events([], letras, [])
+    assert [e["ref_id"] for e in ev] == ["L1"]
+    assert ev[0]["date"] == "2026-09-19" and ev[0]["paid_by"] == "Josue"
+
+
+def test_paid_events_de_gastos_usa_paid_at(utils):
+    exp = [
+        {"id": "e1", "kind": "fijo", "name": "Alquiler", "category": "Alquiler",
+         "branch": None, "amount": 3000.0, "status": "pagado", "paid_at": "2026-09-05"},
+        {"id": "e2", "kind": "variable", "name": "Reparación", "category": "Servicios",
+         "branch": "Sucursal 2", "amount": 200.0, "status": "pendiente", "paid_at": None},
+    ]
+    ev = utils.get_paid_events([], [], exp)
+    assert [e["ref_id"] for e in ev] == ["e1"]
+    assert ev[0]["date"] == "2026-09-05" and ev[0]["branch"] == "General"
+
+
 # ---------- vencimientos sospechosos ----------
 
 def _vendor(**kw):

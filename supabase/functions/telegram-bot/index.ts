@@ -1,5 +1,6 @@
 // Bot de Telegram para Control Compras — responde comandos bajo demanda
-// (/hoy, /manana, /semana, /atrasados) consultando Supabase directamente.
+// (/hoy, /manana, /semana, /meses, /atrasados, /pagados, /resumen)
+// consultando Supabase directamente.
 //
 // Reimplementa en TypeScript la misma lógica que utils.get_payment_events()
 // en Python (ver utils.py y scripts/telegram_daily_report.py): una letra
@@ -70,6 +71,7 @@ interface Evento {
   label: string;
   overdue: boolean;
   kind: Kind;
+  paidBy?: string;
 }
 
 interface Settings {
@@ -179,6 +181,72 @@ async function buildEvents(supabase: any, today: string): Promise<Evento[]> {
   return events;
 }
 
+async function buildPaidEvents(supabase: any): Promise<Evento[]> {
+  const { data: invoicesPaid } = await supabase
+    .from("invoices")
+    .select("id,vendor,branch,invoice_number,doc_type,amount,paid_at,paid_by")
+    .eq("status", "pagada");
+
+  const { data: letrasPaid } = await supabase
+    .from("letras")
+    .select("id,numero,monto,vendor,branch,fecha_pago,paid_by")
+    .eq("estado", "pagada");
+
+  const { data: expensesPaid } = await supabase
+    .from("expenses")
+    .select("id,kind,name,category,branch,amount,paid_at,paid_by")
+    .eq("status", "pagado");
+
+  const events: Evento[] = [];
+
+  for (const inv of invoicesPaid ?? []) {
+    if (!inv.paid_at) continue;
+    events.push({
+      date: inv.paid_at,
+      amount: Number(inv.amount),
+      vendor: inv.vendor,
+      branch: inv.branch,
+      invoice_number: inv.invoice_number,
+      label: inv.doc_type === "contado" ? "Contado" : "Factura a crédito",
+      overdue: false,
+      kind: "invoice",
+      paidBy: inv.paid_by ?? undefined,
+    });
+  }
+
+  for (const l of letrasPaid ?? []) {
+    if (!l.fecha_pago) continue;
+    events.push({
+      date: l.fecha_pago,
+      amount: Number(l.monto),
+      vendor: l.vendor || "—",
+      branch: l.branch || "—",
+      invoice_number: "—",
+      label: `Letra ${l.numero || "—"}`,
+      overdue: false,
+      kind: "letra",
+      paidBy: l.paid_by ?? undefined,
+    });
+  }
+
+  for (const x of expensesPaid ?? []) {
+    if (!x.paid_at) continue;
+    events.push({
+      date: x.paid_at,
+      amount: Number(x.amount),
+      vendor: x.name,
+      branch: x.branch || "General",
+      invoice_number: "",
+      label: `Gasto ${x.kind} · ${x.category}`,
+      overdue: false,
+      kind: "expense",
+      paidBy: x.paid_by ?? undefined,
+    });
+  }
+
+  return events;
+}
+
 function referenciaVencimiento(e: Evento, graciaMax: number): string {
   if (e.kind === "letra" && e.vencimiento_real) return addDays(e.vencimiento_real, graciaMax);
   return e.date;
@@ -193,6 +261,12 @@ function diasAtraso(e: Evento, today: string, graciaMax: number): number {
 function linea(e: Evento): string {
   const ref = e.invoice_number && e.kind !== "expense" ? ` · Fact. ${e.invoice_number}` : "";
   return `• ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}`;
+}
+
+function lineaPagado(e: Evento): string {
+  const ref = e.invoice_number && e.invoice_number !== "—" && e.kind !== "expense" ? ` · Fact. ${e.invoice_number}` : "";
+  const quien = e.paidBy ? ` · pagó ${e.paidBy}` : "";
+  return `• ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}${quien}`;
 }
 
 function sumAmount(events: Evento[]): number {
@@ -308,6 +382,52 @@ async function handleAtrasados(supabase: any): Promise<string> {
   return lines.join("\n");
 }
 
+async function handlePagados(supabase: any, weeksBack: number): Promise<string> {
+  const today = todayLima();
+  const objetivo = addDays(today, -7 * weeksBack);
+  const inicio = startOfWeek(objetivo);
+  const fin = addDays(inicio, 6);
+
+  const events = await buildPaidEvents(supabase);
+  const items = events
+    .filter((e) => e.date >= inicio && e.date <= fin)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : b.amount - a.amount));
+
+  const etiqueta = weeksBack === 0 ? "esta semana" : weeksBack === 1 ? "la semana pasada" : `hace ${weeksBack} semanas`;
+  const lines = [`✅ Pagado ${etiqueta} (${fmtLong(inicio)} – ${fmtLong(fin)})`, ""];
+  if (!items.length) {
+    lines.push("No hay nada pagado registrado en ese rango.");
+    return lines.join("\n");
+  }
+  lines.push(...items.map(lineaPagado));
+  lines.push("", `Total pagado: ${money(sumAmount(items))}`);
+  return lines.join("\n");
+}
+
+async function handleResumen(supabase: any): Promise<string> {
+  const today = todayLima();
+  const hasta = addDays(today, 6);
+  const events = await buildEvents(supabase, today);
+
+  const hoy = events.filter((e) => e.date === today).sort((a, b) => b.amount - a.amount);
+  const atrasados = events.filter((e) => e.overdue);
+  const semana = events.filter((e) => e.date >= today && e.date <= hasta);
+
+  const lines = [`📊 Resumen rápido — ${fmtLong(today)}`, ""];
+
+  lines.push(`📅 Hoy: ${hoy.length} pago(s) · ${money(sumAmount(hoy))}`);
+  lines.push(...hoy.map(linea));
+  lines.push("");
+
+  lines.push(`⚠️ Atrasados: ${atrasados.length} pago(s) · ${money(sumAmount(atrasados))}`);
+  if (atrasados.length) lines.push("(escribe /atrasados para el detalle)");
+  lines.push("");
+
+  lines.push(`📈 Próximos 7 días: ${money(sumAmount(semana))} (escribe /semana para el detalle)`);
+
+  return lines.join("\n");
+}
+
 const AYUDA = [
   "Hola 👋 Soy el bot de Control Compras. Comandos disponibles:",
   "",
@@ -316,6 +436,8 @@ const AYUDA = [
   "/semana — resumen de los próximos 7 días",
   "/meses — pagos por semana del mes actual y el próximo",
   "/atrasados — lo vencido que aún no se paga",
+  "/pagados [N] — lo pagado esta semana, o N semanas atrás (ej. /pagados 1)",
+  "/resumen — panorama rápido: hoy + atrasados + próximos 7 días",
 ].join("\n");
 
 /** null => no es un comando dirigido al bot: no se responde nada (el grupo
@@ -329,8 +451,14 @@ async function responderComando(supabase: any, text: string): Promise<string | n
     case "/hoy": return await handleHoy(supabase);
     case "/manana": case "/mañana": return await handleManana(supabase);
     case "/semana": return await handleSemana(supabase);
-    case "/meses": return await handleMeses(supabase);
+    case "/meses": case "/mes": return await handleMeses(supabase);
     case "/atrasados": return await handleAtrasados(supabase);
+    case "/pagados": {
+      const arg = trimmed.split(/\s+/)[1];
+      const weeksBack = Math.max(0, parseInt(arg ?? "0", 10) || 0);
+      return await handlePagados(supabase, weeksBack);
+    }
+    case "/resumen": return await handleResumen(supabase);
     case "/start": case "/ayuda": case "/help": return AYUDA;
     default: return `No entendí ese comando.\n\n${AYUDA}`;
   }
