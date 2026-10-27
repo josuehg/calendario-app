@@ -13,6 +13,7 @@ grupo de Telegram:
 - `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
 - `/ingreso <sucursal> <monto> [fecha]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 2026-10-25`. Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
 - `/saldo` — saldo de caja real y cuánto queda disponible para comprometer en un pedido nuevo (requiere configurar el saldo inicial una vez, en la app → Configuración)
+- `/simular <plazo_dias> [monto]` — ¿cuánto puedes comprometer con un proveedor a ese plazo (30/45/60/75/90 días)? Proyecta tu caja a la fecha en que vencería esa compra. Ej: `/simular 60` o `/simular 60 5000` para además saber si 5000 te alcanza. Mismo cálculo que el simulador de Presupuesto, y el que ya aparece al registrar una factura a crédito o armar un canje a letras.
 
 `/ingreso` es el único comando que **escribe** datos — cualquiera en el
 grupo puede usarlo, no hay un control de permisos más fino que "está en
@@ -96,7 +97,8 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
        {"command":"pagados","description":"Lo pagado esta semana (o N semanas atrás)"},
        {"command":"resumen","description":"Panorama rápido: hoy + atrasados + semana"},
        {"command":"ingreso","description":"Registrar venta/cobro de una sucursal"},
-       {"command":"saldo","description":"Saldo de caja y disponible para comprometer"}
+       {"command":"saldo","description":"Saldo de caja y disponible para comprometer"},
+       {"command":"simular","description":"Cuanto alcanza con un proveedor a X dias"}
      ]}'
    ```
    Debe responder `{"ok":true,"result":true,...}`. Solo hace falta correrlo
