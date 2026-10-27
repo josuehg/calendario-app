@@ -18,7 +18,10 @@ class FakeDB:
         self.canjes = []
         self.canje_facturas = []
         self.letras = []
-        self.settings = {"track_contado": True, "letra_dias_pago_tipico": 8, "letra_dias_gracia_max": 10}
+        self.settings = {
+            "track_contado": True, "letra_dias_pago_tipico": 8, "letra_dias_gracia_max": 10,
+            "caja_saldo_inicial": 0.0, "caja_saldo_inicial_fecha": None,
+        }
         self.expense_categories = [
             {"id": 1, "name": "Alquiler", "sort_order": 1},
             {"id": 2, "name": "Servicios", "sort_order": 2},
@@ -28,6 +31,7 @@ class FakeDB:
         self.fixed_expenses = []
         self.expenses = []
         self.debts = []
+        self.incomes = []
         self._seq = itertools.count(1)
 
     def _nid(self, prefix):
@@ -326,6 +330,23 @@ class FakeDB:
         rows = utils.fixed_expense_rows_to_create(active, self.list_expenses(), date.today(), months_ahead)
         for r in rows:
             self.create_expense(r)
+
+    # ---- ingresos ----
+    def list_incomes(self):
+        return [dict(i) for i in sorted(self.incomes, key=lambda i: i["date"], reverse=True)]
+
+    def create_income(self, data):
+        row = {"id": self._nid("inc"), "notes": None, "registered_by": None, "source": "app", **data}
+        self.incomes.append(row)
+        return row
+
+    def update_income(self, iid, data):
+        for i in self.incomes:
+            if i["id"] == iid:
+                i.update(data)
+
+    def delete_income(self, iid):
+        self.incomes[:] = [i for i in self.incomes if i["id"] != iid]
 
     # ---- deudas ----
     def list_debts(self, active_only=False):

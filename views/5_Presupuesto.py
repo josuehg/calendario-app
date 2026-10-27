@@ -17,6 +17,7 @@ invoices = db.list_invoices()
 letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
 expenses = db.list_expenses()
+incomes = db.list_incomes()
 settings = db.get_settings()
 track_contado = settings.get("track_contado", True)
 events = utils.get_payment_events(
@@ -26,6 +27,26 @@ events = utils.get_payment_events(
 )
 buckets = utils.weekly_buckets(events, weeks_ahead=horizon)
 today = utils.today_str()
+
+# ---------- saldo de caja / disponible para comprometer ----------
+if not settings.get("caja_saldo_inicial_fecha"):
+    st.info(
+        "Configura el saldo inicial de caja en **Configuración** para ver aquí "
+        "cuánto tienes disponible para comprometer en un pedido nuevo."
+    )
+else:
+    caja = utils.compute_cash_balance(
+        invoices, letras, expenses, incomes,
+        saldo_inicial=settings.get("caja_saldo_inicial") or 0.0,
+        saldo_inicial_fecha=settings.get("caja_saldo_inicial_fecha"),
+    )
+    cc1, cc2, cc3 = st.columns(3)
+    cc1.metric("Saldo de caja actual", utils.money(caja["saldo_actual"]))
+    cc2.metric("Comprometido (pendiente)", utils.money(caja["comprometido"]))
+    cc3.metric("💰 Disponible para comprometer", utils.money(caja["disponible"]))
+    if caja["disponible"] < 0:
+        st.error("Ya tienes más comprometido que lo que hay en caja — cuidado con hacer un pedido nuevo.")
+    st.divider()
 
 labels = [f"{utils.fmt_short(b['start'])}" for b in buckets]
 amounts = [b["amount"] for b in buckets]

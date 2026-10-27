@@ -520,6 +520,52 @@ def weekly_balance(invoices, letras, expenses, weeks_back=8, letra_dias_pago_tip
     return buckets[-weeks_back:]
 
 
+def compute_cash_balance(invoices, letras, expenses, incomes, saldo_inicial=0.0, saldo_inicial_fecha=None):
+    """Saldo de caja real y cuánto queda libre para comprometer en un pedido
+    nuevo, a partir de un saldo inicial que se configura una sola vez
+    (Configuración → Saldo inicial de caja):
+
+      saldo_actual = saldo_inicial + ingresos registrados DESPUÉS de esa
+                     fecha - egresos ya PAGADOS después de esa fecha.
+                     (la fecha del saldo inicial se excluye, asumiendo que
+                     ese saldo ya refleja el cierre de ese día).
+      comprometido = todo lo que sigue 'pendiente' — ya se debe, tarde o
+                     temprano hay que pagarlo —, sin importar la fecha.
+      disponible   = saldo_actual - comprometido: lo que de verdad sobra
+                     sin tocar lo que ya está comprometido.
+    """
+    desde = saldo_inicial_fecha or "0001-01-01"
+
+    ingresos = dsum(i["amount"] for i in incomes if i["date"] > desde)
+
+    pagado_facturas = dsum(
+        i["amount"] for i in invoices
+        if i["status"] == "pagada" and i.get("paid_at") and i["paid_at"] > desde
+    )
+    pagado_letras = dsum(
+        l["monto"] for l in letras
+        if l["estado"] == "pagada" and l.get("fecha_pago") and l["fecha_pago"] > desde
+    )
+    pagado_gastos = dsum(
+        x["amount"] for x in (expenses or [])
+        if x.get("status") == "pagado" and x.get("paid_at") and x["paid_at"] > desde
+    )
+    egresos_pagados = dsum([pagado_facturas, pagado_letras, pagado_gastos])
+
+    saldo_actual = dsum([round2(saldo_inicial), ingresos, -egresos_pagados])
+
+    comprometido_facturas = dsum(i["amount"] for i in invoices if i["status"] == "pendiente")
+    comprometido_letras = dsum(l["monto"] for l in letras if l["estado"] == "pendiente")
+    comprometido_gastos = dsum(x["amount"] for x in (expenses or []) if x.get("status") == "pendiente")
+    comprometido = dsum([comprometido_facturas, comprometido_letras, comprometido_gastos])
+
+    return {
+        "saldo_actual": saldo_actual,
+        "comprometido": comprometido,
+        "disponible": dsum([saldo_actual, -comprometido]),
+    }
+
+
 def events_dataframe(events):
     if not events:
         return pd.DataFrame(columns=["date", "amount", "vendor", "branch", "invoice_number", "label", "overdue"])

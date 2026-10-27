@@ -11,11 +11,20 @@ grupo de Telegram:
 - `/atrasados` — lo vencido que aún no se paga, con días de atraso
 - `/pagados` — lo pagado esta semana; `/pagados 1` = la semana pasada, `/pagados 2` = hace dos semanas, etc.
 - `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
+- `/ingreso <sucursal> <monto> [fecha]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 2026-10-25`. Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
+- `/saldo` — saldo de caja real y cuánto queda disponible para comprometer en un pedido nuevo (requiere configurar el saldo inicial una vez, en la app → Configuración)
 
-Reusa la misma lógica de fechas que la app (`utils.get_payment_events`):
-una letra "vive" en vencimiento + plazo típico de pago, y se considera
-vencida solo pasado vencimiento + plazo máximo de gracia (configurables en
-Configuración de la app).
+`/ingreso` es el único comando que **escribe** datos — cualquiera en el
+grupo puede usarlo, no hay un control de permisos más fino que "está en
+el grupo de Telegram del negocio" (igual que los demás comandos leen datos
+sin restricción). Queda registrado con el nombre de quien lo escribió
+(`registered_by`) y `source: "bot"`, visible también en la página Ingresos
+de la app.
+
+Reusa la misma lógica de fechas que la app (`utils.get_payment_events` /
+`utils.compute_cash_balance`): una letra "vive" en vencimiento + plazo
+típico de pago, y se considera vencida solo pasado vencimiento + plazo
+máximo de gracia (configurables en Configuración de la app).
 
 No afecta el reporte diario automático (`scripts/telegram_daily_report.py`
 + GitHub Actions) — son dos cosas separadas que conviven: una empuja el
@@ -85,7 +94,9 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
        {"command":"meses","description":"Por semana: este mes y el próximo"},
        {"command":"atrasados","description":"Lo vencido sin pagar"},
        {"command":"pagados","description":"Lo pagado esta semana (o N semanas atrás)"},
-       {"command":"resumen","description":"Panorama rápido: hoy + atrasados + semana"}
+       {"command":"resumen","description":"Panorama rápido: hoy + atrasados + semana"},
+       {"command":"ingreso","description":"Registrar venta/cobro de una sucursal"},
+       {"command":"saldo","description":"Saldo de caja y disponible para comprometer"}
      ]}'
    ```
    Debe responder `{"ok":true,"result":true,...}`. Solo hace falta correrlo

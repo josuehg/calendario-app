@@ -280,3 +280,47 @@ def test_weekly_balance_ubica_letra_en_fecha_esperada_no_en_vencimiento(utils, m
     buckets = utils.weekly_balance([], letras, [], weeks_back=8, letra_dias_pago_tipico=8)
     semana_del_09_09 = next(b for b in buckets if b["start"] <= "2026-09-09" <= b["end"])
     assert semana_del_09_09["debido"] == 100.0   # 01 + 8 días = 09, no el 01
+
+
+# ---------- saldo de caja (compute_cash_balance) ----------
+
+def test_cash_balance_sin_movimientos_es_el_saldo_inicial(utils):
+    caja = utils.compute_cash_balance([], [], [], [], saldo_inicial=1000.0, saldo_inicial_fecha="2026-09-01")
+    assert caja["saldo_actual"] == 1000.0
+    assert caja["comprometido"] == 0.0
+    assert caja["disponible"] == 1000.0
+
+
+def test_cash_balance_suma_ingresos_despues_de_la_fecha_semilla(utils):
+    incomes = [
+        {"date": "2026-09-01", "amount": 500.0},  # mismo día del saldo inicial: no cuenta
+        {"date": "2026-09-05", "amount": 300.0},
+    ]
+    caja = utils.compute_cash_balance([], [], [], incomes, saldo_inicial=1000.0, saldo_inicial_fecha="2026-09-01")
+    assert caja["saldo_actual"] == 1300.0
+
+
+def test_cash_balance_resta_egresos_ya_pagados_despues_de_la_fecha(utils):
+    invoices = [
+        {"status": "pagada", "paid_at": "2026-09-10", "amount": 200.0},
+        {"status": "pagada", "paid_at": "2026-08-20", "amount": 999.0},  # antes de la semilla: no cuenta
+        {"status": "pendiente", "amount": 50.0},  # no pagada: no resta del saldo
+    ]
+    letras = [{"estado": "pagada", "fecha_pago": "2026-09-12", "monto": 80.0}]
+    expenses = [{"status": "pagado", "paid_at": "2026-09-15", "amount": 30.0}]
+    caja = utils.compute_cash_balance(invoices, letras, expenses, [], saldo_inicial=1000.0, saldo_inicial_fecha="2026-09-01")
+    assert caja["saldo_actual"] == 1000.0 - 200.0 - 80.0 - 30.0
+
+
+def test_cash_balance_comprometido_es_todo_lo_pendiente_sin_importar_fecha(utils):
+    invoices = [{"status": "pendiente", "amount": 100.0}, {"status": "pagada", "paid_at": "2026-09-01", "amount": 999.0}]
+    letras = [{"estado": "pendiente", "monto": 50.0}]
+    expenses = [{"status": "pendiente", "amount": 25.0}, {"status": "pagado", "paid_at": "2026-09-01", "amount": 999.0}]
+    caja = utils.compute_cash_balance(invoices, letras, expenses, [], saldo_inicial=0.0, saldo_inicial_fecha=None)
+    assert caja["comprometido"] == 175.0
+
+
+def test_cash_balance_disponible_negativo_si_se_debe_mas_de_lo_que_hay(utils):
+    invoices = [{"status": "pendiente", "amount": 5000.0}]
+    caja = utils.compute_cash_balance(invoices, [], [], [], saldo_inicial=100.0, saldo_inicial_fecha="2026-09-01")
+    assert caja["disponible"] == 100.0 - 5000.0

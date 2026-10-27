@@ -122,6 +122,7 @@ def get_settings():
     res = sb.table("app_settings").select("*").eq("id", 1).limit(1).execute()
     return res.data[0] if res.data else {
         "track_contado": True, "letra_dias_pago_tipico": 8, "letra_dias_gracia_max": 10,
+        "caja_saldo_inicial": 0.0, "caja_saldo_inicial_fecha": None,
     }
 
 
@@ -438,6 +439,29 @@ def delete_future_fixed_expenses(fixed_expense_id: int, from_date: str):
 
 def set_expense_status(expense_id: str, status: str, paid_at: str | None = None, paid_by: str | None = None):
     return update_expense(expense_id, {"status": status, "paid_at": paid_at, "paid_by": paid_by})
+
+
+# ---------- ingresos ----------
+
+def list_incomes():
+    sb = get_client()
+    res = sb.table("incomes").select("*").order("date", desc=True).execute()
+    return res.data
+
+
+def create_income(data: dict):
+    sb = get_client()
+    return sb.table("incomes").insert(data).execute()
+
+
+def update_income(income_id: str, data: dict):
+    sb = get_client()
+    return sb.table("incomes").update(data).eq("id", income_id).execute()
+
+
+def delete_income(income_id: str):
+    sb = get_client()
+    return sb.table("incomes").delete().eq("id", income_id).execute()
 
 
 def ensure_expense_instances(months_ahead: int = 6):
