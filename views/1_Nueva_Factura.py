@@ -53,6 +53,32 @@ def _is_duplicate(vendor, inv_number):
     )
 
 
+def _simular_compra(term_days):
+    """Máximo recomendado a `term_days` según la proyección de caja (ver
+    utils.max_new_purchase) — None si todavía no se configuró el saldo
+    inicial de caja (Configuración), que es lo que ancla la proyección."""
+    settings = db.get_settings()
+    if not settings.get("caja_saldo_inicial_fecha"):
+        return None
+    invoices_all = db.list_invoices()
+    letras_all = db.list_letras()
+    canje_all = db.list_canje_facturas()
+    expenses_all = db.list_expenses()
+    incomes_all = db.list_incomes()
+    events = utils.get_payment_events(
+        invoices_all, letras_all, canje_all, settings.get("track_contado", True), expenses_all,
+        letra_dias_pago_tipico=settings.get("letra_dias_pago_tipico", 8),
+        letra_dias_gracia_max=settings.get("letra_dias_gracia_max", 10),
+    )
+    caja = utils.compute_cash_balance(
+        invoices_all, letras_all, expenses_all, incomes_all,
+        saldo_inicial=settings.get("caja_saldo_inicial") or 0.0,
+        saldo_inicial_fecha=settings.get("caja_saldo_inicial_fecha"),
+    )
+    venta_diaria = utils.average_daily_income(incomes_all, days_back=30)
+    return utils.max_new_purchase(events, caja["saldo_actual"], venta_diaria, term_days)
+
+
 # El éxito del último registro se muestra en una ventana emergente (al final
 # del archivo). Aquí solo se lee la bandera para no volver a habilitar el
 # botón "Registrar documento" mientras esa ventana está abierta.
@@ -205,6 +231,21 @@ if doc_type == "credito":
                 f"({term_days} días → debería ser el {computed_due.strftime('%d/%m/%Y')}). "
                 "Verifica bien antes de registrar — si no se pactó algo distinto, corrígelo."
             )
+        if auth_role != "branch" and amount > 0:
+            sim = _simular_compra(term_days)
+            if sim is None:
+                pass  # sin saldo inicial configurado todavía (Configuración) — no hay con qué proyectar
+            elif amount > sim["maximo"]:
+                st.warning(
+                    f"⚠️ Según tu proyección de caja (Presupuesto), a {term_days} días te "
+                    f"alcanzaría hasta {utils.money(sim['maximo'])} (vencería ~{utils.fmt_short(sim['fecha_vence'])}) "
+                    f"— este monto, {utils.money(amount)}, lo supera."
+                )
+            else:
+                st.caption(
+                    f"✅ Según tu proyección de caja, te alcanza para este monto a {term_days} días "
+                    f"(máximo recomendado: {utils.money(sim['maximo'])})."
+                )
     if computed_due:
         st.button(
             "📅 Calcular automáticamente el vencimiento", width="stretch",

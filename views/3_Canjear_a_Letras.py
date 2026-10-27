@@ -15,6 +15,32 @@ pendientes_credito = [i for i in invoices if i["status"] == "pendiente" and i["d
 
 BRANCHES = db.get_branches() + ["Oficina central"]
 
+
+def _simular_canje(monto_total, primera_fecha):
+    """Máximo recomendado para cuando venza la letra más próxima de este
+    canje (ver utils.max_new_purchase) — None si todavía no se configuró el
+    saldo inicial de caja (Configuración)."""
+    plazo_dias = (primera_fecha - date.today()).days
+    if plazo_dias <= 0:
+        return None
+    settings = db.get_settings()
+    if not settings.get("caja_saldo_inicial_fecha"):
+        return None
+    expenses_all = db.list_expenses()
+    incomes_all = db.list_incomes()
+    events = utils.get_payment_events(
+        invoices, letras, canje_facturas, settings.get("track_contado", True), expenses_all,
+        letra_dias_pago_tipico=settings.get("letra_dias_pago_tipico", 8),
+        letra_dias_gracia_max=settings.get("letra_dias_gracia_max", 10),
+    )
+    caja = utils.compute_cash_balance(
+        invoices, letras, expenses_all, incomes_all,
+        saldo_inicial=settings.get("caja_saldo_inicial") or 0.0,
+        saldo_inicial_fecha=settings.get("caja_saldo_inicial_fecha"),
+    )
+    venta_diaria = utils.average_daily_income(incomes_all, days_back=30)
+    return utils.max_new_purchase(events, caja["saldo_actual"], venta_diaria, plazo_dias)
+
 # canje_id -> facturas agrupadas (para mostrar de qué es cada letra)
 inv_by_id = {i["id"]: i for i in invoices}
 canje_invs = {}
@@ -300,6 +326,23 @@ with tab_canje:
             color = ":red" if mismatch else ":green"
             st.markdown(f"Total asignado a letras: {color}[**{utils.money(total_letras)}**] de **{utils.money(total_facturas)}**"
                         + (" — no coincide con el total de las facturas seleccionadas." if mismatch else ""))
+
+            _fechas_validas = [l["fecha_vencimiento"] for l in letras_data if l["fecha_vencimiento"]]
+            if _fechas_validas and total_letras > 0:
+                _primera_fecha = min(_fechas_validas)
+                sim = _simular_canje(total_letras, _primera_fecha)
+                if sim is not None:
+                    if total_letras > sim["maximo"]:
+                        st.warning(
+                            f"⚠️ Según tu proyección de caja (Presupuesto), para cuando venza la letra "
+                            f"más próxima ({utils.fmt_short(_primera_fecha.isoformat())}) te alcanzaría hasta "
+                            f"{utils.money(sim['maximo'])} — este canje suma {utils.money(total_letras)}."
+                        )
+                    else:
+                        st.caption(
+                            f"✅ Según tu proyección de caja, te alcanza para este canje "
+                            f"(máximo recomendado: {utils.money(sim['maximo'])})."
+                        )
 
             st.divider()
             if st.button("Revisar y confirmar canje", type="primary"):

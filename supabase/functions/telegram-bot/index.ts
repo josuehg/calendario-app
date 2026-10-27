@@ -1,7 +1,7 @@
 // Bot de Telegram para Control Compras — responde comandos bajo demanda
-// (/hoy, /manana, /semana, /meses, /atrasados, /pagados, /resumen, /saldo)
-// y permite registrar ingresos (/ingreso), consultando y escribiendo en
-// Supabase directamente.
+// (/hoy, /manana, /semana, /meses, /atrasados, /pagados, /resumen, /saldo,
+// /simular) y permite registrar ingresos (/ingreso), consultando y
+// escribiendo en Supabase directamente.
 //
 // Reimplementa en TypeScript la misma lógica que utils.get_payment_events()
 // en Python (ver utils.py y scripts/telegram_daily_report.py): una letra
@@ -490,13 +490,17 @@ async function handleIngreso(supabase: any, argsText: string, fromName: string):
   return `✅ Registrado: ${branch} · ${money(monto)} · ${fmtLong(fecha)}`;
 }
 
-async function handleSaldo(supabase: any): Promise<string> {
+/** Saldo de caja actual (ver utils.compute_cash_balance): saldo inicial +
+ * ingresos registrados después de esa fecha - egresos ya PAGADOS después de
+ * esa fecha. `events` son los eventos pendientes (buildEvents), reusados
+ * tanto por /saldo (comprometido = todos, sin importar fecha) como por
+ * /simular (comprometido_antes = solo los que vencen antes de cierta
+ * fecha). null si todavía no se configuró el saldo inicial. */
+async function computeCaja(supabase: any, today: string): Promise<{ saldoActual: number; events: Evento[] } | null> {
   const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
   const saldoInicial = Number(settingsRow?.caja_saldo_inicial ?? 0);
   const desde: string | null = settingsRow?.caja_saldo_inicial_fecha ?? null;
-  if (!desde) {
-    return "Todavía no configuraste el saldo inicial de caja. Hazlo en la app: Configuración → Saldo inicial de caja.";
-  }
+  if (!desde) return null;
 
   const { data: incomesAfter } = await supabase.from("incomes").select("amount").gt("date", desde);
   const ingresos = (incomesAfter ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0);
@@ -510,27 +514,92 @@ async function handleSaldo(supabase: any): Promise<string> {
     (expPaid ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0);
 
   const saldoActual = saldoInicial + ingresos - pagado;
+  const events = await buildEvents(supabase, today);
+  return { saldoActual, events };
+}
 
-  const { data: invPend } = await supabase.from("invoices").select("amount").eq("status", "pendiente");
-  const { data: letPend } = await supabase.from("letras").select("monto").eq("estado", "pendiente");
-  const { data: expPend } = await supabase.from("expenses").select("amount").eq("status", "pendiente");
-  const comprometido =
-    (invPend ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0) +
-    (letPend ?? []).reduce((a: number, r: any) => a + Number(r.monto), 0) +
-    (expPend ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0);
-
-  const disponible = saldoActual - comprometido;
+async function handleSaldo(supabase: any): Promise<string> {
+  const today = todayLima();
+  const caja = await computeCaja(supabase, today);
+  if (!caja) {
+    return "Todavía no configuraste el saldo inicial de caja. Hazlo en la app: Configuración → Saldo inicial de caja.";
+  }
+  const comprometido = sumAmount(caja.events);
+  const disponible = caja.saldoActual - comprometido;
 
   const lines = [
     "💰 Saldo de caja",
     "",
-    `Saldo actual: ${money(saldoActual)}`,
+    `Saldo actual: ${money(caja.saldoActual)}`,
     `Comprometido (pendiente): ${money(comprometido)}`,
     `Disponible para comprometer: ${money(disponible)}`,
   ];
   if (disponible < 0) {
     lines.push("", "⚠️ Ya tienes más comprometido que lo que hay en caja.");
   }
+  return lines.join("\n");
+}
+
+/** ¿Cuánto se puede comprometer con un proveedor a `plazo` días, o alcanza
+ * un `monto` dado? Misma lógica que utils.max_new_purchase / el simulador
+ * de Presupuesto: proyecta la caja a la fecha en que vencería la compra
+ * (saldo actual + venta promedio proyectada - todo lo ya comprometido que
+ * vence en o antes de esa fecha). */
+async function handleSimular(supabase: any, argsText: string): Promise<string> {
+  const parts = argsText.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) {
+    return [
+      "Uso: /simular <plazo_dias> [monto]",
+      "Ej: /simular 60  → máximo recomendado a 60 días",
+      "Ej: /simular 60 5000  → ¿me alcanza 5000 a 60 días?",
+    ].join("\n");
+  }
+
+  const plazo = parseInt(parts[0], 10);
+  if (!plazo || plazo <= 0) {
+    return "El plazo debe ser un número de días mayor a 0. Ej: /simular 60";
+  }
+
+  const today = todayLima();
+  const caja = await computeCaja(supabase, today);
+  if (!caja) {
+    return "Todavía no configuraste el saldo inicial de caja. Hazlo en la app: Configuración → Saldo inicial de caja.";
+  }
+
+  const desdeVenta = addDays(today, -29);
+  const { data: incomesRecent } = await supabase.from("incomes").select("amount").gte("date", desdeVenta).lte("date", today);
+  const ventaDiaria = (incomesRecent ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0) / 30;
+
+  const fechaVence = addDays(today, plazo);
+  const comprometidoAntes = caja.events
+    .filter((e) => e.date <= fechaVence)
+    .reduce((a, e) => a + e.amount, 0);
+  const proyectado = caja.saldoActual + ventaDiaria * plazo - comprometidoAntes;
+  const maximo = Math.max(0, proyectado);
+
+  const lines = [
+    `🧮 Simulación a ${plazo} días (vencería el ${fmtLong(fechaVence)})`,
+    "",
+    `Máximo recomendado: ${money(maximo)}`,
+  ];
+
+  const montoToken = parts[1];
+  if (montoToken) {
+    const monto = parseFloat(montoToken.replace(",", "."));
+    if (!isNaN(monto) && monto >= 0) {
+      lines.push("");
+      lines.push(
+        monto > maximo
+          ? `⚠️ ${money(monto)} supera lo recomendado (te alcanzaría hasta ${money(maximo)}).`
+          : `✅ ${money(monto)} está dentro de lo recomendado.`,
+      );
+    }
+  }
+
+  if (proyectado <= 0) {
+    lines.push("", `⚠️ Ya proyectas caja en rojo para el ${fmtLong(fechaVence)} — no es recomendable comprometer nada nuevo a ese plazo.`);
+  }
+
   return lines.join("\n");
 }
 
@@ -546,6 +615,7 @@ const AYUDA = [
   "/resumen — panorama rápido: hoy + atrasados + próximos 7 días",
   "/ingreso <sucursal> <monto> [fecha] — registra una venta/cobro del día",
   "/saldo — saldo de caja real y cuánto queda disponible para comprometer",
+  "/simular <plazo_dias> [monto] — ¿cuánto me alcanza (o me alcanza X) con un proveedor a ese plazo?",
 ].join("\n");
 
 /** null => no es un comando dirigido al bot: no se responde nada (el grupo
@@ -572,6 +642,10 @@ async function responderComando(supabase: any, text: string, fromName: string): 
       return await handleIngreso(supabase, argsText, fromName);
     }
     case "/saldo": return await handleSaldo(supabase);
+    case "/simular": {
+      const argsText = trimmed.split(/\s+/).slice(1).join(" ");
+      return await handleSimular(supabase, argsText);
+    }
     case "/start": case "/ayuda": case "/help": return AYUDA;
     default: return `No entendí ese comando.\n\n${AYUDA}`;
   }
