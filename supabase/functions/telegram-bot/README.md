@@ -9,6 +9,8 @@ grupo de Telegram:
 - `/semana` — resumen de los próximos 7 días
 - `/meses` — totales por semana del mes actual y el próximo
 - `/atrasados` — lo vencido que aún no se paga, con días de atraso
+- `/pagados` — lo pagado esta semana; `/pagados 1` = la semana pasada, `/pagados 2` = hace dos semanas, etc.
+- `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
 
 Reusa la misma lógica de fechas que la app (`utils.get_payment_events`):
 una letra "vive" en vencimiento + plazo típico de pago, y se considera
@@ -68,6 +70,26 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
 
 6. **Probar:** escribe `/hoy` en el grupo de Telegram. Debería responder
    en segundos.
+
+7. **(Opcional, pero recomendado) Registrar el menú de comandos en Telegram:**
+   para que al escribir "/" en el chat te salga un menú con los comandos y
+   su descripción, en vez de tener que acordarte de cada nombre. Reemplaza
+   `<TU_TOKEN>`:
+   ```bash
+   curl -X POST "https://api.telegram.org/bot<TU_TOKEN>/setMyCommands" \
+     -H "Content-Type: application/json" \
+     -d '{"commands":[
+       {"command":"hoy","description":"Pagos de hoy"},
+       {"command":"manana","description":"Pagos de mañana"},
+       {"command":"semana","description":"Próximos 7 días"},
+       {"command":"meses","description":"Por semana: este mes y el próximo"},
+       {"command":"atrasados","description":"Lo vencido sin pagar"},
+       {"command":"pagados","description":"Lo pagado esta semana (o N semanas atrás)"},
+       {"command":"resumen","description":"Panorama rápido: hoy + atrasados + semana"}
+     ]}'
+   ```
+   Debe responder `{"ok":true,"result":true,...}`. Solo hace falta correrlo
+   una vez — no hay que repetirlo cada vez que se redespliega la función.
 
 ## Si algo falla
 

@@ -33,10 +33,12 @@ events = utils.get_payment_events(
 )
 
 TIPOS_CAL = ["Todos", "Facturas a crédito", "Contado", "Letras", "Gastos fijos", "Gastos variables"]
-fc1, fc2 = st.columns(2)
+fc1, fc2, fc3 = st.columns([1.2, 1.2, 1])
 f_tipo_cal = fc1.selectbox("Tipo", TIPOS_CAL, key="cal_f_tipo")
 categorias_cal = ["Todas"] + [c["name"] for c in db.list_expense_categories()]
 f_cat_cal = fc2.selectbox("Categoría (solo gastos)", categorias_cal, key="cal_f_categoria")
+fc3.write("")
+mostrar_pagados = fc3.checkbox("Mostrar pagados", key="cal_f_pagados")
 
 
 def _cal_matches(e):
@@ -56,6 +58,16 @@ def _cal_matches(e):
 
 
 events = [e for e in events if _cal_matches(e)]
+
+# Historial de ya pagados, solo si el toggle está activo — se muestra aparte
+# (marca propia en cada día + sección de solo lectura en el diálogo), nunca
+# sumado a by_date['amount']/['count'] ni a las métricas del mes, que son
+# siempre sobre lo pendiente.
+paid_events = utils.get_paid_events(invoices, letras, expenses) if mostrar_pagados else []
+paid_events = [e for e in paid_events if _cal_matches(e)]
+paid_by_date = {}
+for e in paid_events:
+    paid_by_date.setdefault(e["date"], []).append(e)
 
 today = date.today()
 if "cal_year" not in st.session_state:
@@ -141,6 +153,7 @@ if vista == "📅 Mes":
                     continue
                 ds = f"{y:04d}-{m:02d}-{day:02d}"
                 info = by_date.get(ds)
+                paid_info = paid_by_date.get(ds)
                 is_today = ds == today_str
                 border = "2px solid #0b5d68" if is_today else "1px solid #d7dee1"
                 marcas = ventana_marcas.get(ds)
@@ -148,14 +161,25 @@ if vista == "📅 Mes":
                     f"<div style='font-size:10px' title='{' / '.join(t for _, t in marcas)}'>"
                     f"{' '.join(ic for ic, _ in marcas)}</div>"
                 ) if marcas else ""
+                paid_html = (
+                    f"<div style='font-size:10px;color:#2e9e5b'>✅ {len(paid_info)} pagado(s) · "
+                    f"{utils.money(utils.dsum(p['amount'] for p in paid_info))}</div>"
+                ) if paid_info else ""
                 if info:
                     st.markdown(
                         f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
                         f"<div style='font-size:12px;color:gray'>{day}</div>"
                         f"<div style='font-family:monospace;font-size:12.5px;font-weight:600;color:{_day_color(ds)}'>{utils.money(info['amount'])}</div>"
                         f"<div style='font-size:11px;color:gray'>{info['count']} pago(s)</div>"
-                        f"{marcas_html}"
+                        f"{marcas_html}{paid_html}"
                         f"</div>", unsafe_allow_html=True)
+                    if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
+                        st.session_state["_cal_day"] = ds
+                        st.rerun()
+                elif paid_info:
+                    st.markdown(
+                        f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
+                        f"<div style='font-size:12px;color:gray'>{day}</div>{marcas_html}{paid_html}</div>", unsafe_allow_html=True)
                     if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
                         st.session_state["_cal_day"] = ds
                         st.rerun()
@@ -171,6 +195,8 @@ if vista == "📅 Mes":
             " &nbsp;&nbsp;&nbsp; 🧾 Vencimiento real de una letra &nbsp;&nbsp; "
             "⏰ Límite de pago (sin contar en el total de ese día)"
         )
+    if paid_by_date:
+        _leyenda += " &nbsp;&nbsp;&nbsp; ✅ Ya pagado ese día (tampoco cuenta en el total)"
     st.markdown(_leyenda)
 
     st.divider()
@@ -193,7 +219,8 @@ else:
     for day in range(1, days_in_month + 1):
         ds = f"{y:04d}-{m:02d}-{day:02d}"
         info = by_date.get(ds)
-        if not info:
+        paid_info = paid_by_date.get(ds)
+        if not info and not paid_info:
             continue
         hubo_algun_dia = True
         dow_label = DOW_ES[date.fromisoformat(ds).weekday()]
@@ -201,25 +228,30 @@ else:
             lc1, lc2, lc3, lc4 = st.columns([2.2, 1.3, 1, 1])
             tag = " 🟢" if ds == today_str else ""
             lc1.markdown(f"**{dow_label} {day:02d} de {utils.MONTHS_ES[m-1]}**{tag}")
-            lc2.markdown(
-                f"<span style='font-family:monospace;font-weight:600;color:{_day_color(ds)}'>{utils.money(info['amount'])}</span>",
-                unsafe_allow_html=True,
-            )
-            lc3.write(f"{info['count']} pago(s)")
+            if info:
+                lc2.markdown(
+                    f"<span style='font-family:monospace;font-weight:600;color:{_day_color(ds)}'>{utils.money(info['amount'])}</span>",
+                    unsafe_allow_html=True,
+                )
+                lc3.write(f"{info['count']} pago(s)")
             if lc4.button("Ver", key=f"list_day_{ds}", width="stretch"):
                 st.session_state["_cal_day"] = ds
                 st.rerun()
+            if paid_info:
+                st.caption(f"✅ {len(paid_info)} pagado(s) · {utils.money(utils.dsum(p['amount'] for p in paid_info))}")
     if not hubo_algun_dia:
         st.caption("No hay pagos este mes con estos filtros.")
     st.divider()
-    st.markdown(
-        "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante",
-    )
+    _leyenda_lista = "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante"
+    if paid_by_date:
+        _leyenda_lista += " &nbsp;&nbsp;&nbsp; ✅ Ya pagado ese día (no cuenta en el total)"
+    st.markdown(_leyenda_lista)
 
 # Un solo diálogo a la vez: mientras se paga/edita/elimina algo, se cierra el del día.
 if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in _CAL_ACTION_KEYS):
     ds = st.session_state["_cal_day"]
     day_events = by_date.get(ds, {"items": []})["items"]
+    day_paid = paid_by_date.get(ds, [])
 
     @st.dialog(f"Pagos del {utils.fmt_long(ds)}", on_dismiss=_cerrar_dialogos_del_dia)
     def _day_dialog():
@@ -260,6 +292,18 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
             ):
                 st.session_state["_cal_bulk_pay_targets"] = seleccionadas
                 st.rerun()
+
+        if day_paid:
+            st.divider()
+            st.markdown("**✅ Ya pagados ese día**")
+            for e in day_paid:
+                ref = (
+                    f" · Fact. {e['invoice_number']}"
+                    if e.get("invoice_number") not in (None, "", "—") and e["kind"] != "expense"
+                    else ""
+                )
+                quien = f" · pagó {e['paid_by']}" if e.get("paid_by") else ""
+                st.caption(f"{e['vendor']}{ref} · {e['label']} · {e['branch']} · {utils.money(e['amount'])}{quien}")
 
         if st.button("Cerrar"):
             st.session_state["_cal_day"] = None

@@ -279,6 +279,66 @@ def get_payment_events(
     return events
 
 
+def get_paid_events(invoices, letras, expenses=None):
+    """Eventos ya pagados, con la fecha real en que se pagaron (no la de
+    vencimiento). Para historial — p. ej. el toggle 'Mostrar pagados' de
+    Calendario o el comando /pagados del bot — nunca para calcular totales
+    pendientes. Trae los mismos campos 'kind'/'doc_type'/'expense_kind'/
+    'category' que get_payment_events para poder reusar los mismos filtros."""
+    events = []
+
+    for inv in invoices:
+        if inv["status"] != "pagada" or not inv.get("paid_at"):
+            continue
+        events.append({
+            "date": inv["paid_at"],
+            "amount": float(inv["amount"]),
+            "vendor": inv["vendor"],
+            "branch": inv["branch"],
+            "invoice_number": inv["invoice_number"],
+            "label": "Contado" if inv["doc_type"] == "contado" else "Factura a crédito",
+            "kind": "invoice",
+            "doc_type": inv["doc_type"],
+            "paid_by": inv.get("paid_by"),
+            "ref_id": inv["id"],
+        })
+
+    for l in letras:
+        if l["estado"] != "pagada" or not l.get("fecha_pago"):
+            continue
+        events.append({
+            "date": l["fecha_pago"],
+            "amount": float(l["monto"]),
+            "vendor": l.get("vendor") or "—",
+            "branch": l.get("branch") or "—",
+            "invoice_number": "—",
+            "label": f"Letra {l.get('numero') or '—'}",
+            "kind": "letra",
+            "paid_by": l.get("paid_by"),
+            "ref_id": l["id"],
+        })
+
+    for x in (expenses or []):
+        if x.get("status") != "pagado" or not x.get("paid_at"):
+            continue
+        events.append({
+            "date": x["paid_at"],
+            "amount": float(x["amount"]),
+            "vendor": x["name"],
+            "branch": x.get("branch") or "General",
+            "invoice_number": "",
+            "label": f"Gasto {x['kind']} · {x['category']}",
+            "kind": "expense",
+            "expense_kind": x["kind"],
+            "category": x["category"],
+            "paid_by": x.get("paid_by"),
+            "ref_id": x["id"],
+        })
+
+    events.sort(key=lambda e: e["date"])
+    return events
+
+
 def find_suspicious_due_dates(invoices, vendors):
     """Facturas 'pendiente' a crédito cuyo vencimiento no coincide con
     emisión + plazo configurado del proveedor (posible error de digitación
