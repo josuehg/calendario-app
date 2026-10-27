@@ -611,6 +611,36 @@ def purchase_limit(incomes, fixed_expenses, days_back=30, today=None):
     }
 
 
+def max_new_purchase(events, saldo_actual, venta_diaria, term_days, today=None):
+    """Cuánto se puede comprometer HOY con un proveedor a `term_days` de
+    plazo, sin proyectar caja en rojo para cuando venza esa compra (ej. 60,
+    75 o 90 días). A diferencia de 'disponible para comprometer' (que mira
+    TODO lo pendiente sin importar fecha) y de 'límite de compra' (que no
+    distingue plazos), esto responde la pregunta real: "si compro con este
+    proveedor, con SU plazo, ¿tendré con qué pagarle cuando venza?"
+
+      fecha_vence       = hoy + term_days.
+      comprometido_antes = todo lo YA pendiente (eventos de
+                            get_payment_events) que vence en o antes de esa
+                            fecha — hay que pagarlo pase lo que pase.
+      proyectado        = saldo_actual + (venta_diaria * term_days) -
+                            comprometido_antes.
+      máximo seguro      = proyectado, nunca negativo (si ya proyecta rojo
+                            sin la compra nueva, el máximo es 0 — no "menos
+                            cero").
+    """
+    today = today or today_str()
+    fecha_vence = add_days(today, term_days)
+    comprometido_antes = dsum(e["amount"] for e in events if e["date"] <= fecha_vence)
+    proyectado = dsum([saldo_actual, venta_diaria * term_days, -comprometido_antes])
+    return {
+        "fecha_vence": fecha_vence,
+        "comprometido_antes": comprometido_antes,
+        "proyectado": proyectado,
+        "maximo": max(0.0, proyectado),
+    }
+
+
 def events_dataframe(events):
     if not events:
         return pd.DataFrame(columns=["date", "amount", "vendor", "branch", "invoice_number", "label", "overdue"])
