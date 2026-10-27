@@ -57,7 +57,7 @@ create table if not exists incomes (
   id uuid primary key default gen_random_uuid(),
   branch text not null,
   date date not null,
-  amount numeric(12,2) not null check (amount > 0),
+  amount numeric(12,2) not null check (amount >= 0),  -- 0 es válido: local cerrado ese día
   notes text,
   registered_by text,
   source text not null default 'app' check (source in ('app', 'bot')),

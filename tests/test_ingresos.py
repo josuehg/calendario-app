@@ -21,12 +21,15 @@ def test_registrar_ingreso_lo_guarda(run_view, db):
     assert row["source"] == "app"
 
 
-def test_registrar_sin_monto_muestra_error(run_view, db):
+def test_registrar_con_monto_cero_lo_guarda(run_view, db):
+    # Un local cerrado ese día vendió 0 — es un dato válido (evita el aviso
+    # de "falta registrar" en el reporte diario), no un error.
     at = run_view(VIEW, role="admin")
     at = click(at, "Registrar")
     assert not at.exception
-    assert any("mayor a 0" in str(e.value) for e in at.error)
-    assert db.incomes == []
+    assert at.error == []
+    assert len(db.incomes) == 1
+    assert db.incomes[0]["amount"] == 0.0
 
 
 def test_historial_filtra_por_sucursal(run_view, db):
