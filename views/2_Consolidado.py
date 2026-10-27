@@ -25,13 +25,15 @@ today = utils.today_str()
 
 # ---------- filtros ----------
 branches = ["Todas"] + db.get_branches() + ["Oficina central"]
-f1, f2, f3, f4, f5, f6 = st.columns([1.1, 1.3, 1, 0.9, 0.9, 0.9])
+registrantes = sorted({r["registered_by"] for r in invoices if r.get("registered_by")})
+f1, f2, f3, f4, f5, f6, f7 = st.columns([1.1, 1.3, 1, 0.9, 0.9, 0.9, 1.1])
 f_branch = f1.selectbox("Sucursal", branches)
 f_vendor = f2.text_input("Buscar proveedor")
 f_status = f3.selectbox("Estado", ["Todos", "pendiente", "canjeada", "pagada"])
 f_tipo = f4.selectbox("Tipo", ["Todos", "Contado", "Crédito"])
 f_from = f5.date_input("Desde", value=None)
 f_to = f6.date_input("Hasta", value=None)
+f_registro = f7.selectbox("Registró", ["Todos"] + registrantes)
 
 rows = invoices
 if f_branch != "Todas":
@@ -46,6 +48,8 @@ if f_from:
     rows = [r for r in rows if r["issue_date"] >= f_from.isoformat()]
 if f_to:
     rows = [r for r in rows if r["issue_date"] <= f_to.isoformat()]
+if f_registro != "Todos":
+    rows = [r for r in rows if r.get("registered_by") == f_registro]
 
 if not rows:
     st.info("No hay facturas con estos filtros.")
