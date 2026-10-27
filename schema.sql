@@ -43,9 +43,26 @@ create table if not exists app_settings (
   -- de vencimiento + dias_pago_tipico) y cuándo se considera de verdad
   -- vencida (fecha de vencimiento + dias_gracia_max).
   letra_dias_pago_tipico int not null default 8,
-  letra_dias_gracia_max int not null default 10
+  letra_dias_gracia_max int not null default 10,
+  -- Saldo de caja inicial, configurado una sola vez en Configuración: a
+  -- partir de esa fecha el saldo se actualiza solo con cada ingreso y cada
+  -- pago registrado (ver utils.compute_cash_balance).
+  caja_saldo_inicial numeric(12,2) not null default 0,
+  caja_saldo_inicial_fecha date
 );
 insert into app_settings (id) values (1) on conflict (id) do nothing;
+
+-- Ingresos (ventas/cobros) por sucursal, para calcular el saldo de caja real.
+create table if not exists incomes (
+  id uuid primary key default gen_random_uuid(),
+  branch text not null,
+  date date not null,
+  amount numeric(12,2) not null check (amount > 0),
+  notes text,
+  registered_by text,
+  source text not null default 'app' check (source in ('app', 'bot')),
+  created_at timestamptz not null default now()
+);
 
 -- Facturas registradas por las sucursales
 create table if not exists invoices (
@@ -189,3 +206,5 @@ create unique index if not exists uq_expenses_fixed_period
   on expenses (fixed_expense_id, period) where fixed_expense_id is not null;
 create index if not exists idx_expenses_status on expenses(status);
 create index if not exists idx_expenses_due_date on expenses(due_date);
+create index if not exists idx_incomes_date on incomes(date);
+create index if not exists idx_incomes_branch on incomes(branch);

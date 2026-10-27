@@ -1,3 +1,5 @@
+from datetime import date
+
 import streamlit as st
 import db
 import utils
@@ -48,6 +50,39 @@ if dias_max < dias_tipico:
 elif dias_tipico != settings.get("letra_dias_pago_tipico", 8) or dias_max != settings.get("letra_dias_gracia_max", 10):
     if st.button("Guardar plazos de letras", type="primary"):
         db.save_settings({"letra_dias_pago_tipico": int(dias_tipico), "letra_dias_gracia_max": int(dias_max)})
+        st.success("Guardado.")
+        st.rerun()
+
+st.divider()
+
+# ---------- saldo inicial de caja ----------
+st.subheader("💰 Saldo inicial de caja")
+st.caption(
+    "Junto con Ingresos y los pagos registrados, calcula el saldo de caja real "
+    "y cuánto queda disponible para comprometer en un pedido nuevo (ver "
+    "Presupuesto). Ponlo una sola vez: el saldo que tenías en banco/caja en "
+    "esa fecha — desde ahí la app lo actualiza sola."
+)
+sc1, sc2 = st.columns(2)
+_fecha_actual = settings.get("caja_saldo_inicial_fecha")
+saldo_inicial = sc1.number_input(
+    "Saldo inicial (S/)", min_value=0.0, step=0.01, format="%.2f",
+    value=float(settings.get("caja_saldo_inicial") or 0.0), key="cfg_saldo_inicial",
+)
+saldo_fecha = sc2.date_input(
+    "Fecha de ese saldo",
+    value=date.fromisoformat(_fecha_actual) if _fecha_actual else date.today(),
+    key="cfg_saldo_fecha",
+)
+if (
+    utils.round2(saldo_inicial) != utils.round2(settings.get("caja_saldo_inicial") or 0.0)
+    or saldo_fecha.isoformat() != (_fecha_actual or "")
+):
+    if st.button("Guardar saldo inicial", type="primary"):
+        db.save_settings({
+            "caja_saldo_inicial": utils.round2(saldo_inicial),
+            "caja_saldo_inicial_fecha": saldo_fecha.isoformat(),
+        })
         st.success("Guardado.")
         st.rerun()
 

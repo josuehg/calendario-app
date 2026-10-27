@@ -1,6 +1,7 @@
 // Bot de Telegram para Control Compras — responde comandos bajo demanda
-// (/hoy, /manana, /semana, /meses, /atrasados, /pagados, /resumen)
-// consultando Supabase directamente.
+// (/hoy, /manana, /semana, /meses, /atrasados, /pagados, /resumen, /saldo)
+// y permite registrar ingresos (/ingreso), consultando y escribiendo en
+// Supabase directamente.
 //
 // Reimplementa en TypeScript la misma lógica que utils.get_payment_events()
 // en Python (ver utils.py y scripts/telegram_daily_report.py): una letra
@@ -428,6 +429,110 @@ async function handleResumen(supabase: any): Promise<string> {
   return lines.join("\n");
 }
 
+async function resolveBranchNames(supabase: any): Promise<string[]> {
+  const { data } = await supabase.from("branches").select("name").order("name");
+  return (data ?? []).map((r: any) => r.name as string);
+}
+
+/** Registra un ingreso (venta/cobro) de una sucursal. Cualquiera en el grupo
+ * puede usarlo — no hay un control de permisos más fino que "está en el
+ * grupo de Telegram del negocio", igual que los demás comandos. */
+async function handleIngreso(supabase: any, argsText: string, fromName: string): Promise<string> {
+  const names = await resolveBranchNames(supabase);
+  const parts = argsText.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length < 2) {
+    return [
+      "Uso: /ingreso <sucursal> <monto> [fecha YYYY-MM-DD]",
+      "Ej: /ingreso 1 1500  → Sucursal 1, hoy",
+      "Ej: /ingreso 2 980 2026-10-25",
+      "",
+      "Sucursales:",
+      ...names.map((n, i) => `${i + 1}. ${n}`),
+    ].join("\n");
+  }
+
+  const [branchToken, montoToken, fechaToken] = parts;
+
+  let branch: string | null = null;
+  if (/^\d+$/.test(branchToken)) {
+    branch = names[parseInt(branchToken, 10) - 1] ?? null;
+  } else {
+    const lower = branchToken.toLowerCase();
+    branch = names.find((n) => n.toLowerCase() === lower || n.toLowerCase() === `sucursal ${lower}`) ?? null;
+  }
+  if (!branch) {
+    return `No reconozco "${branchToken}" como sucursal. Usa el número o el nombre:\n${names.map((n, i) => `${i + 1}. ${n}`).join("\n")}`;
+  }
+
+  const monto = parseFloat(montoToken.replace(",", "."));
+  if (!monto || monto <= 0) {
+    return "El monto debe ser un número mayor a 0. Ej: /ingreso 1 1500";
+  }
+
+  let fecha = todayLima();
+  if (fechaToken) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaToken)) {
+      return "La fecha debe ir como YYYY-MM-DD, ej: 2026-10-25";
+    }
+    fecha = fechaToken;
+  }
+
+  const { error } = await supabase.from("incomes").insert({
+    branch, date: fecha, amount: Math.round(monto * 100) / 100,
+    registered_by: fromName || null, source: "bot",
+  });
+  if (error) {
+    console.error("Error insertando ingreso:", error);
+    return "No se pudo registrar el ingreso, intenta de nuevo.";
+  }
+  return `✅ Registrado: ${branch} · ${money(monto)} · ${fmtLong(fecha)}`;
+}
+
+async function handleSaldo(supabase: any): Promise<string> {
+  const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
+  const saldoInicial = Number(settingsRow?.caja_saldo_inicial ?? 0);
+  const desde: string | null = settingsRow?.caja_saldo_inicial_fecha ?? null;
+  if (!desde) {
+    return "Todavía no configuraste el saldo inicial de caja. Hazlo en la app: Configuración → Saldo inicial de caja.";
+  }
+
+  const { data: incomesAfter } = await supabase.from("incomes").select("amount").gt("date", desde);
+  const ingresos = (incomesAfter ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0);
+
+  const { data: invPaid } = await supabase.from("invoices").select("amount").eq("status", "pagada").gt("paid_at", desde);
+  const { data: letPaid } = await supabase.from("letras").select("monto").eq("estado", "pagada").gt("fecha_pago", desde);
+  const { data: expPaid } = await supabase.from("expenses").select("amount").eq("status", "pagado").gt("paid_at", desde);
+  const pagado =
+    (invPaid ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0) +
+    (letPaid ?? []).reduce((a: number, r: any) => a + Number(r.monto), 0) +
+    (expPaid ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0);
+
+  const saldoActual = saldoInicial + ingresos - pagado;
+
+  const { data: invPend } = await supabase.from("invoices").select("amount").eq("status", "pendiente");
+  const { data: letPend } = await supabase.from("letras").select("monto").eq("estado", "pendiente");
+  const { data: expPend } = await supabase.from("expenses").select("amount").eq("status", "pendiente");
+  const comprometido =
+    (invPend ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0) +
+    (letPend ?? []).reduce((a: number, r: any) => a + Number(r.monto), 0) +
+    (expPend ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0);
+
+  const disponible = saldoActual - comprometido;
+
+  const lines = [
+    "💰 Saldo de caja",
+    "",
+    `Saldo actual: ${money(saldoActual)}`,
+    `Comprometido (pendiente): ${money(comprometido)}`,
+    `Disponible para comprometer: ${money(disponible)}`,
+  ];
+  if (disponible < 0) {
+    lines.push("", "⚠️ Ya tienes más comprometido que lo que hay en caja.");
+  }
+  return lines.join("\n");
+}
+
 const AYUDA = [
   "Hola 👋 Soy el bot de Control Compras. Comandos disponibles:",
   "",
@@ -438,12 +543,14 @@ const AYUDA = [
   "/atrasados — lo vencido que aún no se paga",
   "/pagados [N] — lo pagado esta semana, o N semanas atrás (ej. /pagados 1)",
   "/resumen — panorama rápido: hoy + atrasados + próximos 7 días",
+  "/ingreso <sucursal> <monto> [fecha] — registra una venta/cobro del día",
+  "/saldo — saldo de caja real y cuánto queda disponible para comprometer",
 ].join("\n");
 
 /** null => no es un comando dirigido al bot: no se responde nada (el grupo
  * tiene el modo privacidad desactivado, así que el webhook recibe TODOS los
  * mensajes del grupo, no solo los que le escriben al bot). */
-async function responderComando(supabase: any, text: string): Promise<string | null> {
+async function responderComando(supabase: any, text: string, fromName: string): Promise<string | null> {
   const trimmed = text.trim();
   if (!trimmed.startsWith("/")) return null;
   const cmd = trimmed.split(/\s+/)[0].split("@")[0].toLowerCase();
@@ -459,6 +566,11 @@ async function responderComando(supabase: any, text: string): Promise<string | n
       return await handlePagados(supabase, weeksBack);
     }
     case "/resumen": return await handleResumen(supabase);
+    case "/ingreso": {
+      const argsText = trimmed.split(/\s+/).slice(1).join(" ");
+      return await handleIngreso(supabase, argsText, fromName);
+    }
+    case "/saldo": return await handleSaldo(supabase);
     case "/start": case "/ayuda": case "/help": return AYUDA;
     default: return `No entendí ese comando.\n\n${AYUDA}`;
   }
@@ -500,6 +612,8 @@ Deno.serve(async (req) => {
   const message = update?.message;
   const text: string | undefined = message?.text;
   const chatId = message?.chat?.id;
+  const fromName: string = [message?.from?.first_name, message?.from?.last_name]
+    .filter(Boolean).join(" ");
 
   if (!text || !chatId || !text.trim().startsWith("/")) {
     return new Response("ok", { status: 200 });
@@ -511,7 +625,7 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const reply = await responderComando(supabase, text);
+    const reply = await responderComando(supabase, text, fromName);
     if (reply) await sendTelegram(token, chatId, reply);
   } catch (err) {
     console.error("Error respondiendo comando:", err);
