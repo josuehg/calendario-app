@@ -360,20 +360,31 @@ def test_purchase_limit_ignora_gastos_fijos_inactivos(utils):
 
 # ---------- cuánto comprometer con un proveedor a X días (max_new_purchase) ----------
 
-def test_max_new_purchase_sin_comprometidos_es_saldo_mas_venta_proyectada(utils):
-    r = utils.max_new_purchase([], saldo_actual=1000.0, venta_diaria=50.0, term_days=60, today="2026-09-10")
+def test_max_new_purchase_usa_la_semana_mas_ajustada_no_el_dia_final(utils):
+    # Sin nada comprometido y con venta positiva, el saldo solo crece con el
+    # tiempo -> la semana más ajustada del camino es la primera (la que
+    # acumuló menos días de venta), no el día final del plazo.
+    today = "2026-09-10"
+    fin_primera_semana = utils.add_days(utils.start_of_week(today), 6)
+    dias_primera_semana = (date.fromisoformat(fin_primera_semana) - date.fromisoformat(today)).days
+    r = utils.max_new_purchase([], saldo_actual=1000.0, venta_diaria=50.0, term_days=60, today=today)
     assert r["fecha_vence"] == "2026-11-09"
-    assert r["proyectado"] == 1000.0 + 50.0 * 60
+    assert r["semana_mas_ajustada"] == fin_primera_semana
+    assert r["proyectado"] == 1000.0 + 50.0 * dias_primera_semana
     assert r["maximo"] == r["proyectado"]
 
 
 def test_max_new_purchase_resta_lo_que_vence_antes_o_en_esa_fecha(utils):
+    # Con venta_diaria=0, lo comprometido solo puede crecer semana a semana
+    # (nunca se compensa con más venta) -> la semana más ajustada siempre es
+    # la última (fecha_vence), con todo lo comprometido ya incluido.
     events = [
         {"date": "2026-11-01", "amount": 2000.0},   # antes de que venza (09-11): resta
         {"date": "2026-11-09", "amount": 500.0},     # mismo día: resta
         {"date": "2026-11-10", "amount": 999.0},     # un día después: no resta
     ]
     r = utils.max_new_purchase(events, saldo_actual=1000.0, venta_diaria=0.0, term_days=60, today="2026-09-10")
+    assert r["semana_mas_ajustada"] == r["fecha_vence"]
     assert r["comprometido_antes"] == 2500.0
     assert r["proyectado"] == 1000.0 - 2500.0
 
@@ -382,3 +393,16 @@ def test_max_new_purchase_nunca_es_negativo(utils):
     r = utils.max_new_purchase([], saldo_actual=-500.0, venta_diaria=0.0, term_days=30, today="2026-09-10")
     assert r["proyectado"] == -500.0
     assert r["maximo"] == 0.0
+
+
+def test_max_new_purchase_detecta_bache_antes_del_vencimiento_final(utils):
+    # Un pago grande cae bastante antes del día final del plazo: esa semana
+    # debe salir como la más ajustada, aunque para el día final el saldo ya
+    # se haya "recuperado" acumulando más venta.
+    today = "2026-09-10"
+    fecha_bache = utils.add_days(today, 50)
+    events = [{"date": fecha_bache, "amount": 5000.0}]
+    r = utils.max_new_purchase(events, saldo_actual=1000.0, venta_diaria=100.0, term_days=60, today=today)
+    proyectado_dia_final = 1000.0 + 100.0 * 60 - 5000.0
+    assert r["semana_mas_ajustada"] != r["fecha_vence"]
+    assert r["proyectado"] < proyectado_dia_final

@@ -545,6 +545,41 @@ async function handleSaldo(supabase: any): Promise<string> {
  * de Presupuesto: proyecta la caja a la fecha en que vencería la compra
  * (saldo actual + venta promedio proyectada - todo lo ya comprometido que
  * vence en o antes de esa fecha). */
+interface SimResult {
+  fechaVence: string;
+  semanaMasAjustada: string;
+  proyectado: number;
+  maximo: number;
+}
+
+/** Igual que utils.max_new_purchase (Python): revisa semana por semana
+ * desde hoy hasta fechaVence (hoy + plazo) en vez de un solo punto final —
+ * si algo grande cae unos días antes, esa semana es el verdadero cuello de
+ * botella, no el día final (que puede verse bien solo por tener más venta
+ * acumulada para entonces). */
+function maxNewPurchase(events: Evento[], saldoActual: number, ventaDiaria: number, plazo: number, today: string): SimResult {
+  const fechaVence = addDays(today, plazo);
+  let ws = startOfWeek(today);
+  let peor: { finSemana: string; proyectado: number } | null = null;
+
+  while (ws <= fechaVence) {
+    const finSemana = addDays(ws, 6) < fechaVence ? addDays(ws, 6) : fechaVence;
+    const dias = Math.round((parseISO(finSemana).getTime() - parseISO(today).getTime()) / 86400000);
+    const comprometido = events.filter((e) => e.date <= finSemana).reduce((a, e) => a + e.amount, 0);
+    const proyectado = saldoActual + ventaDiaria * dias - comprometido;
+    if (!peor || proyectado < peor.proyectado) peor = { finSemana, proyectado };
+    ws = addDays(ws, 7);
+  }
+
+  const resultado = peor ?? { finSemana: fechaVence, proyectado: saldoActual };
+  return {
+    fechaVence,
+    semanaMasAjustada: resultado.finSemana,
+    proyectado: resultado.proyectado,
+    maximo: Math.max(0, resultado.proyectado),
+  };
+}
+
 async function handleSimular(supabase: any, argsText: string): Promise<string> {
   const parts = argsText.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) {
@@ -570,18 +605,16 @@ async function handleSimular(supabase: any, argsText: string): Promise<string> {
   const { data: incomesRecent } = await supabase.from("incomes").select("amount").gte("date", desdeVenta).lte("date", today);
   const ventaDiaria = (incomesRecent ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0) / 30;
 
-  const fechaVence = addDays(today, plazo);
-  const comprometidoAntes = caja.events
-    .filter((e) => e.date <= fechaVence)
-    .reduce((a, e) => a + e.amount, 0);
-  const proyectado = caja.saldoActual + ventaDiaria * plazo - comprometidoAntes;
-  const maximo = Math.max(0, proyectado);
+  const sim = maxNewPurchase(caja.events, caja.saldoActual, ventaDiaria, plazo, today);
 
   const lines = [
-    `🧮 Simulación a ${plazo} días (vencería el ${fmtLong(fechaVence)})`,
+    `🧮 Simulación a ${plazo} días (vencería el ${fmtLong(sim.fechaVence)})`,
     "",
-    `Máximo recomendado: ${money(maximo)}`,
+    `Máximo recomendado: ${money(sim.maximo)}`,
   ];
+  if (sim.semanaMasAjustada !== sim.fechaVence) {
+    lines.push(`📍 Limitado por la semana del ${fmtLong(sim.semanaMasAjustada)}, no por el día final.`);
+  }
 
   const montoToken = parts[1];
   if (montoToken) {
@@ -589,15 +622,15 @@ async function handleSimular(supabase: any, argsText: string): Promise<string> {
     if (!isNaN(monto) && monto >= 0) {
       lines.push("");
       lines.push(
-        monto > maximo
-          ? `⚠️ ${money(monto)} supera lo recomendado (te alcanzaría hasta ${money(maximo)}).`
+        monto > sim.maximo
+          ? `⚠️ ${money(monto)} supera lo recomendado (te alcanzaría hasta ${money(sim.maximo)}).`
           : `✅ ${money(monto)} está dentro de lo recomendado.`,
       );
     }
   }
 
-  if (proyectado <= 0) {
-    lines.push("", `⚠️ Ya proyectas caja en rojo para el ${fmtLong(fechaVence)} — no es recomendable comprometer nada nuevo a ese plazo.`);
+  if (sim.proyectado <= 0) {
+    lines.push("", `⚠️ Ya proyectas caja en rojo para la semana del ${fmtLong(sim.semanaMasAjustada)} — no es recomendable comprometer nada nuevo a ese plazo.`);
   }
 
   return lines.join("\n");
