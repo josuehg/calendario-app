@@ -566,6 +566,51 @@ def compute_cash_balance(invoices, letras, expenses, incomes, saldo_inicial=0.0,
     }
 
 
+def average_daily_income(incomes, days_back=30, today=None):
+    """Promedio diario de ingresos registrados en los últimos `days_back`
+    días (incluye hoy). 0 si no hay nada registrado en ese rango."""
+    today = today or today_str()
+    desde = add_days(today, -(days_back - 1))
+    total = dsum(i["amount"] for i in incomes if desde <= i["date"] <= today)
+    return round2(total / days_back) if days_back else 0.0
+
+
+def purchase_limit(incomes, fixed_expenses, days_back=30, today=None):
+    """Cuánto se puede comprometer en compras NUEVAS a proveedores (fuera de
+    los gastos fijos operativos ya comprometidos: alquiler, planilla,
+    servicios, etc.), según el promedio de ventas reciente:
+
+      venta_promedio    = promedio diario de `incomes` en los últimos
+                           `days_back` días, llevado a semana/mes.
+      gastos_fijos       = suma de fixed_expenses activos, cada uno ya
+                           multiplicado por cuántas veces se paga al mes
+                           (occurrences_per_month) — el compromiso mensual
+                           real, no el monto por cuota.
+      límite de compra  = venta_promedio - gastos_fijos, por semana y por
+                           mes. No incluye facturas/letras a proveedores:
+                           ESO es justamente lo que este límite acota.
+    """
+    venta_diaria = average_daily_income(incomes, days_back, today)
+    venta_semanal = round2(venta_diaria * 7)
+    venta_mensual = round2(venta_diaria * 30)
+
+    gastos_fijos_mensuales = dsum(
+        float(f["amount"]) * occurrences_per_month(f)
+        for f in fixed_expenses if f.get("active", True)
+    )
+    gastos_fijos_semanales = round2(gastos_fijos_mensuales * 7 / 30)
+
+    return {
+        "venta_diaria": venta_diaria,
+        "venta_semanal": venta_semanal,
+        "venta_mensual": venta_mensual,
+        "gastos_fijos_semanales": gastos_fijos_semanales,
+        "gastos_fijos_mensuales": round2(gastos_fijos_mensuales),
+        "limite_semanal": dsum([venta_semanal, -gastos_fijos_semanales]),
+        "limite_mensual": dsum([venta_mensual, -gastos_fijos_mensuales]),
+    }
+
+
 def events_dataframe(events):
     if not events:
         return pd.DataFrame(columns=["date", "amount", "vendor", "branch", "invoice_number", "label", "overdue"])

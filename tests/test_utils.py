@@ -324,3 +324,35 @@ def test_cash_balance_disponible_negativo_si_se_debe_mas_de_lo_que_hay(utils):
     invoices = [{"status": "pendiente", "amount": 5000.0}]
     caja = utils.compute_cash_balance(invoices, [], [], [], saldo_inicial=100.0, saldo_inicial_fecha="2026-09-01")
     assert caja["disponible"] == 100.0 - 5000.0
+
+
+# ---------- límite de compra (purchase_limit) ----------
+
+def test_average_daily_income_solo_cuenta_el_rango(utils):
+    incomes = [
+        {"date": "2026-09-01", "amount": 100.0},   # fuera de los últimos 3 días
+        {"date": "2026-09-03", "amount": 60.0},
+        {"date": "2026-09-04", "amount": 30.0},
+    ]
+    avg = utils.average_daily_income(incomes, days_back=3, today="2026-09-04")
+    assert avg == 30.0  # (60 + 30) / 3 días (01 queda fuera del rango 02-04)
+
+
+def test_average_daily_income_sin_datos_es_cero(utils):
+    assert utils.average_daily_income([], days_back=30, today="2026-09-04") == 0.0
+
+
+def test_purchase_limit_resta_gastos_fijos_del_promedio_de_ventas(utils):
+    incomes = [{"date": "2026-09-01", "amount": 100.0}, {"date": "2026-09-10", "amount": 3000.0}]
+    fixed = [_fx(id=1, amount=500.0, frequency="mensual"),      # 500/mes
+             _fx(id=2, amount=200.0, frequency="quincenal", pay_day_2=20)]  # 400/mes
+    limite = utils.purchase_limit(incomes, fixed, days_back=30, today="2026-09-10")
+    assert limite["venta_diaria"] == round((100.0 + 3000.0) / 30, 2)
+    assert limite["gastos_fijos_mensuales"] == 900.0
+    assert limite["limite_mensual"] == round(limite["venta_mensual"] - 900.0, 2)
+
+
+def test_purchase_limit_ignora_gastos_fijos_inactivos(utils):
+    fixed = [_fx(id=1, amount=500.0, active=False), _fx(id=2, amount=100.0, active=True)]
+    limite = utils.purchase_limit([], fixed, days_back=30, today="2026-09-10")
+    assert limite["gastos_fijos_mensuales"] == 100.0
