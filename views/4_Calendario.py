@@ -221,7 +221,7 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
     ds = st.session_state["_cal_day"]
     day_events = by_date.get(ds, {"items": []})["items"]
 
-    @st.dialog(f"Pagos del {utils.fmt_long(ds)}")
+    @st.dialog(f"Pagos del {utils.fmt_long(ds)}", on_dismiss=_cerrar_dialogos_del_dia)
     def _day_dialog():
         seleccionadas = []
         for e in day_events:
@@ -271,7 +271,10 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
 if st.session_state.get("_cal_bulk_pay_targets"):
     _targets = st.session_state["_cal_bulk_pay_targets"]
 
-    @st.dialog("Marcar varias como pagadas")
+    def _cerrar_bulk_pay():
+        st.session_state["_cal_bulk_pay_targets"] = None
+
+    @st.dialog("Marcar varias como pagadas", on_dismiss=_cerrar_bulk_pay)
     def _cal_bulk_pay_dialog():
         st.write(f"Se marcarán **{len(_targets)}** pago(s) como pagados, con la misma fecha:")
         for t in _targets:
@@ -302,7 +305,10 @@ if st.session_state.get("_cal_bulk_pay_targets"):
 if st.session_state.get("_cal_pay_target"):
     _pe = st.session_state["_cal_pay_target"]
 
-    @st.dialog("Marcar como pagado")
+    def _cerrar_cal_pay():
+        st.session_state["_cal_pay_target"] = None
+
+    @st.dialog("Marcar como pagado", on_dismiss=_cerrar_cal_pay)
     def _cal_pay_dialog():
         st.write(f"**{_pe['vendor']}** · {_pe['label']} · {utils.money(_pe['amount'])}")
         fecha = st.date_input("Fecha de pago", value=None, key="cal_pay_fecha")
@@ -328,7 +334,10 @@ if st.session_state.get("_cal_pay_target"):
 if st.session_state.get("_cal_edit_target"):
     _ee = st.session_state["_cal_edit_target"]
 
-    @st.dialog("Editar")
+    def _cerrar_cal_edit():
+        st.session_state["_cal_edit_target"] = None
+
+    @st.dialog("Editar", on_dismiss=_cerrar_cal_edit)
     def _cal_edit_dialog():
         st.caption(f"{_ee['vendor']} · {_ee['label']}")
         st.caption(
@@ -375,7 +384,10 @@ if st.session_state.get("_cal_del_target"):
         _de["kind"] == "expense" and _de.get("expense_kind") == "fijo" and _de.get("fixed_expense_id")
     )
 
-    @st.dialog("Eliminar")
+    def _cerrar_cal_del():
+        st.session_state["_cal_del_target"] = None
+
+    @st.dialog("Eliminar", on_dismiss=_cerrar_cal_del)
     def _cal_del_dialog():
         st.warning(
             f"¿Eliminar **{_de['vendor']}** · {_de['label']} · {utils.money(_de['amount'])}? "
