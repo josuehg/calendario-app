@@ -48,6 +48,39 @@ else:
         st.error("Ya tienes más comprometido que lo que hay en caja — cuidado con hacer un pedido nuevo.")
     st.divider()
 
+# ---------- límite de compra (fuera de los gastos fijos) ----------
+st.subheader("🛒 Límite de compra (fuera de gastos fijos)")
+st.caption(
+    "Cuánto puedes comprometer en compras NUEVAS a proveedores sin afectar "
+    "tus gastos fijos operativos (alquiler, planilla, servicios, etc.), según "
+    "tu promedio de ventas reciente. No incluye facturas/letras a "
+    "proveedores — eso es justo lo que este límite busca acotar."
+)
+DAYS_BACK_OPTIONS = [7, 30, 90]
+dias_venta = st.radio(
+    "Promedio de ventas de los últimos...", DAYS_BACK_OPTIONS, index=1, horizontal=True, key="pp_dias_venta",
+    format_func=lambda d: f"{d} días",
+)
+fixed_active = db.list_fixed_expenses(active_only=True)
+limite = utils.purchase_limit(incomes, fixed_active, days_back=dias_venta)
+if limite["venta_diaria"] == 0:
+    st.caption(
+        "No hay ingresos registrados en ese rango — registra tus ventas en "
+        "**Ingresos** (o con /ingreso desde Telegram) para ver esto."
+    )
+else:
+    lc1, lc2, lc3 = st.columns(3)
+    lc1.metric("Venta promedio semanal", utils.money(limite["venta_semanal"]))
+    lc2.metric("Gastos fijos semanales", utils.money(limite["gastos_fijos_semanales"]))
+    lc3.metric("🛒 Límite de compra semanal", utils.money(limite["limite_semanal"]))
+    lc4, lc5, lc6 = st.columns(3)
+    lc4.metric("Venta promedio mensual", utils.money(limite["venta_mensual"]))
+    lc5.metric("Gastos fijos mensuales", utils.money(limite["gastos_fijos_mensuales"]))
+    lc6.metric("🛒 Límite de compra mensual", utils.money(limite["limite_mensual"]))
+    if limite["limite_semanal"] < 0:
+        st.error("Tus gastos fijos ya superan tu venta promedio — no hay margen para compras nuevas sin tocar la caja.")
+st.divider()
+
 labels = [f"{utils.fmt_short(b['start'])}" for b in buckets]
 amounts = [b["amount"] for b in buckets]
 colors = ["#08444d" if (b["start"] <= today <= b["end"]) else "#0b5d68" for b in buckets]
