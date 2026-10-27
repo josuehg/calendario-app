@@ -6,6 +6,19 @@ import utils
 
 st.title("📅 Calendario de pagos")
 
+_CAL_ACTION_KEYS = ["_cal_pay_target", "_cal_edit_target", "_cal_del_target", "_cal_bulk_pay_targets"]
+
+
+def _cerrar_dialogos_del_dia():
+    """Cierra cualquier diálogo de detalle/acción de un día abierto. Necesario
+    al cambiar de mes: el botón 'Cerrar' del diálogo limpia _cal_day, pero la
+    X nativa de Streamlit para cerrarlo no corre nada de este código — así
+    que sin esto, _cal_day queda pegado y el diálogo se reabre solo (mostrando
+    el día viejo) en el siguiente rerun, como el de 'Anterior'/'Siguiente'."""
+    st.session_state["_cal_day"] = None
+    for k in _CAL_ACTION_KEYS:
+        st.session_state[k] = None
+
 db.ensure_expense_instances()
 invoices = db.list_invoices()
 letras = db.list_letras()
@@ -79,6 +92,7 @@ if c1.button("← Anterior"):
     if m < 1:
         m, y = 12, y - 1
     st.session_state["cal_month"], st.session_state["cal_year"] = m, y
+    _cerrar_dialogos_del_dia()
     st.rerun()
 if c3.button("Siguiente →"):
     m = st.session_state["cal_month"] + 1
@@ -86,6 +100,7 @@ if c3.button("Siguiente →"):
     if m > 12:
         m, y = 1, y + 1
     st.session_state["cal_month"], st.session_state["cal_year"] = m, y
+    _cerrar_dialogos_del_dia()
     st.rerun()
 
 y, m = st.session_state["cal_year"], st.session_state["cal_month"]
@@ -200,8 +215,6 @@ else:
     st.markdown(
         "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante",
     )
-
-_CAL_ACTION_KEYS = ["_cal_pay_target", "_cal_edit_target", "_cal_del_target", "_cal_bulk_pay_targets"]
 
 # Un solo diálogo a la vez: mientras se paga/edita/elimina algo, se cierra el del día.
 if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in _CAL_ACTION_KEYS):
