@@ -471,6 +471,11 @@ def weekly_balance(invoices, letras, expenses, weeks_back=8, letra_dias_pago_tip
     for inv in invoices:
         if inv.get("doc_type") != "credito":
             continue
+        if inv.get("status") == "canjeada":
+            # Su deuda ya no es "la factura": se transfirió a la(s) letra(s)
+            # del canje, que la suman por su cuenta más abajo. Contar ambas
+            # duplicaría el mismo compromiso (factura + letra resultante).
+            continue
         debido.append((inv["due_date"], float(inv["amount"])))
         if inv.get("status") == "pagada" and inv.get("paid_at"):
             pagado.append((inv["paid_at"], float(inv["amount"])))

@@ -282,6 +282,21 @@ def test_weekly_balance_ubica_letra_en_fecha_esperada_no_en_vencimiento(utils, m
     assert semana_del_09_09["debido"] == 100.0   # 01 + 8 días = 09, no el 01
 
 
+def test_weekly_balance_no_duplica_factura_canjeada_y_su_letra(utils, monkeypatch):
+    # Al canjear una factura, su deuda pasa a la letra resultante — la
+    # factura "canjeada" no debe seguir sumando en Debido por su cuenta,
+    # o el mismo compromiso se contaría dos veces (factura + letra).
+    monkeypatch.setattr(utils, "today_str", lambda: "2026-09-21")
+    invoices = [
+        {"doc_type": "credito", "due_date": "2026-09-01", "amount": 500.0, "status": "canjeada", "paid_at": None},
+    ]
+    letras = [{"fecha_vencimiento": "2026-09-01", "monto": 500.0, "estado": "pagada", "fecha_pago": "2026-09-10"}]
+    buckets = utils.weekly_balance(invoices, letras, [], weeks_back=8)
+    assert sum(b["debido"] for b in buckets) == 500.0   # solo la letra, no 500 + 500
+    assert sum(b["pagado"] for b in buckets) == 500.0
+    assert buckets[-1]["saldo"] == 0.0
+
+
 # ---------- saldo de caja (compute_cash_balance) ----------
 
 def test_cash_balance_sin_movimientos_es_el_saldo_inicial(utils):
