@@ -280,14 +280,18 @@ function diasAtraso(e: Evento, today: string, graciaMax: number): number {
   return Math.round(ms / 86400000);
 }
 
-/** Letras ya vencidas por contrato (vencimiento_real <= hoy) pero que
- * TODAVÍA no se consideran oficialmente atrasadas (no pasaron
- * vencimiento_real + plazo máximo de gracia) — la "ventana de pago" real
- * con el proveedor, el mismo rango que marcan los íconos 🧾/⏰ en el
- * Calendario de la app. */
-function letrasEnVentana(events: Evento[], today: string): Evento[] {
+/** Letras ya vencidas por contrato (vencimiento_real <= hoy) pero todavía
+ * dentro del plazo TÍPICO de pago (vencimiento_real + plazo_tipico, ej. 8
+ * días) — la ventana "normal" en la que sueles pagarle al proveedor. El
+ * plazo MÁXIMO de gracia (ej. 10 días) queda aparte, solo para cuándo se
+ * marca "oficialmente atrasada" en /atrasados — no limita esta ventana. */
+function letrasEnVentana(events: Evento[], today: string, plazoTipico: number): Evento[] {
   return events
-    .filter((e) => e.kind === "letra" && e.vencimiento_real && e.vencimiento_real <= today && !e.overdue)
+    .filter((e) => {
+      if (e.kind !== "letra" || !e.vencimiento_real) return false;
+      if (e.vencimiento_real > today) return false;
+      return today <= addDays(e.vencimiento_real, plazoTipico);
+    })
     .sort((a, b) => (a.vencimiento_real! < b.vencimiento_real! ? -1 : a.vencimiento_real! > b.vencimiento_real! ? 1 : 0));
 }
 
@@ -453,10 +457,11 @@ async function handleVentana(supabase: any, chatId: number | string): Promise<st
   const today = todayLima();
   const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
   const graciaMax = settingsRow?.letra_dias_gracia_max ?? 10;
+  const plazoTipico = settingsRow?.letra_dias_pago_tipico ?? 8;
   const events = await buildEvents(supabase, today);
-  const ventana = letrasEnVentana(events, today);
+  const ventana = letrasEnVentana(events, today, plazoTipico);
 
-  const lines = ["🧾 Letras en ventana de pago (ya vencieron, aún no atrasadas)", ""];
+  const lines = [`🧾 Letras en ventana de pago (ya vencieron, dentro de los ${plazoTipico} días típicos)`, ""];
   if (!ventana.length) {
     lines.push("No hay letras en ese rango ahora mismo. 🎉");
     return lines.join("\n");
@@ -537,6 +542,7 @@ async function buildDailyReportMessage(supabase: any): Promise<string> {
   const today = todayLima();
   const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
   const graciaMax = settingsRow?.letra_dias_gracia_max ?? 10;
+  const plazoTipico = settingsRow?.letra_dias_pago_tipico ?? 8;
   const events = await buildEvents(supabase, today);
 
   const hoy = events.filter((e) => e.date === today).sort((a, b) => b.amount - a.amount);
@@ -560,9 +566,9 @@ async function buildDailyReportMessage(supabase: any): Promise<string> {
     lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   }
 
-  const ventana = letrasEnVentana(events, today);
+  const ventana = letrasEnVentana(events, today, plazoTipico);
   if (ventana.length) {
-    lines.push("", "🧾 Letras en ventana de pago (ya vencieron, aún no atrasadas):");
+    lines.push("", `🧾 Letras en ventana de pago (ya vencieron, dentro de los ${plazoTipico} días típicos):`);
     ventana.forEach((e, i) => lines.push(lineaVentana(e, i + 1, today, graciaMax)));
     lines.push("", `Total en ventana: ${money(sumAmount(ventana))}`);
   }

@@ -9,7 +9,7 @@ grupo de Telegram:
 - `/semana` — resumen de los próximos 7 días
 - `/meses` — totales por semana del mes actual y el próximo
 - `/atrasados` — lo vencido que aún no se paga, con días de atraso
-- `/ventana` — letras que ya vencieron por contrato pero todavía no se consideran "oficialmente" atrasadas (su ventana real de pago con el proveedor, el mismo rango que marcan los íconos 🧾/⏰ en el Calendario de la app)
+- `/ventana` — letras que ya vencieron por contrato pero siguen dentro del plazo **típico** de pago (ej. 8 días) — tu ventana normal con el proveedor. El plazo **máximo** de gracia (ej. 10 días) es aparte, solo para cuándo se marca "oficialmente" atrasada en `/atrasados`.
 - `/pagados` — lo pagado esta semana; `/pagados 1` = la semana pasada, `/pagados 2` = hace dos semanas, etc.
 - `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
 - `/ingreso <sucursal> <monto> [fecha]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 2026-10-25`. Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
