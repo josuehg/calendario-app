@@ -9,10 +9,11 @@ grupo de Telegram:
 - `/semana` — resumen de los próximos 7 días
 - `/meses` — totales por semana del mes actual y el próximo
 - `/atrasados` — lo vencido que aún no se paga, con días de atraso
+- `/ventana` — letras que ya vencieron por contrato pero todavía no se consideran "oficialmente" atrasadas (su ventana real de pago con el proveedor, el mismo rango que marcan los íconos 🧾/⏰ en el Calendario de la app)
 - `/pagados` — lo pagado esta semana; `/pagados 1` = la semana pasada, `/pagados 2` = hace dos semanas, etc.
 - `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
 - `/ingreso <sucursal> <monto> [fecha]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 2026-10-25`. Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
-- `/pagar <N> [fecha]` — marca como pagado el ítem **N** de la última lista numerada que viste (`/hoy`, `/manana`, `/atrasados` o `/resumen`). Ej: ves `/hoy` y el ítem 2 es el que acabas de pagar → `/pagar 2` (o `/pagar 2 2026-10-25` con otra fecha). La lista vale por 2 horas; si pasó más tiempo, pide una lista fresca otra vez.
+- `/pagar <N> [fecha]` — marca como pagado el ítem **N** de la última lista numerada que viste (`/hoy`, `/manana`, `/atrasados`, `/ventana` o `/resumen`). Ej: ves `/hoy` y el ítem 2 es el que acabas de pagar → `/pagar 2` (o `/pagar 2 2026-10-25` con otra fecha). La lista vale por 2 horas; si pasó más tiempo, pide una lista fresca otra vez.
 - `/saldo` — saldo de caja real y cuánto queda disponible para comprometer en un pedido nuevo (requiere configurar el saldo inicial una vez, en la app → Configuración)
 - `/simular <plazo_dias> [monto]` — ¿cuánto puedes comprometer con un proveedor a ese plazo (30/45/60/75/90 días)? Revisa tu caja semana por semana desde hoy hasta la fecha en que vencería esa compra, y usa la semana más ajustada del camino (no solo el día final) como límite real. Ej: `/simular 60` o `/simular 60 5000` para además saber si 5000 te alcanza. Mismo cálculo que el simulador de Presupuesto.
 
@@ -122,6 +123,7 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
        {"command":"semana","description":"Próximos 7 días"},
        {"command":"meses","description":"Por semana: este mes y el próximo"},
        {"command":"atrasados","description":"Lo vencido sin pagar"},
+       {"command":"ventana","description":"Letras vencidas aun no atrasadas"},
        {"command":"pagados","description":"Lo pagado esta semana (o N semanas atrás)"},
        {"command":"resumen","description":"Panorama rápido: hoy + atrasados + semana"},
        {"command":"ingreso","description":"Registrar venta/cobro de una sucursal"},
