@@ -64,6 +64,15 @@ create table if not exists incomes (
   created_at timestamptz not null default now()
 );
 
+-- Última lista numerada que el bot de Telegram le mostró a cada chat (de
+-- /hoy, /manana, /atrasados o /resumen), para que /pagar <N> sepa a qué
+-- factura/letra/gasto se refiere ese número.
+create table if not exists bot_list_cache (
+  chat_id bigint primary key,
+  items jsonb not null,
+  created_at timestamptz not null default now()
+);
+
 -- Facturas registradas por las sucursales
 create table if not exists invoices (
   id uuid primary key default gen_random_uuid(),
