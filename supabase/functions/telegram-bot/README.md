@@ -12,15 +12,18 @@ grupo de Telegram:
 - `/pagados` — lo pagado esta semana; `/pagados 1` = la semana pasada, `/pagados 2` = hace dos semanas, etc.
 - `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
 - `/ingreso <sucursal> <monto> [fecha]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 2026-10-25`. Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
+- `/pagar <N> [fecha]` — marca como pagado el ítem **N** de la última lista numerada que viste (`/hoy`, `/manana`, `/atrasados` o `/resumen`). Ej: ves `/hoy` y el ítem 2 es el que acabas de pagar → `/pagar 2` (o `/pagar 2 2026-10-25` con otra fecha). La lista vale por 2 horas; si pasó más tiempo, pide una lista fresca otra vez.
 - `/saldo` — saldo de caja real y cuánto queda disponible para comprometer en un pedido nuevo (requiere configurar el saldo inicial una vez, en la app → Configuración)
 - `/simular <plazo_dias> [monto]` — ¿cuánto puedes comprometer con un proveedor a ese plazo (30/45/60/75/90 días)? Revisa tu caja semana por semana desde hoy hasta la fecha en que vencería esa compra, y usa la semana más ajustada del camino (no solo el día final) como límite real. Ej: `/simular 60` o `/simular 60 5000` para además saber si 5000 te alcanza. Mismo cálculo que el simulador de Presupuesto.
 
-`/ingreso` es el único comando que **escribe** datos — cualquiera en el
-grupo puede usarlo, no hay un control de permisos más fino que "está en
-el grupo de Telegram del negocio" (igual que los demás comandos leen datos
-sin restricción). Queda registrado con el nombre de quien lo escribió
-(`registered_by`) y `source: "bot"`, visible también en la página Ingresos
-de la app.
+`/ingreso` y `/pagar` son los únicos comandos que **escriben** datos —
+cualquiera en el grupo puede usarlos, no hay un control de permisos más
+fino que "está en el grupo de Telegram del negocio" (igual que los demás
+comandos leen datos sin restricción). `/ingreso` queda registrado con el
+nombre de quien lo escribió (`registered_by`) y `source: "bot"`, visible
+también en la página Ingresos de la app. `/pagar` necesita la tabla
+`bot_list_cache` (ver `migracion_2026-10_bot_pagar.sql`), donde se guarda
+la última lista numerada mostrada a cada chat.
 
 Reusa la misma lógica de fechas que la app (`utils.get_payment_events` /
 `utils.compute_cash_balance`): una letra "vive" en vencimiento + plazo
@@ -122,6 +125,7 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
        {"command":"pagados","description":"Lo pagado esta semana (o N semanas atrás)"},
        {"command":"resumen","description":"Panorama rápido: hoy + atrasados + semana"},
        {"command":"ingreso","description":"Registrar venta/cobro de una sucursal"},
+       {"command":"pagar","description":"Marcar pagado el N de la ultima lista"},
        {"command":"saldo","description":"Saldo de caja y disponible para comprometer"},
        {"command":"simular","description":"Cuanto alcanza con un proveedor a X dias"}
      ]}'
