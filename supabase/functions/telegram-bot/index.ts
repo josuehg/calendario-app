@@ -3,15 +3,24 @@
 // /simular) y permite registrar ingresos (/ingreso), consultando y
 // escribiendo en Supabase directamente.
 //
+// También manda el reporte diario (antes lo mandaba
+// scripts/telegram_daily_report.py vía GitHub Actions, que no garantiza la
+// hora — puede atrasarse varias horas sin avisar). Ahora lo dispara un cron
+// de Supabase (pg_cron + pg_net), que llama a esta misma función con
+// {"type":"daily_report","cron_secret":"..."} en el body — ver
+// supabase/sql/cron_reporte_diario.sql.
+//
 // Reimplementa en TypeScript la misma lógica que utils.get_payment_events()
-// en Python (ver utils.py y scripts/telegram_daily_report.py): una letra
-// "vive", para efectos de fecha, en vencimiento + plazo típico de pago, y se
-// considera vencida solo pasado vencimiento + plazo máximo de gracia.
+// de la app: una letra "vive", para efectos de fecha, en vencimiento +
+// plazo típico de pago, y se considera vencida solo pasado vencimiento +
+// plazo máximo de gracia.
 //
 // Variables de entorno requeridas (ver supabase/functions/telegram-bot/README.md):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (inyectadas automáticamente por Supabase)
 //   TELEGRAM_BOT_TOKEN                        (secret propio, puesto a mano)
 //   TELEGRAM_WEBHOOK_SECRET                    (secret propio, puesto a mano)
+//   TELEGRAM_CHAT_ID                           (secret propio — a quién mandar el reporte diario)
+//   CRON_SECRET                                (secret propio — protege el disparo del reporte diario)
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -434,6 +443,57 @@ async function resolveBranchNames(supabase: any): Promise<string[]> {
   return (data ?? []).map((r: any) => r.name as string);
 }
 
+/** Sucursales sin un ingreso registrado para esa fecha — para el aviso del
+ * reporte diario, igual que _sucursales_sin_ingreso en
+ * scripts/telegram_daily_report.py (que este reporte reemplaza). */
+async function sucursalesSinIngreso(supabase: any, fecha: string): Promise<string[]> {
+  const names = await resolveBranchNames(supabase);
+  const { data } = await supabase.from("incomes").select("branch").eq("date", fecha);
+  const registradas = new Set((data ?? []).map((r: any) => r.branch));
+  return names.filter((n) => !registradas.has(n));
+}
+
+/** El mismo reporte que antes mandaba scripts/telegram_daily_report.py vía
+ * GitHub Actions — ahora lo dispara un cron de Supabase (pg_cron) en vez
+ * del scheduler gratuito de GitHub Actions, que no garantiza la hora
+ * (puede atrasarse varias horas sin avisar). */
+async function buildDailyReportMessage(supabase: any): Promise<string> {
+  const today = todayLima();
+  const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
+  const graciaMax = settingsRow?.letra_dias_gracia_max ?? 10;
+  const events = await buildEvents(supabase, today);
+
+  const hoy = events.filter((e) => e.date === today).sort((a, b) => b.amount - a.amount);
+  const atrasados = events
+    .filter((e) => e.overdue)
+    .sort((a, b) => diasAtraso(b, today, graciaMax) - diasAtraso(a, today, graciaMax));
+
+  const lines = [`📅 Pagos de hoy, ${fmtLong(today)}`, ""];
+  if (hoy.length) {
+    lines.push(...hoy.map(linea));
+    lines.push("", `Total del día: ${money(sumAmount(hoy))}`);
+  } else {
+    lines.push("No hay pagos programados para hoy. 🎉");
+  }
+
+  if (atrasados.length) {
+    lines.push("", "⚠️ Atrasados (aún sin pagar):");
+    for (const e of atrasados) {
+      lines.push(`${linea(e)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
+    }
+    lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
+  }
+
+  const ayer = addDays(today, -1);
+  const faltantes = await sucursalesSinIngreso(supabase, ayer);
+  if (faltantes.length) {
+    lines.push("", `⚠️ Falta registrar el ingreso de ayer (${fmtLong(ayer)}) en: ${faltantes.join(", ")}`);
+    lines.push("Usa /ingreso <sucursal> <monto> en el bot para ponerlo al día.");
+  }
+
+  return lines.join("\n");
+}
+
 /** Registra un ingreso (venta/cobro) de una sucursal. Cualquiera en el grupo
  * puede usarlo — no hay un control de permisos más fino que "está en el
  * grupo de Telegram del negocio", igual que los demás comandos. */
@@ -702,6 +762,41 @@ Deno.serve(async (req) => {
     return new Response("ok", { status: 200 });
   }
 
+  const token = Deno.env.get("TELEGRAM_BOT_TOKEN");
+  if (!token) {
+    console.error("Falta el secret TELEGRAM_BOT_TOKEN");
+    return new Response("ok", { status: 200 });
+  }
+
+  const body = await req.json().catch(() => null);
+
+  // Disparo del reporte diario (pg_cron -> pg_net), no un webhook de
+  // Telegram: no trae el header de Telegram, se valida con su propio
+  // secret (CRON_SECRET) en el body.
+  if (body?.type === "daily_report") {
+    const cronSecret = Deno.env.get("CRON_SECRET");
+    const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+    if (!cronSecret || body?.cron_secret !== cronSecret) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (!chatId) {
+      console.error("Falta el secret TELEGRAM_CHAT_ID");
+      return new Response("ok", { status: 200 });
+    }
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    try {
+      const reporte = await buildDailyReportMessage(supabase);
+      await sendTelegram(token, chatId, reporte);
+    } catch (err) {
+      console.error("Error generando el reporte diario:", err);
+    }
+    return new Response("ok", { status: 200 });
+  }
+
+  // Webhook normal de Telegram (mensaje de alguien en el grupo).
   const webhookSecret = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
   if (webhookSecret) {
     const got = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
@@ -710,14 +805,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  const token = Deno.env.get("TELEGRAM_BOT_TOKEN");
-  if (!token) {
-    console.error("Falta el secret TELEGRAM_BOT_TOKEN");
-    return new Response("ok", { status: 200 });
-  }
-
-  const update = await req.json().catch(() => null);
-  const message = update?.message;
+  const message = body?.message;
   const text: string | undefined = message?.text;
   const chatId = message?.chat?.id;
   const fromName: string = [message?.from?.first_name, message?.from?.last_name]

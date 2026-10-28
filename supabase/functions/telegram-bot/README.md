@@ -27,9 +27,13 @@ Reusa la misma lógica de fechas que la app (`utils.get_payment_events` /
 típico de pago, y se considera vencida solo pasado vencimiento + plazo
 máximo de gracia (configurables en Configuración de la app).
 
-No afecta el reporte diario automático (`scripts/telegram_daily_report.py`
-+ GitHub Actions) — son dos cosas separadas que conviven: una empuja el
-reporte todos los días a las 9:30am, esta otra responde bajo demanda.
+Esta misma función también manda el **reporte diario** (pagos de hoy +
+atrasados + aviso de sucursales sin ingreso registrado de ayer) a las
+9:30am hora de Perú — antes lo mandaba un workflow de GitHub Actions
+(`scripts/telegram_daily_report.py`), pero su scheduler gratuito no
+garantiza la hora (puede atrasarse varias horas sin avisar). Ahora lo
+dispara un cron de **Supabase** (pg_cron + pg_net), que es parte del mismo
+proyecto y no depende de GitHub — ver el paso 6 más abajo.
 
 ## Despliegue (una sola vez)
 
@@ -53,10 +57,15 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
    ```bash
    npx supabase secrets set TELEGRAM_BOT_TOKEN="TU_TOKEN_DE_BOTFATHER"
    npx supabase secrets set TELEGRAM_WEBHOOK_SECRET="INVENTA_UNA_CLAVE_LARGA_AL_AZAR"
+   npx supabase secrets set TELEGRAM_CHAT_ID="-100XXXXXXXXXX"
+   npx supabase secrets set CRON_SECRET="INVENTA_OTRA_CLAVE_LARGA_AL_AZAR"
    ```
-   `TELEGRAM_WEBHOOK_SECRET` es un valor que tú inventas (ej. una cadena
-   larga random) — sirve para que nadie más pueda llamar a tu función
-   haciéndose pasar por Telegram. Guárdalo, lo necesitas en el paso 5.
+   `TELEGRAM_WEBHOOK_SECRET` y `CRON_SECRET` son valores que tú inventas
+   (cadenas largas random, distintas entre sí) — sirven para que nadie más
+   pueda llamar a tu función haciéndose pasar por Telegram o por el cron.
+   Guárdalos, los necesitas en los pasos 5 y 6. `TELEGRAM_CHAT_ID` es el ID
+   del grupo (el mismo que ya tenías si usabas el reporte por GitHub
+   Actions) — a quién se le manda el reporte diario.
 
 4. **Desplegar la función:**
    ```bash
@@ -81,7 +90,23 @@ Todo esto se corre en **terminal**, parado en la raíz del repo
 6. **Probar:** escribe `/hoy` en el grupo de Telegram. Debería responder
    en segundos.
 
-7. **(Opcional, pero recomendado) Registrar el menú de comandos en Telegram:**
+7. **Programar el reporte diario (cron de Supabase):** abre
+   `supabase/sql/cron_reporte_diario.sql`, reemplaza los 2 placeholders que
+   indica ahí (`<FUNCTION_URL>` con la URL del paso 4, `<CRON_SECRET>` con
+   el valor del paso 3), y corre el archivo completo en: **Supabase → tu
+   proyecto → SQL Editor → New query → Run**. Se ejecuta una sola vez —
+   queda programado para siempre a las 9:30am hora de Perú, sin depender de
+   GitHub Actions.
+
+   Para probarlo sin esperar al cron, llama a la función directo (reemplaza
+   `<FUNCTION_URL>` y `<TU_CRON_SECRET>`):
+   ```bash
+   curl -X POST "<FUNCTION_URL>" -H "Content-Type: application/json" \
+     -d "{\"type\":\"daily_report\",\"cron_secret\":\"<TU_CRON_SECRET>\"}"
+   ```
+   Debería llegar el reporte al grupo en segundos.
+
+8. **(Opcional, pero recomendado) Registrar el menú de comandos en Telegram:**
    para que al escribir "/" en el chat te salga un menú con los comandos y
    su descripción, en vez de tener que acordarte de cada nombre. Reemplaza
    `<TU_TOKEN>`:
