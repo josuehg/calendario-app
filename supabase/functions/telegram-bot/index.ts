@@ -4,7 +4,7 @@
 // pagados (/pagar), consultando y escribiendo en Supabase directamente.
 //
 // /pagar funciona sobre la última lista numerada que el bot le mostró a
-// ESE chat (/hoy, /manana, /atrasados o /resumen la guardan en la tabla
+// ESE chat (/hoy, /manana, /atrasados, /ventana o /resumen la guardan en la tabla
 // bot_list_cache al responder) — "N" siempre se refiere a esa lista, no a
 // una posición fija.
 //
@@ -280,6 +280,28 @@ function diasAtraso(e: Evento, today: string, graciaMax: number): number {
   return Math.round(ms / 86400000);
 }
 
+/** Letras ya vencidas por contrato (vencimiento_real <= hoy) pero que
+ * TODAVÍA no se consideran oficialmente atrasadas (no pasaron
+ * vencimiento_real + plazo máximo de gracia) — la "ventana de pago" real
+ * con el proveedor, el mismo rango que marcan los íconos 🧾/⏰ en el
+ * Calendario de la app. */
+function letrasEnVentana(events: Evento[], today: string): Evento[] {
+  return events
+    .filter((e) => e.kind === "letra" && e.vencimiento_real && e.vencimiento_real <= today && !e.overdue)
+    .sort((a, b) => (a.vencimiento_real! < b.vencimiento_real! ? -1 : a.vencimiento_real! > b.vencimiento_real! ? 1 : 0));
+}
+
+function diasDesdeVencimiento(e: Evento, today: string): number {
+  const ms = parseISO(today).getTime() - parseISO(e.vencimiento_real!).getTime();
+  return Math.round(ms / 86400000);
+}
+
+function lineaVentana(e: Evento, n: number, today: string, graciaMax: number): string {
+  const limite = addDays(e.vencimiento_real!, graciaMax);
+  const dias = diasDesdeVencimiento(e, today);
+  return `${n}. ${e.vendor} · ${e.label} · ${e.branch} · ${money(e.amount)} · venció hace ${dias} día(s) · límite ${fmtLong(limite)}`;
+}
+
 function linea(e: Evento, n: number): string {
   const ref = e.invoice_number && e.kind !== "expense" ? ` · Fact. ${e.invoice_number}` : "";
   return `${n}. ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}`;
@@ -302,7 +324,7 @@ function sumAmount(events: Evento[]): number {
 
 /** Guarda la lista numerada que se le acaba de mostrar a este chat, para
  * que /pagar <N> sepa a qué factura/letra/gasto se refiere ese número. Se
- * sobrescribe cada vez que corre /hoy, /manana, /atrasados o /resumen — "N"
+ * sobrescribe cada vez que corre /hoy, /manana, /atrasados, /ventana o /resumen — "N"
  * siempre apunta a la ÚLTIMA lista que vio ese chat. */
 async function guardarListaParaPagar(supabase: any, chatId: number | string, items: Evento[]) {
   if (!items.length) return;
@@ -427,6 +449,24 @@ async function handleAtrasados(supabase: any, chatId: number | string): Promise<
   return lines.join("\n");
 }
 
+async function handleVentana(supabase: any, chatId: number | string): Promise<string> {
+  const today = todayLima();
+  const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
+  const graciaMax = settingsRow?.letra_dias_gracia_max ?? 10;
+  const events = await buildEvents(supabase, today);
+  const ventana = letrasEnVentana(events, today);
+
+  const lines = ["🧾 Letras en ventana de pago (ya vencieron, aún no atrasadas)", ""];
+  if (!ventana.length) {
+    lines.push("No hay letras en ese rango ahora mismo. 🎉");
+    return lines.join("\n");
+  }
+  ventana.forEach((e, i) => lines.push(lineaVentana(e, i + 1, today, graciaMax)));
+  lines.push("", `Total en ventana: ${money(sumAmount(ventana))}`);
+  await guardarListaParaPagar(supabase, chatId, ventana);
+  return lines.join("\n");
+}
+
 async function handlePagados(supabase: any, weeksBack: number): Promise<string> {
   const today = todayLima();
   const objetivo = addDays(today, -7 * weeksBack);
@@ -520,6 +560,13 @@ async function buildDailyReportMessage(supabase: any): Promise<string> {
     lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   }
 
+  const ventana = letrasEnVentana(events, today);
+  if (ventana.length) {
+    lines.push("", "🧾 Letras en ventana de pago (ya vencieron, aún no atrasadas):");
+    ventana.forEach((e, i) => lines.push(lineaVentana(e, i + 1, today, graciaMax)));
+    lines.push("", `Total en ventana: ${money(sumAmount(ventana))}`);
+  }
+
   const ayer = addDays(today, -1);
   const faltantes = await sucursalesSinIngreso(supabase, ayer);
   if (faltantes.length) {
@@ -589,7 +636,7 @@ async function handleIngreso(supabase: any, argsText: string, fromName: string):
 const PAGAR_VIGENCIA_MS = 2 * 60 * 60 * 1000; // 2 horas
 
 /** Marca como pagado el ítem "N" de la última lista numerada que vio este
- * chat (de /hoy, /manana, /atrasados o /resumen — ver
+ * chat (de /hoy, /manana, /atrasados, /ventana o /resumen — ver
  * guardarListaParaPagar). Borra esa lista guardada después de pagar, para
  * forzar a pedir una lista fresca antes del siguiente /pagar — evita pagar
  * dos veces el mismo número sin querer si la lista ya cambió. */
@@ -598,7 +645,7 @@ async function handlePagar(supabase: any, chatId: number | string, argsText: str
   if (!parts.length) {
     return [
       "Uso: /pagar <número> [fecha YYYY-MM-DD]",
-      "El número es el de la última lista que viste (/hoy, /manana, /atrasados o /resumen).",
+      "El número es el de la última lista que viste (/hoy, /manana, /atrasados, /ventana o /resumen).",
       "Ej: /pagar 2  → marca pagado hoy el ítem 2",
       "Ej: /pagar 2 2026-10-25  → marca pagado con esa fecha",
     ].join("\n");
@@ -616,11 +663,11 @@ async function handlePagar(supabase: any, chatId: number | string, argsText: str
     .maybeSingle();
 
   if (!cacheRow) {
-    return "No tengo una lista reciente para ese número — escribe /hoy, /manana, /atrasados o /resumen primero, y luego /pagar <número>.";
+    return "No tengo una lista reciente para ese número — escribe /hoy, /manana, /atrasados, /ventana o /resumen primero, y luego /pagar <número>.";
   }
   const edadMs = Date.now() - new Date(cacheRow.created_at).getTime();
   if (edadMs > PAGAR_VIGENCIA_MS) {
-    return "Esa lista ya es muy vieja (más de 2 horas) — escribe /hoy, /manana, /atrasados o /resumen de nuevo, y luego /pagar <número>.";
+    return "Esa lista ya es muy vieja (más de 2 horas) — escribe /hoy, /manana, /atrasados, /ventana o /resumen de nuevo, y luego /pagar <número>.";
   }
 
   const items: any[] = cacheRow.items ?? [];
@@ -818,10 +865,11 @@ const AYUDA = [
   "/semana — resumen de los próximos 7 días",
   "/meses — pagos por semana del mes actual y el próximo",
   "/atrasados — lo vencido que aún no se paga",
+  "/ventana — letras ya vencidas pero aún no atrasadas (su ventana real de pago)",
   "/pagados [N] — lo pagado esta semana, o N semanas atrás (ej. /pagados 1)",
   "/resumen — panorama rápido: hoy + atrasados + próximos 7 días",
   "/ingreso <sucursal> <monto> [fecha] — registra una venta/cobro del día",
-  "/pagar <N> [fecha] — marca pagado el ítem N de la última lista (/hoy, /manana, /atrasados o /resumen)",
+  "/pagar <N> [fecha] — marca pagado el ítem N de la última lista (/hoy, /manana, /atrasados, /ventana o /resumen)",
   "/saldo — saldo de caja real y cuánto queda disponible para comprometer",
   "/simular <plazo_dias> [monto] — ¿cuánto me alcanza (o me alcanza X) con un proveedor a ese plazo?",
 ].join("\n");
@@ -841,6 +889,7 @@ async function responderComando(
     case "/semana": return await handleSemana(supabase);
     case "/meses": case "/mes": return await handleMeses(supabase);
     case "/atrasados": return await handleAtrasados(supabase, chatId);
+    case "/ventana": return await handleVentana(supabase, chatId);
     case "/pagados": {
       const arg = trimmed.split(/\s+/)[1];
       const weeksBack = Math.max(0, parseInt(arg ?? "0", 10) || 0);
