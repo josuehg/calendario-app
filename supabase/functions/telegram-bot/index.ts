@@ -268,15 +268,20 @@ function diasAtraso(e: Evento, today: string, graciaMax: number): number {
   return Math.round(ms / 86400000);
 }
 
-function linea(e: Evento): string {
+function linea(e: Evento, n: number): string {
   const ref = e.invoice_number && e.kind !== "expense" ? ` · Fact. ${e.invoice_number}` : "";
-  return `• ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}`;
+  return `${n}. ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}`;
 }
 
-function lineaPagado(e: Evento): string {
+function lineaPagado(e: Evento, n: number): string {
   const ref = e.invoice_number && e.invoice_number !== "—" && e.kind !== "expense" ? ` · Fact. ${e.invoice_number}` : "";
   const quien = e.paidBy ? ` · pagó ${e.paidBy}` : "";
-  return `• ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}${quien}`;
+  return `${n}. ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}${quien}`;
+}
+
+/** Lista numerada 1. 2. 3. ... para los comandos del bot (en vez de viñetas). */
+function numeradas(items: Evento[], fn: (e: Evento, n: number) => string): string[] {
+  return items.map((e, i) => fn(e, i + 1));
 }
 
 function sumAmount(events: Evento[]): number {
@@ -292,7 +297,7 @@ async function handleHoy(supabase: any): Promise<string> {
     lines.push("No hay pagos programados para hoy. 🎉");
     return lines.join("\n");
   }
-  lines.push(...hoy.map(linea));
+  lines.push(...numeradas(hoy, linea));
   lines.push("", `Total del día: ${money(sumAmount(hoy))}`);
   return lines.join("\n");
 }
@@ -307,7 +312,7 @@ async function handleManana(supabase: any): Promise<string> {
     lines.push("No hay pagos programados para mañana. 🎉");
     return lines.join("\n");
   }
-  lines.push(...items.map(linea));
+  lines.push(...numeradas(items, linea));
   lines.push("", `Total: ${money(sumAmount(items))}`);
   return lines.join("\n");
 }
@@ -330,7 +335,7 @@ async function handleSemana(supabase: any): Promise<string> {
   for (const fecha of [...porDia.keys()].sort()) {
     const dia = porDia.get(fecha)!.sort((a, b) => b.amount - a.amount);
     lines.push(fmtLong(fecha) + ":");
-    lines.push(...dia.map(linea));
+    lines.push(...numeradas(dia, linea));
     lines.push("");
   }
   lines.push(`Total de la semana: ${money(sumAmount(items))}`);
@@ -385,9 +390,9 @@ async function handleAtrasados(supabase: any): Promise<string> {
     lines.push("No tienes nada atrasado. 🎉");
     return lines.join("\n");
   }
-  for (const e of atrasados) {
-    lines.push(`${linea(e)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
-  }
+  atrasados.forEach((e, i) => {
+    lines.push(`${linea(e, i + 1)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
+  });
   lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   return lines.join("\n");
 }
@@ -409,7 +414,7 @@ async function handlePagados(supabase: any, weeksBack: number): Promise<string> 
     lines.push("No hay nada pagado registrado en ese rango.");
     return lines.join("\n");
   }
-  lines.push(...items.map(lineaPagado));
+  lines.push(...numeradas(items, lineaPagado));
   lines.push("", `Total pagado: ${money(sumAmount(items))}`);
   return lines.join("\n");
 }
@@ -426,7 +431,7 @@ async function handleResumen(supabase: any): Promise<string> {
   const lines = [`📊 Resumen rápido — ${fmtLong(today)}`, ""];
 
   lines.push(`📅 Hoy: ${hoy.length} pago(s) · ${money(sumAmount(hoy))}`);
-  lines.push(...hoy.map(linea));
+  lines.push(...numeradas(hoy, linea));
   lines.push("");
 
   lines.push(`⚠️ Atrasados: ${atrasados.length} pago(s) · ${money(sumAmount(atrasados))}`);
@@ -470,7 +475,7 @@ async function buildDailyReportMessage(supabase: any): Promise<string> {
 
   const lines = [`📅 Pagos de hoy, ${fmtLong(today)}`, ""];
   if (hoy.length) {
-    lines.push(...hoy.map(linea));
+    lines.push(...numeradas(hoy, linea));
     lines.push("", `Total del día: ${money(sumAmount(hoy))}`);
   } else {
     lines.push("No hay pagos programados para hoy. 🎉");
@@ -478,9 +483,9 @@ async function buildDailyReportMessage(supabase: any): Promise<string> {
 
   if (atrasados.length) {
     lines.push("", "⚠️ Atrasados (aún sin pagar):");
-    for (const e of atrasados) {
-      lines.push(`${linea(e)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
-    }
+    atrasados.forEach((e, i) => {
+      lines.push(`${linea(e, i + 1)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
+    });
     lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   }
 
