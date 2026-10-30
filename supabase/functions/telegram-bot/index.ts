@@ -1,12 +1,13 @@
 // Bot de Telegram para Control Compras — responde comandos bajo demanda
-// (/hoy, /manana, /semana, /meses, /atrasados, /pagados, /resumen, /saldo,
-// /simular) y permite registrar ingresos (/ingreso) y marcar pagos como
-// pagados (/pagar), consultando y escribiendo en Supabase directamente.
+// (/hoy, /manana, /semana, /meses, /atrasados, /ventana, /pagados, /buscar,
+// /resumen, /saldo, /simular) y permite registrar ingresos (/ingreso) y
+// marcar pagos como pagados (/pagar, /deshacer), consultando y escribiendo
+// en Supabase directamente.
 //
 // /pagar funciona sobre la última lista numerada que el bot le mostró a
-// ESE chat (/hoy, /manana, /atrasados, /ventana o /resumen la guardan en la tabla
-// bot_list_cache al responder) — "N" siempre se refiere a esa lista, no a
-// una posición fija.
+// ESE chat (ver LISTAS_PAGABLES — la guardan en la tabla bot_list_cache al
+// responder, incluido el reporte diario) — "N" siempre se refiere a esa
+// lista, no a una posición fija.
 //
 // También manda el reporte diario (antes lo mandaba
 // scripts/telegram_daily_report.py vía GitHub Actions, que no garantiza la
@@ -94,15 +95,60 @@ interface Settings {
   track_contado: boolean;
   letra_dias_pago_tipico: number;
   letra_dias_gracia_max: number;
+  caja_saldo_inicial: number;
+  caja_saldo_inicial_fecha: string | null;
 }
 
-async function buildEvents(supabase: any, today: string): Promise<Evento[]> {
+/** Una sola lectura de app_settings por comando (antes cada handler la
+ * volvía a pedir, con sus propios defaults). */
+async function loadSettings(supabase: any): Promise<Settings> {
   const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
-  const settings: Settings = {
+  const tipico = settingsRow?.letra_dias_pago_tipico ?? 8;
+  return {
     track_contado: settingsRow?.track_contado ?? true,
-    letra_dias_pago_tipico: settingsRow?.letra_dias_pago_tipico ?? 8,
-    letra_dias_gracia_max: settingsRow?.letra_dias_gracia_max ?? 10,
+    letra_dias_pago_tipico: tipico,
+    letra_dias_gracia_max: settingsRow?.letra_dias_gracia_max ?? tipico,
+    caja_saldo_inicial: Number(settingsRow?.caja_saldo_inicial ?? 0),
+    caja_saldo_inicial_fecha: settingsRow?.caja_saldo_inicial_fecha ?? null,
   };
+}
+
+/** Acepta 2026-10-25, 25/10, 25/10/2026 o 25-10-2026 (sin año = año de
+ * hoy). null si no es una fecha real (ej. 31/02 o 2026-13-40). */
+function parseFecha(token: string, today: string): string | null {
+  let y: number, m: number, d: number;
+  let mt = token.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (mt) {
+    [y, m, d] = [Number(mt[1]), Number(mt[2]), Number(mt[3])];
+  } else if ((mt = token.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2}|\d{4}))?$/))) {
+    [d, m] = [Number(mt[1]), Number(mt[2])];
+    y = !mt[3] ? parseISO(today).getUTCFullYear() : mt[3].length === 2 ? 2000 + Number(mt[3]) : Number(mt[3]);
+  } else {
+    return null;
+  }
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return toISO(dt);
+}
+
+const FECHA_INVALIDA = "La fecha no es válida. Usa 25/10, 25/10/2026 o 2026-10-25.";
+
+/** Valida la fecha opcional de /pagar y /ingreso: real y no futura. */
+function fechaPasadaOHoy(token: string | undefined, today: string): { fecha?: string; error?: string } {
+  if (!token) return { fecha: today };
+  const fecha = parseFecha(token, today);
+  if (!fecha) return { error: FECHA_INVALIDA };
+  if (fecha > today) return { error: `La fecha ${fmtLong(fecha)} es futura — solo hoy o días pasados.` };
+  return { fecha };
+}
+
+/** Quita espacios y signos para comparar nombres: "mym" encuentra "M Y M PROMEFAR". */
+function normalizar(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+}
+
+async function buildEvents(supabase: any, today: string, settings?: Settings): Promise<Evento[]> {
+  settings = settings ?? await loadSettings(supabase);
 
   const { data: invoicesAll } = await supabase
     .from("invoices")
@@ -208,8 +254,35 @@ async function buildPaidEvents(supabase: any): Promise<Evento[]> {
 
   const { data: letrasPaid } = await supabase
     .from("letras")
-    .select("id,numero,monto,vendor,branch,fecha_pago,paid_by")
+    .select("id,canje_id,numero,monto,vendor,branch,fecha_pago,paid_by")
     .eq("estado", "pagada");
+
+  // Las letras de canje no guardan vendor/branch propios (quedan null): se
+  // sacan de sus facturas agrupadas — si no, /pagados y /buscar las
+  // mostraban como "—".
+  const canjeIds = [...new Set((letrasPaid ?? []).map((l: any) => l.canje_id).filter((x: any) => x))];
+  const canjeInfo = new Map<string, { vendor: string; branch: string }>();
+  if (canjeIds.length) {
+    const { data: cfs } = await supabase.from("canje_facturas").select("canje_id,invoice_id").in("canje_id", canjeIds);
+    const invIds = [...new Set((cfs ?? []).map((cf: any) => cf.invoice_id))];
+    const { data: invs } = invIds.length
+      ? await supabase.from("invoices").select("id,vendor,branch").in("id", invIds)
+      : { data: [] };
+    const invById = new Map((invs ?? []).map((i: any) => [i.id, i]));
+    const porCanje = new Map<string, any[]>();
+    for (const cf of cfs ?? []) {
+      const inv = invById.get(cf.invoice_id);
+      if (!inv) continue;
+      if (!porCanje.has(cf.canje_id)) porCanje.set(cf.canje_id, []);
+      porCanje.get(cf.canje_id)!.push(inv);
+    }
+    for (const [cid, grouped] of porCanje) {
+      canjeInfo.set(cid, {
+        vendor: [...new Set(grouped.map((i) => i.vendor))].sort().join(", ") || "—",
+        branch: [...new Set(grouped.map((i) => i.branch))].sort().join(", ") || "—",
+      });
+    }
+  }
 
   const { data: expensesPaid } = await supabase
     .from("expenses")
@@ -236,11 +309,12 @@ async function buildPaidEvents(supabase: any): Promise<Evento[]> {
 
   for (const l of letrasPaid ?? []) {
     if (!l.fecha_pago) continue;
+    const info = l.canje_id ? canjeInfo.get(l.canje_id) : undefined;
     events.push({
       date: l.fecha_pago,
       amount: Number(l.monto),
-      vendor: l.vendor || "—",
-      branch: l.branch || "—",
+      vendor: info?.vendor || l.vendor || "—",
+      branch: info?.branch || l.branch || "—",
       invoice_number: "—",
       label: `Letra ${l.numero || "—"}`,
       overdue: false,
@@ -306,20 +380,27 @@ function lineaVentana(e: Evento, n: number, today: string, graciaMax: number): s
   return `${n}. ${e.vendor} · ${e.label} · ${e.branch} · ${money(e.amount)} · venció hace ${dias} día(s) · límite ${fmtLong(limite)}`;
 }
 
+// Solo las facturas muestran su número: en una letra de canje serían las 10+
+// facturas agrupadas, una línea larguísima ("Letra X (10 factura(s))" ya
+// dice cuántas son).
+function refFactura(e: Evento): string {
+  return e.kind === "invoice" && e.invoice_number && e.invoice_number !== "—" ? ` · Fact. ${e.invoice_number}` : "";
+}
+
 function linea(e: Evento, n: number): string {
-  const ref = e.invoice_number && e.kind !== "expense" ? ` · Fact. ${e.invoice_number}` : "";
-  return `${n}. ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}`;
+  return `${n}. ${e.vendor}${refFactura(e)} · ${e.label} · ${e.branch} · ${money(e.amount)}`;
 }
 
 function lineaPagado(e: Evento, n: number): string {
-  const ref = e.invoice_number && e.invoice_number !== "—" && e.kind !== "expense" ? ` · Fact. ${e.invoice_number}` : "";
   const quien = e.paidBy ? ` · pagó ${e.paidBy}` : "";
-  return `${n}. ${e.vendor}${ref} · ${e.label} · ${e.branch} · ${money(e.amount)}${quien}`;
+  return `${n}. ${e.vendor}${refFactura(e)} · ${e.label} · ${e.branch} · ${money(e.amount)}${quien}`;
 }
 
-/** Lista numerada 1. 2. 3. ... para los comandos del bot (en vez de viñetas). */
-function numeradas(items: Evento[], fn: (e: Evento, n: number) => string): string[] {
-  return items.map((e, i) => fn(e, i + 1));
+/** Lista numerada 1. 2. 3. ... para los comandos del bot (en vez de viñetas).
+ * `desde` permite seguir la numeración entre secciones de un mismo mensaje
+ * (reporte diario, /semana), para que cada N sea único y sirva para /pagar. */
+function numeradas(items: Evento[], fn: (e: Evento, n: number) => string, desde = 1): string[] {
+  return items.map((e, i) => fn(e, i + desde));
 }
 
 function sumAmount(events: Evento[]): number {
@@ -328,8 +409,8 @@ function sumAmount(events: Evento[]): number {
 
 /** Guarda la lista numerada que se le acaba de mostrar a este chat, para
  * que /pagar <N> sepa a qué factura/letra/gasto se refiere ese número. Se
- * sobrescribe cada vez que corre /hoy, /manana, /atrasados, /ventana o /resumen — "N"
- * siempre apunta a la ÚLTIMA lista que vio ese chat. */
+ * sobrescribe cada vez que se muestra una lista (LISTAS_PAGABLES, incluido
+ * el reporte diario) — "N" siempre apunta a la ÚLTIMA lista que vio ese chat. */
 async function guardarListaParaPagar(supabase: any, chatId: number | string, items: Evento[]) {
   if (!items.length) return;
   const payload = items.map((e, i) => ({
@@ -372,7 +453,9 @@ async function handleManana(supabase: any, chatId: number | string): Promise<str
   return lines.join("\n");
 }
 
-async function handleSemana(supabase: any): Promise<string> {
+const LISTAS_PAGABLES = "/hoy, /manana, /semana, /atrasados, /ventana, /buscar, /resumen o el reporte diario";
+
+async function handleSemana(supabase: any, chatId: number | string): Promise<string> {
   const today = todayLima();
   const hasta = addDays(today, 6);
   const events = await buildEvents(supabase, today);
@@ -387,13 +470,16 @@ async function handleSemana(supabase: any): Promise<string> {
     if (!porDia.has(e.date)) porDia.set(e.date, []);
     porDia.get(e.date)!.push(e);
   }
+  const enOrden: Evento[] = [];
   for (const fecha of [...porDia.keys()].sort()) {
     const dia = porDia.get(fecha)!.sort((a, b) => b.amount - a.amount);
     lines.push(fmtLong(fecha) + ":");
-    lines.push(...numeradas(dia, linea));
+    lines.push(...numeradas(dia, linea, enOrden.length + 1));
     lines.push("");
+    enOrden.push(...dia);
   }
   lines.push(`Total de la semana: ${money(sumAmount(items))}`);
+  await guardarListaParaPagar(supabase, chatId, enOrden);
   return lines.join("\n");
 }
 
@@ -434,9 +520,9 @@ async function handleMeses(supabase: any): Promise<string> {
 
 async function handleAtrasados(supabase: any, chatId: number | string): Promise<string> {
   const today = todayLima();
-  const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
-  const graciaMax = settingsRow?.letra_dias_gracia_max ?? 10;
-  const events = await buildEvents(supabase, today);
+  const settings = await loadSettings(supabase);
+  const graciaMax = settings.letra_dias_gracia_max;
+  const events = await buildEvents(supabase, today, settings);
   const atrasados = events
     .filter((e) => e.overdue)
     .sort((a, b) => diasAtraso(b, today, graciaMax) - diasAtraso(a, today, graciaMax));
@@ -455,10 +541,10 @@ async function handleAtrasados(supabase: any, chatId: number | string): Promise<
 
 async function handleVentana(supabase: any, chatId: number | string): Promise<string> {
   const today = todayLima();
-  const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
-  const graciaMax = settingsRow?.letra_dias_gracia_max ?? 10;
-  const plazoTipico = settingsRow?.letra_dias_pago_tipico ?? 8;
-  const events = await buildEvents(supabase, today);
+  const settings = await loadSettings(supabase);
+  const graciaMax = settings.letra_dias_gracia_max;
+  const plazoTipico = settings.letra_dias_pago_tipico;
+  const events = await buildEvents(supabase, today, settings);
   const ventana = letrasEnVentana(events, today, plazoTipico);
 
   const lines = [`🧾 Letras en ventana de pago (ya vencieron, dentro de los ${plazoTipico} días típicos)`, ""];
@@ -538,18 +624,24 @@ async function sucursalesSinIngreso(supabase: any, fecha: string): Promise<strin
  * GitHub Actions — ahora lo dispara un cron de Supabase (pg_cron) en vez
  * del scheduler gratuito de GitHub Actions, que no garantiza la hora
  * (puede atrasarse varias horas sin avisar). */
-async function buildDailyReportMessage(supabase: any): Promise<string> {
+async function buildDailyReportMessage(supabase: any): Promise<{ text: string; items: Evento[] }> {
   const today = todayLima();
-  const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
-  const graciaMax = settingsRow?.letra_dias_gracia_max ?? 10;
-  const plazoTipico = settingsRow?.letra_dias_pago_tipico ?? 8;
-  const events = await buildEvents(supabase, today);
+  const settings = await loadSettings(supabase);
+  const graciaMax = settings.letra_dias_gracia_max;
+  const plazoTipico = settings.letra_dias_pago_tipico;
+  const events = await buildEvents(supabase, today, settings);
 
   const hoy = events.filter((e) => e.date === today).sort((a, b) => b.amount - a.amount);
   const atrasados = events
     .filter((e) => e.overdue)
     .sort((a, b) => diasAtraso(b, today, graciaMax) - diasAtraso(a, today, graciaMax));
+  // Una letra cuyo plazo típico vence hoy ya sale en "hoy": no repetirla en
+  // la ventana (tendría dos números distintos para /pagar).
+  const enHoy = new Set(hoy.map((e) => e.refId));
+  const ventana = letrasEnVentana(events, today, plazoTipico).filter((e) => !enHoy.has(e.refId));
 
+  // Numeración continua entre secciones (hoy 1..n, atrasados n+1.., ventana
+  // ...) para que el reporte sirva directo con /pagar <N>.
   const lines = [`📅 Pagos de hoy, ${fmtLong(today)}`, ""];
   if (hoy.length) {
     lines.push(...numeradas(hoy, linea));
@@ -559,19 +651,23 @@ async function buildDailyReportMessage(supabase: any): Promise<string> {
   }
 
   if (atrasados.length) {
+    const desde = hoy.length + 1;
     lines.push("", "⚠️ Atrasados (aún sin pagar):");
     atrasados.forEach((e, i) => {
-      lines.push(`${linea(e, i + 1)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
+      lines.push(`${linea(e, i + desde)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
     });
     lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   }
 
-  const ventana = letrasEnVentana(events, today, plazoTipico);
   if (ventana.length) {
+    const desde = hoy.length + atrasados.length + 1;
     lines.push("", `🧾 Letras en ventana de pago (ya vencieron, dentro de los ${plazoTipico} días típicos):`);
-    ventana.forEach((e, i) => lines.push(lineaVentana(e, i + 1, today, graciaMax)));
+    ventana.forEach((e, i) => lines.push(lineaVentana(e, i + desde, today, graciaMax)));
     lines.push("", `Total en ventana: ${money(sumAmount(ventana))}`);
   }
+
+  const items = [...hoy, ...atrasados, ...ventana];
+  if (items.length) lines.push("", "Para marcar uno: /pagar <N> (vale por 2 horas).");
 
   const ayer = addDays(today, -1);
   const faltantes = await sucursalesSinIngreso(supabase, ayer);
@@ -580,7 +676,7 @@ async function buildDailyReportMessage(supabase: any): Promise<string> {
     lines.push("Usa /ingreso <sucursal> <monto> en el bot para ponerlo al día.");
   }
 
-  return lines.join("\n");
+  return { text: lines.join("\n"), items };
 }
 
 /** Registra un ingreso (venta/cobro) de una sucursal. Cualquiera en el grupo
@@ -592,14 +688,21 @@ async function handleIngreso(supabase: any, argsText: string, fromName: string):
 
   if (parts.length < 2) {
     return [
-      "Uso: /ingreso <sucursal> <monto> [fecha YYYY-MM-DD]",
+      "Uso: /ingreso <sucursal> <monto> [fecha] [reemplazar|sumar]",
       "Ej: /ingreso 1 1500  → Sucursal 1, hoy",
-      "Ej: /ingreso 2 980 2026-10-25",
+      "Ej: /ingreso 2 980 25/10",
+      "Si ya había un ingreso para ese día: agrega «reemplazar» (cambia el monto) o «sumar» (lo registra aparte).",
       "",
       "Sucursales:",
       ...names.map((n, i) => `${i + 1}. ${n}`),
     ].join("\n");
   }
+
+  // «reemplazar» / «sumar» pueden ir al final, con o sin fecha.
+  const ultimo = parts[parts.length - 1].toLowerCase();
+  const modo = ultimo === "reemplazar" || ultimo === "sumar" ? ultimo : null;
+  if (modo) parts.pop();
+  if (parts.length < 2) return "Falta la sucursal o el monto. Ej: /ingreso 1 1500 reemplazar";
 
   const [branchToken, montoToken, fechaToken] = parts;
 
@@ -620,46 +723,113 @@ async function handleIngreso(supabase: any, argsText: string, fromName: string):
     return "El monto debe ser un número (0 o mayor). Ej: /ingreso 1 1500 o /ingreso 1 0";
   }
 
-  let fecha = todayLima();
-  if (fechaToken) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaToken)) {
-      return "La fecha debe ir como YYYY-MM-DD, ej: 2026-10-25";
+  const f = fechaPasadaOHoy(fechaToken, todayLima());
+  if (f.error) return f.error;
+  const fecha = f.fecha!;
+  const montoRed = Math.round(monto * 100) / 100;
+
+  // Un segundo /ingreso para la misma sucursal y día duplicaba la venta (y
+  // el saldo de caja). Ahora se pide decir qué hacer con el que ya existe.
+  const { data: existentes } = await supabase
+    .from("incomes").select("id,amount,registered_by").eq("branch", branch).eq("date", fecha);
+  const previos = existentes ?? [];
+  if (previos.length && !modo) {
+    const detalle = previos
+      .map((r: any) => `${money(Number(r.amount))}${r.registered_by ? ` (de ${r.registered_by})` : ""}`)
+      .join(" + ");
+    return [
+      `⚠️ ${branch} ya tiene ingreso el ${fmtLong(fecha)}: ${detalle}. No registré nada.`,
+      `Para cambiarlo por ${money(montoRed)}: /ingreso ${branchToken} ${montoToken}${fechaToken ? " " + fechaToken : ""} reemplazar`,
+      `Para sumarlo aparte: /ingreso ${branchToken} ${montoToken}${fechaToken ? " " + fechaToken : ""} sumar`,
+    ].join("\n");
+  }
+
+  if (previos.length && modo === "reemplazar") {
+    const { error: delErr } = await supabase.from("incomes").delete().in("id", previos.map((r: any) => r.id));
+    if (delErr) {
+      console.error("Error reemplazando ingreso:", delErr);
+      return "No se pudo reemplazar el ingreso, intenta de nuevo.";
     }
-    fecha = fechaToken;
   }
 
   const { error } = await supabase.from("incomes").insert({
-    branch, date: fecha, amount: Math.round(monto * 100) / 100,
+    branch, date: fecha, amount: montoRed,
     registered_by: fromName || null, source: "bot",
   });
   if (error) {
     console.error("Error insertando ingreso:", error);
     return "No se pudo registrar el ingreso, intenta de nuevo.";
   }
-  return `✅ Registrado: ${branch} · ${money(monto)} · ${fmtLong(fecha)}`;
+  const verbo = previos.length && modo === "reemplazar" ? "Reemplazado" : previos.length ? "Sumado" : "Registrado";
+  return `✅ ${verbo}: ${branch} · ${money(montoRed)} · ${fmtLong(fecha)}`;
 }
 
 const PAGAR_VIGENCIA_MS = 2 * 60 * 60 * 1000; // 2 horas
+const DESHACER_VIGENCIA_MS = 30 * 60 * 1000; // 30 minutos
 
-/** Marca como pagado el ítem "N" de la última lista numerada que vio este
- * chat (de /hoy, /manana, /atrasados, /ventana o /resumen — ver
- * guardarListaParaPagar). Borra esa lista guardada después de pagar, para
- * forzar a pedir una lista fresca antes del siguiente /pagar — evita pagar
- * dos veces el mismo número sin querer si la lista ya cambió. */
+/** Cómo se marca pagado / pendiente cada tipo — igual que db.mark_invoice_paid,
+ * db.mark_letra_paid y db.set_expense_status en la app. */
+const TABLAS: Record<Kind, { tabla: string; estado: string; pendiente: string; pagado: string; fecha: string }> = {
+  invoice: { tabla: "invoices", estado: "status", pendiente: "pendiente", pagado: "pagada", fecha: "paid_at" },
+  letra: { tabla: "letras", estado: "estado", pendiente: "pendiente", pagado: "pagada", fecha: "fecha_pago" },
+  expense: { tabla: "expenses", estado: "status", pendiente: "pendiente", pagado: "pagado", fecha: "paid_at" },
+};
+
+/** "2", "1 3 5", "1,3", "1-3" → [1, 2, 3...]. null si algún token no es un
+ * número o rango válido. */
+function parseNumeros(tokens: string[]): number[] | null {
+  const out = new Set<number>();
+  for (const tok of tokens.flatMap((t) => t.split(",")).filter(Boolean)) {
+    const rango = tok.match(/^(\d+)-(\d+)$/);
+    if (rango) {
+      const [a, b] = [Number(rango[1]), Number(rango[2])];
+      if (!a || b < a || b - a > 50) return null;
+      for (let i = a; i <= b; i++) out.add(i);
+    } else if (/^\d+$/.test(tok) && Number(tok) > 0) {
+      out.add(Number(tok));
+    } else {
+      return null;
+    }
+  }
+  return out.size ? [...out].sort((x, y) => x - y) : null;
+}
+
+function descItem(it: any): string {
+  return `${it.vendor} · ${it.label} · ${it.branch} · ${money(it.amount)}`;
+}
+
+/** Marca como pagados uno o varios ítems de la última lista numerada que vio
+ * este chat (ver guardarListaParaPagar). Solo cambia lo que SIGUE pendiente:
+ * si alguien ya lo pagó (desde la app u otro /pagar) no le pisa la fecha ni
+ * quién pagó — antes sí lo sobrescribía. Por eso la lista ya no se borra
+ * después de pagar: /pagar 1 y luego /pagar 3 usan la misma lista que viste.
+ * Guarda lo pagado en bot_list_cache.ultimo_pago para /deshacer. */
 async function handlePagar(supabase: any, chatId: number | string, argsText: string, fromName: string): Promise<string> {
   const parts = argsText.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) {
     return [
-      "Uso: /pagar <número> [fecha YYYY-MM-DD]",
-      "El número es el de la última lista que viste (/hoy, /manana, /atrasados, /ventana o /resumen).",
+      "Uso: /pagar <N> [más números] [fecha]",
+      `El número es el de la última lista que viste (${LISTAS_PAGABLES}).`,
       "Ej: /pagar 2  → marca pagado hoy el ítem 2",
-      "Ej: /pagar 2 2026-10-25  → marca pagado con esa fecha",
+      "Ej: /pagar 1 3 5  o  /pagar 1-3  → varios a la vez",
+      "Ej: /pagar 2 25/10  → con esa fecha de pago",
+      "Si te equivocas: /deshacer (hasta 30 minutos después).",
     ].join("\n");
   }
 
-  const n = parseInt(parts[0], 10);
-  if (!n || n <= 0) {
-    return "El número debe ser el de la lista (1, 2, 3...). Ej: /pagar 2";
+  // La fecha va al final y se distingue de un rango "1-3" por tener "/" o
+  // ser YYYY-MM-DD.
+  const today = todayLima();
+  let fechaToken: string | undefined;
+  const ultimo = parts[parts.length - 1];
+  if (ultimo.includes("/") || /^\d{4}-\d{1,2}-\d{1,2}$/.test(ultimo)) fechaToken = parts.pop();
+  const f = fechaPasadaOHoy(fechaToken, today);
+  if (f.error) return f.error;
+  const fecha = f.fecha!;
+
+  const numeros = parseNumeros(parts);
+  if (!numeros) {
+    return "No entendí los números. Ej: /pagar 2, /pagar 1 3 5 o /pagar 1-3 (fecha opcional al final: 25/10).";
   }
 
   const { data: cacheRow } = await supabase
@@ -669,52 +839,137 @@ async function handlePagar(supabase: any, chatId: number | string, argsText: str
     .maybeSingle();
 
   if (!cacheRow) {
-    return "No tengo una lista reciente para ese número — escribe /hoy, /manana, /atrasados, /ventana o /resumen primero, y luego /pagar <número>.";
+    return `No tengo una lista reciente — pide una primero (${LISTAS_PAGABLES}) y luego /pagar <N>.`;
   }
   const edadMs = Date.now() - new Date(cacheRow.created_at).getTime();
   if (edadMs > PAGAR_VIGENCIA_MS) {
-    return "Esa lista ya es muy vieja (más de 2 horas) — escribe /hoy, /manana, /atrasados, /ventana o /resumen de nuevo, y luego /pagar <número>.";
+    return `Esa lista ya es muy vieja (más de 2 horas) — pide una nueva (${LISTAS_PAGABLES}) y luego /pagar <N>.`;
   }
 
   const items: any[] = cacheRow.items ?? [];
-  const item = items.find((it) => it.n === n);
-  if (!item) {
-    return `No hay un ítem ${n} en la última lista (tenía ${items.length}). Revisa el número.`;
-  }
-
-  let fecha = todayLima();
-  const fechaToken = parts[1];
-  if (fechaToken) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaToken)) {
-      return "La fecha debe ir como YYYY-MM-DD, ej: 2026-10-25";
-    }
-    fecha = fechaToken;
+  const faltan = numeros.filter((n) => !items.some((it) => it.n === n));
+  if (faltan.length) {
+    return `No hay ítem ${faltan.join(", ")} en la última lista (tenía ${items.length}). No marqué nada — revisa los números.`;
   }
 
   const actor = fromName || null;
-  let error: any = null;
-  if (item.kind === "invoice") {
-    ({ error } = await supabase.from("invoices")
-      .update({ status: "pagada", paid_at: fecha, paid_by: actor })
-      .eq("id", item.ref_id));
-  } else if (item.kind === "letra") {
-    ({ error } = await supabase.from("letras")
-      .update({ estado: "pagada", fecha_pago: fecha, paid_by: actor })
-      .eq("id", item.ref_id));
-  } else {
-    ({ error } = await supabase.from("expenses")
-      .update({ status: "pagado", paid_at: fecha, paid_by: actor })
-      .eq("id", item.ref_id));
+  const pagados: any[] = [];
+  const lines: string[] = [];
+  for (const n of numeros) {
+    const item = items.find((it) => it.n === n)!;
+    const t = TABLAS[item.kind as Kind];
+    const { data, error } = await supabase.from(t.tabla)
+      .update({ [t.estado]: t.pagado, [t.fecha]: fecha, paid_by: actor })
+      .eq("id", item.ref_id)
+      .eq(t.estado, t.pendiente)
+      .select("id");
+    if (error) {
+      console.error("Error marcando como pagado:", error);
+      lines.push(`❌ ${n}. No se pudo marcar: ${descItem(item)}`);
+    } else if (!data?.length) {
+      const { data: actual } = await supabase.from(t.tabla)
+        .select(`${t.estado},${t.fecha},paid_by`).eq("id", item.ref_id).maybeSingle();
+      const quien = actual?.paid_by ? ` por ${actual.paid_by}` : "";
+      const cuando = actual?.[t.fecha] ? ` el ${fmtLong(actual[t.fecha])}` : "";
+      lines.push(actual
+        ? `ℹ️ ${n}. Ya estaba ${actual[t.estado]}${quien}${cuando} — no lo cambié: ${descItem(item)}`
+        : `ℹ️ ${n}. Ya no existe (lo borraron): ${descItem(item)}`);
+    } else {
+      pagados.push(item);
+      lines.push(`✅ ${n}. ${descItem(item)}`);
+    }
   }
 
+  if (pagados.length) {
+    const { error } = await supabase.from("bot_list_cache")
+      .update({ ultimo_pago: { at: new Date().toISOString(), by: actor, fecha, items: pagados } })
+      .eq("chat_id", chatId);
+    if (error) console.error("No se pudo guardar el pago para /deshacer (¿falta la migración?):", error);
+  }
+
+  const titulo = pagados.length
+    ? `Marcado como pagado (${fmtLong(fecha)}) — ${pagados.length} ítem(s) · ${money(pagados.reduce((a, it) => a + it.amount, 0))}`
+    : "No se marcó nada nuevo.";
+  const pie = pagados.length ? ["", "¿Te equivocaste? /deshacer"] : [];
+  return [titulo, "", ...lines, ...pie].join("\n");
+}
+
+/** Revierte el último /pagar de este chat (hasta DESHACER_VIGENCIA_MS
+ * después): vuelve a pendiente solo lo que ese /pagar marcó y que sigue
+ * pagado. */
+async function handleDeshacer(supabase: any, chatId: number | string): Promise<string> {
+  const { data: cacheRow, error } = await supabase
+    .from("bot_list_cache").select("ultimo_pago").eq("chat_id", chatId).maybeSingle();
   if (error) {
-    console.error("Error marcando como pagado:", error);
-    return "No se pudo marcar como pagado, intenta de nuevo.";
+    console.error("Error leyendo ultimo_pago (¿falta migracion_2026-10_bot_deshacer.sql?):", error);
+    return "No pude leer el último pago. Avísale al administrador (falta una migración).";
+  }
+  const up = cacheRow?.ultimo_pago;
+  if (!up?.items?.length) return "No hay ningún /pagar reciente para deshacer.";
+  if (Date.now() - new Date(up.at).getTime() > DESHACER_VIGENCIA_MS) {
+    return "El último /pagar fue hace más de 30 minutos — corrígelo en la app (Letras / Facturas / Gastos → Gestionar).";
   }
 
-  await supabase.from("bot_list_cache").delete().eq("chat_id", chatId);
+  const lines: string[] = [];
+  let revertidos = 0;
+  for (const item of up.items) {
+    const t = TABLAS[item.kind as Kind];
+    const { data, error: upErr } = await supabase.from(t.tabla)
+      .update({ [t.estado]: t.pendiente, [t.fecha]: null, paid_by: null })
+      .eq("id", item.ref_id)
+      .eq(t.estado, t.pagado)
+      .select("id");
+    if (upErr) {
+      console.error("Error deshaciendo pago:", upErr);
+      lines.push(`❌ No se pudo revertir: ${descItem(item)}`);
+    } else if (!data?.length) {
+      lines.push(`ℹ️ Ya no estaba pagado, no lo toqué: ${descItem(item)}`);
+    } else {
+      revertidos++;
+      lines.push(`↩️ ${descItem(item)}`);
+    }
+  }
+  await supabase.from("bot_list_cache").update({ ultimo_pago: null }).eq("chat_id", chatId);
+  return [`Deshecho: ${revertidos} ítem(s) volvieron a pendiente.`, "", ...lines].join("\n");
+}
 
-  return `✅ Marcado como pagado: ${item.vendor} · ${item.label} · ${item.branch} · ${money(item.amount)} · ${fmtLong(fecha)}`;
+/** Todo lo pendiente de un proveedor (o número de factura/letra), con su
+ * total, más lo último pagado de ese proveedor — para revisar de un vistazo
+ * si falta algo o si algo se marcó pagado por error. */
+async function handleBuscar(supabase: any, chatId: number | string, argsText: string): Promise<string> {
+  const q = normalizar(argsText);
+  if (q.length < 2) {
+    return "Uso: /buscar <proveedor o número>\nEj: /buscar mym  ·  /buscar 137857  ·  /buscar FF04-397751";
+  }
+  const today = todayLima();
+  const settings = await loadSettings(supabase);
+  const coincide = (e: Evento) => normalizar(`${e.vendor} ${e.label} ${e.invoice_number}`).includes(q);
+
+  const pendientes = (await buildEvents(supabase, today, settings))
+    .filter(coincide)
+    .sort((a, b) => ((a.vencimiento_real ?? a.date) < (b.vencimiento_real ?? b.date) ? -1 : 1));
+  const pagados = (await buildPaidEvents(supabase))
+    .filter(coincide)
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, 5);
+
+  const lines = [`🔎 "${argsText.trim()}"`, ""];
+  if (pendientes.length) {
+    lines.push(`Pendiente: ${pendientes.length} · ${money(sumAmount(pendientes))}`);
+    pendientes.forEach((e, i) => {
+      const vence = e.vencimiento_real ?? e.date;
+      const marca = e.overdue ? " ⚠️ atrasado" : "";
+      lines.push(`${linea(e, i + 1)} · vence ${fmtLong(vence)}${marca}`);
+    });
+    await guardarListaParaPagar(supabase, chatId, pendientes);
+  } else {
+    lines.push("Nada pendiente con ese nombre o número.");
+  }
+  if (pagados.length) {
+    lines.push("", "Últimos pagados:");
+    pagados.forEach((e) => lines.push(`• ${fmtLong(e.date)} · ${e.vendor}${refFactura(e)} · ${e.label} · ${money(e.amount)}${e.paidBy ? ` · ${e.paidBy}` : ""}`));
+  }
+  return lines.join("\n");
 }
 
 /** Saldo de caja actual (ver utils.compute_cash_balance): saldo inicial +
@@ -724,9 +979,9 @@ async function handlePagar(supabase: any, chatId: number | string, argsText: str
  * /simular (comprometido_antes = solo los que vencen antes de cierta
  * fecha). null si todavía no se configuró el saldo inicial. */
 async function computeCaja(supabase: any, today: string): Promise<{ saldoActual: number; events: Evento[] } | null> {
-  const { data: settingsRow } = await supabase.from("app_settings").select("*").eq("id", 1).single();
-  const saldoInicial = Number(settingsRow?.caja_saldo_inicial ?? 0);
-  const desde: string | null = settingsRow?.caja_saldo_inicial_fecha ?? null;
+  const settings = await loadSettings(supabase);
+  const saldoInicial = settings.caja_saldo_inicial;
+  const desde = settings.caja_saldo_inicial_fecha;
   if (!desde) return null;
 
   const { data: incomesAfter } = await supabase.from("incomes").select("amount").gt("date", desde);
@@ -741,7 +996,7 @@ async function computeCaja(supabase: any, today: string): Promise<{ saldoActual:
     (expPaid ?? []).reduce((a: number, r: any) => a + Number(r.amount), 0);
 
   const saldoActual = saldoInicial + ingresos - pagado;
-  const events = await buildEvents(supabase, today);
+  const events = await buildEvents(supabase, today, settings);
   return { saldoActual, events };
 }
 
@@ -868,14 +1123,16 @@ const AYUDA = [
   "",
   "/hoy — pagos de hoy",
   "/manana — pagos de mañana",
-  "/semana — resumen de los próximos 7 días",
+  "/semana — los próximos 7 días, día por día",
   "/meses — pagos por semana del mes actual y el próximo",
   "/atrasados — lo vencido que aún no se paga",
   "/ventana — letras ya vencidas pero aún no atrasadas (su ventana real de pago)",
   "/pagados [N] — lo pagado esta semana, o N semanas atrás (ej. /pagados 1)",
   "/resumen — panorama rápido: hoy + atrasados + próximos 7 días",
+  "/buscar <proveedor o número> — todo lo pendiente de ese proveedor + lo último pagado (ej. /buscar mym)",
   "/ingreso <sucursal> <monto> [fecha] — registra una venta/cobro del día",
-  "/pagar <N> [fecha] — marca pagado el ítem N de la última lista (/hoy, /manana, /atrasados, /ventana o /resumen)",
+  `/pagar <N> [fecha] — marca pagado el ítem N (o varios: 1 3 5, 1-3) de la última lista (${LISTAS_PAGABLES})`,
+  "/deshacer — revierte el último /pagar (hasta 30 minutos después)",
   "/saldo — saldo de caja real y cuánto queda disponible para comprometer",
   "/simular <plazo_dias> [monto] — ¿cuánto me alcanza (o me alcanza X) con un proveedor a ese plazo?",
 ].join("\n");
@@ -892,7 +1149,7 @@ async function responderComando(
   switch (cmd) {
     case "/hoy": return await handleHoy(supabase, chatId);
     case "/manana": case "/mañana": return await handleManana(supabase, chatId);
-    case "/semana": return await handleSemana(supabase);
+    case "/semana": return await handleSemana(supabase, chatId);
     case "/meses": case "/mes": return await handleMeses(supabase);
     case "/atrasados": return await handleAtrasados(supabase, chatId);
     case "/ventana": return await handleVentana(supabase, chatId);
@@ -910,6 +1167,11 @@ async function responderComando(
       const argsText = trimmed.split(/\s+/).slice(1).join(" ");
       return await handlePagar(supabase, chatId, argsText, fromName);
     }
+    case "/deshacer": return await handleDeshacer(supabase, chatId);
+    case "/buscar": {
+      const argsText = trimmed.split(/\s+/).slice(1).join(" ");
+      return await handleBuscar(supabase, chatId, argsText);
+    }
     case "/saldo": return await handleSaldo(supabase);
     case "/simular": {
       const argsText = trimmed.split(/\s+/).slice(1).join(" ");
@@ -920,16 +1182,38 @@ async function responderComando(
   }
 }
 
+// Telegram rechaza mensajes de más de 4096 caracteres (y el envío fallaba
+// sin que nadie se enterara): se parte por líneas, con margen.
+const TELEGRAM_MAX = 3900;
+
+function partirMensaje(text: string): string[] {
+  const partes: string[] = [];
+  let actual = "";
+  for (const linea of text.split("\n")) {
+    const l = linea.length > TELEGRAM_MAX ? linea.slice(0, TELEGRAM_MAX - 1) + "…" : linea;
+    if (actual && actual.length + 1 + l.length > TELEGRAM_MAX) {
+      partes.push(actual);
+      actual = l;
+    } else {
+      actual = actual ? `${actual}\n${l}` : l;
+    }
+  }
+  if (actual) partes.push(actual);
+  return partes;
+}
+
 async function sendTelegram(token: string, chatId: number | string, text: string) {
   // Texto plano (sin parse_mode): un vendor con "_" o "*" en el nombre rompe
   // el parser de Markdown de Telegram y el envío fallaría silenciosamente.
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
-  });
-  if (!res.ok) {
-    console.error("Telegram respondió", res.status, await res.text());
+  for (const parte of partirMensaje(text)) {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: parte }),
+    });
+    if (!res.ok) {
+      console.error("Telegram respondió", res.status, await res.text());
+    }
   }
 }
 
@@ -965,7 +1249,8 @@ Deno.serve(async (req) => {
     );
     try {
       const reporte = await buildDailyReportMessage(supabase);
-      await sendTelegram(token, chatId, reporte);
+      await sendTelegram(token, chatId, reporte.text);
+      await guardarListaParaPagar(supabase, chatId, reporte.items);
     } catch (err) {
       console.error("Error generando el reporte diario:", err);
     }
@@ -973,12 +1258,15 @@ Deno.serve(async (req) => {
   }
 
   // Webhook normal de Telegram (mensaje de alguien en el grupo).
+  // Obligatorio: sin él, cualquiera que conozca la URL de la función podría
+  // mandarle comandos (incluidos /pagar e /ingreso) haciéndose pasar por Telegram.
   const webhookSecret = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
-  if (webhookSecret) {
-    const got = req.headers.get("X-Telegram-Bot-Api-Secret-Token");
-    if (got !== webhookSecret) {
-      return new Response("forbidden", { status: 403 });
-    }
+  if (!webhookSecret) {
+    console.error("Falta el secret TELEGRAM_WEBHOOK_SECRET — se rechazan todos los mensajes");
+    return new Response("forbidden", { status: 403 });
+  }
+  if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== webhookSecret) {
+    return new Response("forbidden", { status: 403 });
   }
 
   const message = body?.message;
