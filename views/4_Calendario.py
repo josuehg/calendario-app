@@ -1,4 +1,5 @@
 import calendar as cal
+import html
 from datetime import date
 import streamlit as st
 import db
@@ -93,9 +94,22 @@ for e in events:
         continue
     venc = e["vencimiento_real"]
     limite = utils.add_days(venc, _dias_gracia_max)
-    ventana_marcas.setdefault(venc, []).append(("🧾", "Vence"))
+    detalle = f"{e['vendor']} · {e['label'].split(' (')[0]} · {utils.money(e['amount'])}"
+    ventana_marcas.setdefault(venc, []).append(("🧾", f"Vence: {detalle}"))
     if limite != venc:
-        ventana_marcas.setdefault(limite, []).append(("⏰", "Límite de pago"))
+        ventana_marcas.setdefault(limite, []).append(("⏰", f"Límite de pago: {detalle}"))
+
+
+def _marcas_html(marcas):
+    """Ícono + cuántas letras en la celda, y el detalle de cada una (proveedor,
+    número, monto) al pasar el mouse."""
+    conteo = {}
+    for icono, _ in marcas:
+        conteo[icono] = conteo.get(icono, 0) + 1
+    visibles = " ".join(f"{icono} {n}" for icono, n in conteo.items())
+    titulo = "&#10;".join(html.escape(t, quote=True) for _, t in marcas)
+    return f"<div style='font-size:10px;cursor:help' title='{titulo}'>{visibles}</div>"
+
 
 c1, c2, c3 = st.columns([1, 2, 1])
 if c1.button("← Anterior"):
@@ -157,10 +171,7 @@ if vista == "📅 Mes":
                 is_today = ds == today_str
                 border = "2px solid #0b5d68" if is_today else "1px solid #d7dee1"
                 marcas = ventana_marcas.get(ds)
-                marcas_html = (
-                    f"<div style='font-size:10px' title='{' / '.join(t for _, t in marcas)}'>"
-                    f"{' '.join(ic for ic, _ in marcas)}</div>"
-                ) if marcas else ""
+                marcas_html = _marcas_html(marcas) if marcas else ""
                 paid_html = (
                     f"<div style='font-size:10px;color:#2e9e5b'>✅ {len(paid_info)} pagado(s) · "
                     f"{utils.money(utils.dsum(p['amount'] for p in paid_info))}</div>"

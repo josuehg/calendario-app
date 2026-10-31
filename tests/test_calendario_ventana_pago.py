@@ -32,6 +32,21 @@ def test_dia_limite_muestra_marca_de_reloj(run_view, db):
     assert "⏰" in text
 
 
+def test_marca_dice_de_que_letra_es_al_pasar_el_mouse(run_view, db):
+    db.create_letra({"numero": "L-1", "monto": 500.0, "fecha_vencimiento": "2020-01-10",
+                     "vendor": "Prov Letra", "branch": "Sucursal 1"})
+    db.create_letra({"numero": "L-2", "monto": 300.0, "fecha_vencimiento": "2020-01-10",
+                     "vendor": "O'Brien & Cía", "branch": "Sucursal 1"})
+    at = run_view(VIEW, role="admin", cal_year=2020, cal_month=1)
+    assert not at.exception
+    text = " ".join(str(m.value) for m in at.markdown)
+    assert "🧾 2" in text
+    assert "Vence: Prov Letra · Letra L-1 · S/ 500.00" in text
+    # Un apóstrofe sin escapar cerraría el atributo title antes de tiempo.
+    assert "Vence: O&#x27;Brien &amp; Cía · Letra L-2 · S/ 300.00" in text
+    assert "Límite de pago: Prov Letra · Letra L-1 · S/ 500.00" in text
+
+
 def test_dia_dialogo_muestra_vence_y_limite(run_view, db):
     db.create_letra({"numero": "L-1", "monto": 500.0, "fecha_vencimiento": "2020-01-10",
                      "vendor": "Prov Letra", "branch": "Sucursal 1"})
