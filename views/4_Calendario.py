@@ -103,9 +103,9 @@ for e in events:
 
 
 def _marcas_html(marcas):
-    """Cuántas letras vencen (o llegan a su límite) ese día, en texto para que
-    se entienda sin leyenda y sin mouse; el detalle de cada una (proveedor,
-    número, monto) sale al pasar el mouse."""
+    """Un ícono por letra, cada uno con su propio detalle (proveedor, número,
+    monto) al pasar el mouse, más el conteo en texto para que se entienda sin
+    leyenda y sin mouse (en celular no hay hover)."""
     vencen = sum(1 for tipo, _ in marcas if tipo == "vence")
     limites = sum(1 for tipo, _ in marcas if tipo == "limite")
     partes = []
@@ -113,8 +113,11 @@ def _marcas_html(marcas):
         partes.append("1 letra vence" if vencen == 1 else f"{vencen} letras vencen")
     if limites:
         partes.append("1 límite de pago" if limites == 1 else f"{limites} límites de pago")
-    titulo = "&#10;".join(html.escape(t, quote=True) for _, t in marcas)
-    return f"<div style='font-size:10px;color:gray;cursor:help' title='{titulo}'>{' · '.join(partes)}</div>"
+    iconos = "".join(
+        f"<span style='cursor:help' title='{html.escape(t, quote=True)}'>{'🧾' if tipo == 'vence' else '⏰'}</span>"
+        for tipo, t in marcas
+    )
+    return f"<div style='font-size:10px;color:gray'>{iconos} {' · '.join(partes)}</div>"
 
 
 c1, c2, c3 = st.columns([1, 2, 1])
@@ -220,8 +223,8 @@ if vista == "📅 Mes":
     _leyenda = "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante"
     if ventana_marcas:
         _leyenda += (
-            " &nbsp;&nbsp;&nbsp; «letras vencen»: vencimiento real, su monto se suma "
-            "días después, no en el total de ese día"
+            " &nbsp;&nbsp;&nbsp; 🧾 Letra que vence ese día (pasa el mouse para ver cuál): "
+            "su monto se suma días después, no en el total de ese día"
         )
     if paid_by_date:
         _leyenda += " &nbsp;&nbsp;&nbsp; ✅ Ya pagado ese día (tampoco cuenta en el total)"

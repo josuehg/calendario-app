@@ -81,6 +81,9 @@ def test_marca_dice_de_que_letra_es_al_pasar_el_mouse(run_view, db):
     assert not at.exception
     text = " ".join(str(m.value) for m in at.markdown)
     assert "2 letras vencen" in text
+    # Un pergamino por letra, cada uno con su propio detalle.
+    assert ">🧾</span><span" in text
+    assert "title='Vence: Prov Letra · Letra L-1 · S/ 500.00'" in text
     assert "Vence: Prov Letra · Letra L-1 · S/ 500.00" in text
     # Un apóstrofe sin escapar cerraría el atributo title antes de tiempo.
     assert "Vence: O&#x27;Brien &amp; Cía · Letra L-2 · S/ 300.00" in text
