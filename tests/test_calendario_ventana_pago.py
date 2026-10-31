@@ -1,7 +1,7 @@
 """Marca visual de la 'ventana de pago' de una letra en el grid de Calendario
 (día de vencimiento real + día límite de gracia), sin alterar los totales
 de ningún día — es solo una referencia, no suma montos."""
-from datetime import date
+from datetime import date, timedelta
 
 from tests.conftest import click
 
@@ -42,6 +42,34 @@ def test_sin_marca_de_limite_si_coincide_con_el_dia_del_pago(run_view, db):
     assert "1 letra vence" in text and "límite de pago" not in text
     caps = " ".join(str(c.value) for c in at.caption)
     assert "Vence: 10/01/20" in caps and "Límite de pago" not in caps
+
+
+def test_seccion_atrasados_con_dias_de_atraso(run_view, db):
+    hoy = date.today()
+    db.create_expense({"kind": "fijo", "name": "Prestamo X", "category": "Servicios",
+                       "amount": 100.0, "due_date": (hoy - timedelta(days=5)).isoformat(),
+                       "status": "pendiente"})
+    # Letra: el atraso cuenta desde vencimiento + plazo máximo (10), no desde el vencimiento.
+    db.create_letra({"numero": "L-1", "monto": 500.0, "vendor": "Prov Letra", "branch": "Sucursal 1",
+                     "fecha_vencimiento": (hoy - timedelta(days=11)).isoformat()})
+    db.create_letra({"numero": "L-2", "monto": 700.0, "vendor": "Prov Al Dia", "branch": "Sucursal 1",
+                     "fecha_vencimiento": (hoy - timedelta(days=3)).isoformat()})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    seccion = next(e for e in at.expander if "Atrasados: 2 · S/ 600.00" in e.label)
+    text = " ".join(str(m.value) for m in seccion.markdown)
+    assert "5 días de atraso" in text
+    assert "1 día de atraso" in text
+    assert "Prov Al Dia" not in text
+
+
+def test_dialogo_del_dia_muestra_dias_de_atraso(run_view, db):
+    ds = (date.today() - timedelta(days=5)).isoformat()
+    db.create_expense({"kind": "fijo", "name": "Prestamo X", "category": "Servicios",
+                       "amount": 100.0, "due_date": ds, "status": "pendiente"})
+    at = run_view(VIEW, role="admin", _cal_day=ds)
+    assert not at.exception
+    assert "5 días de atraso" in " ".join(str(c.value) for c in at.caption)
 
 
 def test_marca_dice_de_que_letra_es_al_pasar_el_mouse(run_view, db):

@@ -147,6 +147,17 @@ mc2.metric("Vencido del mes", utils.money(utils.dsum(e["amount"] for e in month_
 mc3.metric("Por vencer del mes", utils.money(utils.dsum(e["amount"] for e in month_items if e["date"] >= today_str)))
 mc4.metric("N° de pagos", len(month_items))
 
+# Todo lo atrasado, no solo del mes que se está viendo (respeta los filtros).
+atrasados = sorted((e for e in events if e["overdue"]), key=lambda e: -e["dias_atraso"])
+if atrasados:
+    with st.expander(f"⚠️ Atrasados: {len(atrasados)} · {utils.money(utils.dsum(e['amount'] for e in atrasados))}"):
+        for e in atrasados:
+            ac1, ac2, ac3 = st.columns([3, 1.4, 1])
+            ac1.markdown(f"**{e['vendor']}**")
+            ac1.caption(f"{e['label']} · {e['branch']}")
+            ac2.markdown(f"🔴 {utils.fmt_atraso(e['dias_atraso'])}")
+            ac3.markdown(f"**{utils.money(e['amount'])}**")
+
 st.divider()
 
 vista = st.radio("Vista", ["📅 Mes", "📋 Lista"], horizontal=True, key="cal_vista")
@@ -290,6 +301,8 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
                         _limite = utils.add_days(e["vencimiento_real"], _dias_gracia_max)
                         _aviso_limite = f" · Límite de pago: {utils.fmt_short(_limite)}" if _limite != e["date"] else ""
                         st.caption(f"Vence: {utils.fmt_short(e['vencimiento_real'])}{_aviso_limite}")
+                    if e["overdue"]:
+                        st.caption(f"🔴 {utils.fmt_atraso(e['dias_atraso'])}")
                 bc1, bc2, bc3 = st.columns(3)
                 if bc1.button("Pagado", key=f"cal_pay_{e['kind']}_{e['ref_id']}", width="stretch"):
                     st.session_state["_cal_pay_target"] = e
