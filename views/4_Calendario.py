@@ -103,9 +103,9 @@ for e in events:
 
 
 def _marcas_html(marcas):
-    """Cuántas letras vencen (o llegan a su límite) ese día, en texto para que
-    se entienda sin leyenda y sin mouse; el detalle de cada una (proveedor,
-    número, monto) sale al pasar el mouse."""
+    """Un ícono por letra, cada uno con su propio detalle (proveedor, número,
+    monto) al pasar el mouse, más el conteo en texto para que se entienda sin
+    leyenda y sin mouse (en celular no hay hover)."""
     vencen = sum(1 for tipo, _ in marcas if tipo == "vence")
     limites = sum(1 for tipo, _ in marcas if tipo == "limite")
     partes = []
@@ -113,8 +113,11 @@ def _marcas_html(marcas):
         partes.append("1 letra vence" if vencen == 1 else f"{vencen} letras vencen")
     if limites:
         partes.append("1 límite de pago" if limites == 1 else f"{limites} límites de pago")
-    titulo = "&#10;".join(html.escape(t, quote=True) for _, t in marcas)
-    return f"<div style='font-size:10px;color:gray;cursor:help' title='{titulo}'>{' · '.join(partes)}</div>"
+    iconos = "".join(
+        f"<span style='font-size:13px;cursor:help' title='{html.escape(t, quote=True)}'>{'🧾' if tipo == 'vence' else '⏰'}</span>"
+        for tipo, t in marcas
+    )
+    return f"<div style='font-size:10px;color:#5d6b74'>{iconos} {' · '.join(partes)}</div>"
 
 
 c1, c2, c3 = st.columns([1, 2, 1])
@@ -150,7 +153,7 @@ mc4.metric("N° de pagos", len(month_items))
 # Todo lo atrasado, no solo del mes que se está viendo (respeta los filtros).
 atrasados = sorted((e for e in events if e["overdue"]), key=lambda e: -e["dias_atraso"])
 if atrasados:
-    with st.expander(f"⚠️ Atrasados: {len(atrasados)} · {utils.money(utils.dsum(e['amount'] for e in atrasados))}"):
+    with st.expander(f"⚠️ :red[Atrasados: {len(atrasados)} · {utils.money(utils.dsum(e['amount'] for e in atrasados))}]"):
         for e in atrasados:
             ac1, ac2, ac3 = st.columns([3, 1.4, 1])
             ac1.markdown(f"**{e['vendor']}**")
@@ -167,13 +170,13 @@ DOW_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
 
 def _day_color(ds):
-    return "#b33f3f" if ds < today_str else ("#b8802e" if (date.fromisoformat(ds) - today).days <= 7 else "#1b242b")
+    return "#b33f3f" if ds < today_str else ("#99660f" if (date.fromisoformat(ds) - today).days <= 7 else "#1b242b")
 
 
 if vista == "📅 Mes":
     dow_cols = st.columns(7)
     for i, d in enumerate(DOW_ES):
-        dow_cols[i].markdown(f"<div style='text-align:center;font-size:12px;color:gray;font-weight:600'>{d}</div>", unsafe_allow_html=True)
+        dow_cols[i].markdown(f"<div style='text-align:center;font-size:12px;color:#5d6b74;font-weight:600'>{d}</div>", unsafe_allow_html=True)
 
     for week in weeks:
         cols = st.columns(7)
@@ -195,10 +198,10 @@ if vista == "📅 Mes":
                 ) if paid_info else ""
                 if info:
                     st.markdown(
-                        f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
-                        f"<div style='font-size:12px;color:gray'>{day}</div>"
+                        f"<div style='background:#fff;border:{border};border-radius:8px;padding:6px;min-height:70px'>"
+                        f"<div style='font-size:12px;color:#5d6b74'>{day}</div>"
                         f"<div style='font-family:monospace;font-size:12.5px;font-weight:600;color:{_day_color(ds)}'>{utils.money(info['amount'])}</div>"
-                        f"<div style='font-size:11px;color:gray'>{info['count']} pago(s)</div>"
+                        f"<div style='font-size:11px;color:#5d6b74'>{info['count']} pago(s)</div>"
                         f"{marcas_html}{paid_html}"
                         f"</div>", unsafe_allow_html=True)
                     if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
@@ -206,22 +209,22 @@ if vista == "📅 Mes":
                         st.rerun()
                 elif paid_info:
                     st.markdown(
-                        f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
-                        f"<div style='font-size:12px;color:gray'>{day}</div>{marcas_html}{paid_html}</div>", unsafe_allow_html=True)
+                        f"<div style='background:#fff;border:{border};border-radius:8px;padding:6px;min-height:70px'>"
+                        f"<div style='font-size:12px;color:#5d6b74'>{day}</div>{marcas_html}{paid_html}</div>", unsafe_allow_html=True)
                     if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
                         st.session_state["_cal_day"] = ds
                         st.rerun()
                 else:
                     st.markdown(
-                        f"<div style='border:{border};border-radius:8px;padding:6px;min-height:70px'>"
-                        f"<div style='font-size:12px;color:gray'>{day}</div>{marcas_html}</div>", unsafe_allow_html=True)
+                        f"<div style='background:#fff;border:{border};border-radius:8px;padding:6px;min-height:70px'>"
+                        f"<div style='font-size:12px;color:#5d6b74'>{day}</div>{marcas_html}</div>", unsafe_allow_html=True)
 
     st.divider()
     _leyenda = "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante"
     if ventana_marcas:
         _leyenda += (
-            " &nbsp;&nbsp;&nbsp; «letras vencen»: vencimiento real, su monto se suma "
-            "días después, no en el total de ese día"
+            " &nbsp;&nbsp;&nbsp; 🧾 Letra que vence ese día (pasa el mouse para ver cuál): "
+            "su monto se suma días después, no en el total de ese día"
         )
     if paid_by_date:
         _leyenda += " &nbsp;&nbsp;&nbsp; ✅ Ya pagado ese día (tampoco cuenta en el total)"
