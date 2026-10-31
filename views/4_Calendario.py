@@ -95,20 +95,26 @@ for e in events:
     venc = e["vencimiento_real"]
     limite = utils.add_days(venc, _dias_gracia_max)
     detalle = f"{e['vendor']} · {e['label'].split(' (')[0]} · {utils.money(e['amount'])}"
-    ventana_marcas.setdefault(venc, []).append(("🧾", f"Vence: {detalle}"))
-    if limite != venc:
-        ventana_marcas.setdefault(limite, []).append(("⏰", f"Límite de pago: {detalle}"))
+    ventana_marcas.setdefault(venc, []).append(("vence", f"Vence: {detalle}"))
+    # Con plazo máximo = típico, el límite cae el mismo día en que la letra
+    # ya aparece con su monto: una marca ahí no diría nada nuevo.
+    if limite != venc and limite != e["date"]:
+        ventana_marcas.setdefault(limite, []).append(("limite", f"Límite de pago: {detalle}"))
 
 
 def _marcas_html(marcas):
-    """Ícono + cuántas letras en la celda, y el detalle de cada una (proveedor,
-    número, monto) al pasar el mouse."""
-    conteo = {}
-    for icono, _ in marcas:
-        conteo[icono] = conteo.get(icono, 0) + 1
-    visibles = " ".join(f"{icono} {n}" for icono, n in conteo.items())
+    """Cuántas letras vencen (o llegan a su límite) ese día, en texto para que
+    se entienda sin leyenda y sin mouse; el detalle de cada una (proveedor,
+    número, monto) sale al pasar el mouse."""
+    vencen = sum(1 for tipo, _ in marcas if tipo == "vence")
+    limites = sum(1 for tipo, _ in marcas if tipo == "limite")
+    partes = []
+    if vencen:
+        partes.append("1 letra vence" if vencen == 1 else f"{vencen} letras vencen")
+    if limites:
+        partes.append("1 límite de pago" if limites == 1 else f"{limites} límites de pago")
     titulo = "&#10;".join(html.escape(t, quote=True) for _, t in marcas)
-    return f"<div style='font-size:10px;cursor:help' title='{titulo}'>{visibles}</div>"
+    return f"<div style='font-size:10px;color:gray;cursor:help' title='{titulo}'>{' · '.join(partes)}</div>"
 
 
 c1, c2, c3 = st.columns([1, 2, 1])
@@ -203,8 +209,8 @@ if vista == "📅 Mes":
     _leyenda = "🔴 Vencido &nbsp;&nbsp; 🟠 Próximos 7 días &nbsp;&nbsp; ⚫ Más adelante"
     if ventana_marcas:
         _leyenda += (
-            " &nbsp;&nbsp;&nbsp; 🧾 Vencimiento real de una letra &nbsp;&nbsp; "
-            "⏰ Límite de pago (sin contar en el total de ese día)"
+            " &nbsp;&nbsp;&nbsp; «letras vencen»: vencimiento real, su monto se suma "
+            "días después, no en el total de ese día"
         )
     if paid_by_date:
         _leyenda += " &nbsp;&nbsp;&nbsp; ✅ Ya pagado ese día (tampoco cuenta en el total)"
@@ -282,7 +288,8 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
                         st.write(f"**{e['vendor']}** · Fact. {e['invoice_number']} · {e['branch']} · {e['label']} · {utils.money(e['amount'])}")
                     if e["kind"] == "letra":
                         _limite = utils.add_days(e["vencimiento_real"], _dias_gracia_max)
-                        st.caption(f"🧾 Vence: {utils.fmt_short(e['vencimiento_real'])} · ⏰ Límite de pago: {utils.fmt_short(_limite)}")
+                        _aviso_limite = f" · Límite de pago: {utils.fmt_short(_limite)}" if _limite != e["date"] else ""
+                        st.caption(f"Vence: {utils.fmt_short(e['vencimiento_real'])}{_aviso_limite}")
                 bc1, bc2, bc3 = st.columns(3)
                 if bc1.button("Pagado", key=f"cal_pay_{e['kind']}_{e['ref_id']}", width="stretch"):
                     st.session_state["_cal_pay_target"] = e
