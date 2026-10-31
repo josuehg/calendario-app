@@ -86,6 +86,15 @@ def add_days(date_str, n):
     return (d + timedelta(days=n)).isoformat()
 
 
+def days_late(reference_date, today):
+    """Días de atraso respecto a una fecha ya vencida; 0 si aún no pasó."""
+    return max((date.fromisoformat(today) - date.fromisoformat(reference_date)).days, 0)
+
+
+def fmt_atraso(days):
+    return f"{days} día{'s' if days != 1 else ''} de atraso"
+
+
 def fmt_short(date_str):
     if not date_str:
         return "—"
@@ -222,6 +231,7 @@ def get_payment_events(
                 "invoice_number": inv["invoice_number"],
                 "label": "Contado" if inv["doc_type"] == "contado" else "Factura a crédito",
                 "overdue": inv["due_date"] < today,
+                "dias_atraso": days_late(inv["due_date"], today),
                 "kind": "invoice",
                 "doc_type": inv["doc_type"],
                 "ref_id": inv["id"],
@@ -253,6 +263,7 @@ def get_payment_events(
             "invoice_number": facturas,
             "label": label,
             "overdue": fecha_limite < today,
+            "dias_atraso": days_late(fecha_limite, today),
             "kind": "letra",
             "ref_id": l["id"],
         })
@@ -268,6 +279,7 @@ def get_payment_events(
             "invoice_number": "",
             "label": f"Gasto {x['kind']} · {x['category']}",
             "overdue": x["due_date"] < today,
+            "dias_atraso": days_late(x["due_date"], today),
             "kind": "expense",
             "expense_kind": x["kind"],
             "category": x["category"],
