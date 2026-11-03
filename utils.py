@@ -263,7 +263,9 @@ def get_payment_events(
             "invoice_number": facturas,
             "label": label,
             "overdue": fecha_limite < today,
-            "dias_atraso": days_late(fecha_limite, today),
+            # Se marca vencida recién pasado el plazo máximo, pero el atraso
+            # que se muestra cuenta desde el vencimiento real.
+            "dias_atraso": days_late(l["fecha_vencimiento"], today),
             "kind": "letra",
             "ref_id": l["id"],
         })
