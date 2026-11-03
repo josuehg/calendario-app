@@ -1,0 +1,8 @@
+# Tema único para todos: sin esto, Streamlit sigue el modo del navegador y los
+# colores fijos de las vistas (pensados para fondo claro) se pierden en oscuro.
+[theme]
+base = "light"
+primaryColor = "#0b5d68"
+backgroundColor = "#f3f6f8"
+secondaryBackgroundColor = "#e6ecef"
+textColor = "#1b242b"

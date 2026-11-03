@@ -19,25 +19,59 @@ msg = st.session_state.pop("inc_msg", None)
 if msg:
     st.success(msg)
 
-st.subheader("Registrar ingreso")
-c1, c2, c3 = st.columns([1.3, 1, 1])
-inc_branch = c1.selectbox("Sucursal", branches, key="inc_branch")
-inc_fecha = c2.date_input("Fecha", value=date.today(), key="inc_fecha")
-inc_monto = c3.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f", key="inc_monto")
-inc_notas = st.text_input("Notas (opcional)", key="inc_notas")
+incomes = db.list_incomes()
 
-if st.button("Registrar", type="primary"):
-    # 0 es válido (local cerrado ese día); el widget ya impide negativos.
-    db.create_income({
-        "branch": inc_branch,
-        "date": inc_fecha.isoformat(),
-        "amount": utils.round2(inc_monto),
-        "notes": inc_notas.strip() or None,
-        "registered_by": utils.current_actor(),
-        "source": "app",
-    })
-    st.session_state["inc_msg"] = f"Registrado: {inc_branch} · {utils.money(inc_monto)} · {utils.fmt_short(inc_fecha.isoformat())}."
-    st.rerun()
+st.subheader("Registrar ingresos")
+inc_fecha = st.date_input("Fecha", value=date.today(), key="inc_fecha")
+fecha_iso = inc_fecha.isoformat()
+
+# Lo ya registrado ese día no se vuelve a pedir: sumaría doble en el saldo de
+# caja. Se corrige con Editar en el Historial.
+ya_registrado = {}
+for r in incomes:
+    if r["date"] == fecha_iso:
+        ya_registrado[r["branch"]] = ya_registrado.get(r["branch"], 0) + float(r["amount"])
+
+pendientes = [b for b in branches if b not in ya_registrado]
+
+with st.form("inc_form", enter_to_submit=False, border=False):
+    st.caption("Deja vacía la sucursal que aún no tengas. Si el local cerró ese día, pon 0.")
+    montos = {}
+    columnas = st.columns(3)
+    for i, branch in enumerate(branches):
+        col = columnas[i % 3]
+        if branch in ya_registrado:
+            col.markdown(f"**{branch}**")
+            col.caption(f"✅ Ya registrado: {utils.money(ya_registrado[branch])}")
+        else:
+            # La key lleva la fecha: al cambiarla, los campos arrancan vacíos.
+            montos[branch] = col.number_input(
+                branch, min_value=0.0, step=0.01, format="%.2f", value=None,
+                placeholder="Sin registrar", key=f"inc_monto_{fecha_iso}_{branch}",
+            )
+    inc_notas = st.text_input("Notas (opcional, se guardan en todas)", key="inc_notas")
+    guardar = st.form_submit_button("Registrar ingresos", type="primary", disabled=not pendientes)
+
+if guardar:
+    # None = sin llenar. 0 es válido (local cerrado ese día).
+    a_registrar = {b: m for b, m in montos.items() if m is not None}
+    if not a_registrar:
+        st.warning("Llena el monto de al menos una sucursal.")
+    else:
+        for branch, monto in a_registrar.items():
+            db.create_income({
+                "branch": branch,
+                "date": fecha_iso,
+                "amount": utils.round2(monto),
+                "notes": inc_notas.strip() or None,
+                "registered_by": utils.current_actor(),
+                "source": "app",
+            })
+        total = utils.money(utils.dsum(a_registrar.values()))
+        st.session_state["inc_msg"] = (
+            f"Registrado: {len(a_registrar)} sucursal(es) · {total} · {utils.fmt_short(fecha_iso)}."
+        )
+        st.rerun()
 
 st.divider()
 st.subheader("Historial")
@@ -47,7 +81,6 @@ f_branch = f1.selectbox("Filtrar por sucursal", ["Todas"] + branches, key="inc_f
 f_from = f2.date_input("Desde", value=None, key="inc_f_from")
 f_to = f3.date_input("Hasta", value=None, key="inc_f_to")
 
-incomes = db.list_incomes()
 rows = incomes
 if f_branch != "Todas":
     rows = [r for r in rows if r["branch"] == f_branch]

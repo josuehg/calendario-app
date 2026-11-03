@@ -343,13 +343,16 @@ async function buildPaidEvents(supabase: any): Promise<Evento[]> {
   return events;
 }
 
-function referenciaVencimiento(e: Evento, graciaMax: number): string {
-  if (e.kind === "letra" && e.vencimiento_real) return addDays(e.vencimiento_real, graciaMax);
+// Una letra se marca atrasada recién pasado el plazo máximo (ver buildEvents),
+// pero sus días de atraso se cuentan desde el vencimiento real, igual que en
+// la app (utils.get_payment_events).
+function referenciaVencimiento(e: Evento): string {
+  if (e.kind === "letra" && e.vencimiento_real) return e.vencimiento_real;
   return e.date;
 }
 
-function diasAtraso(e: Evento, today: string, graciaMax: number): number {
-  const ref = referenciaVencimiento(e, graciaMax);
+function diasAtraso(e: Evento, today: string): number {
+  const ref = referenciaVencimiento(e);
   const ms = parseISO(today).getTime() - parseISO(ref).getTime();
   return Math.round(ms / 86400000);
 }
@@ -520,19 +523,17 @@ async function handleMeses(supabase: any): Promise<string> {
 
 async function handleAtrasados(supabase: any, chatId: number | string): Promise<string> {
   const today = todayLima();
-  const settings = await loadSettings(supabase);
-  const graciaMax = settings.letra_dias_gracia_max;
-  const events = await buildEvents(supabase, today, settings);
+  const events = await buildEvents(supabase, today);
   const atrasados = events
     .filter((e) => e.overdue)
-    .sort((a, b) => diasAtraso(b, today, graciaMax) - diasAtraso(a, today, graciaMax));
+    .sort((a, b) => diasAtraso(b, today) - diasAtraso(a, today));
   const lines = ["⚠️ Atrasados (aún sin pagar)", ""];
   if (!atrasados.length) {
     lines.push("No tienes nada atrasado. 🎉");
     return lines.join("\n");
   }
   atrasados.forEach((e, i) => {
-    lines.push(`${linea(e, i + 1)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
+    lines.push(`${linea(e, i + 1)} · ${diasAtraso(e, today)} día(s) de atraso`);
   });
   lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   await guardarListaParaPagar(supabase, chatId, atrasados);
@@ -634,7 +635,7 @@ async function buildDailyReportMessage(supabase: any): Promise<{ text: string; i
   const hoy = events.filter((e) => e.date === today).sort((a, b) => b.amount - a.amount);
   const atrasados = events
     .filter((e) => e.overdue)
-    .sort((a, b) => diasAtraso(b, today, graciaMax) - diasAtraso(a, today, graciaMax));
+    .sort((a, b) => diasAtraso(b, today) - diasAtraso(a, today));
   // Una letra cuyo plazo típico vence hoy ya sale en "hoy": no repetirla en
   // la ventana (tendría dos números distintos para /pagar).
   const enHoy = new Set(hoy.map((e) => e.refId));
@@ -654,7 +655,7 @@ async function buildDailyReportMessage(supabase: any): Promise<{ text: string; i
     const desde = hoy.length + 1;
     lines.push("", "⚠️ Atrasados (aún sin pagar):");
     atrasados.forEach((e, i) => {
-      lines.push(`${linea(e, i + desde)} · ${diasAtraso(e, today, graciaMax)} día(s) de atraso`);
+      lines.push(`${linea(e, i + desde)} · ${diasAtraso(e, today)} día(s) de atraso`);
     });
     lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   }

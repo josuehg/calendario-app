@@ -53,7 +53,7 @@ def _urgency(due_date, status):
         return "Omitido", "paused"
     today = date.today().isoformat()
     if due_date < today:
-        days = (date.fromisoformat(today) - date.fromisoformat(due_date)).days
+        days = utils.days_late(due_date, today)
         return f"Vencido hace {days} día{'s' if days != 1 else ''}", "critical"
     if due_date == today:
         return "Vence hoy", "critical"

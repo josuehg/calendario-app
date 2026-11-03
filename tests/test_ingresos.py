@@ -6,30 +6,50 @@ from tests.conftest import click
 VIEW = "views/10_Ingresos.py"
 
 
-def test_registrar_ingreso_lo_guarda(run_view, db):
-    at = run_view(VIEW, role="admin")
-    for sb in at.selectbox:
-        if sb.key == "inc_branch":
-            sb.set_value("Sucursal 2").run()
+def _llenar(at, montos):
+    hoy = date.today().isoformat()
     for ni in at.number_input:
-        if ni.key == "inc_monto":
-            ni.set_value(1500.0).run()
-    click(at, "Registrar")
-    assert len(db.incomes) == 1
-    row = db.incomes[0]
-    assert row["branch"] == "Sucursal 2" and row["amount"] == 1500.0
-    assert row["source"] == "app"
+        for branch, monto in montos.items():
+            if ni.key == f"inc_monto_{hoy}_{branch}":
+                ni.set_value(monto)
+    return at
 
 
-def test_registrar_con_monto_cero_lo_guarda(run_view, db):
-    # Un local cerrado ese día vendió 0 — es un dato válido (evita el aviso
-    # de "falta registrar" en el reporte diario), no un error.
-    at = run_view(VIEW, role="admin")
-    at = click(at, "Registrar")
+def test_registra_varias_sucursales_de_una_vez(run_view, db):
+    at = _llenar(run_view(VIEW, role="admin"), {"Sucursal 1": 1500.0, "Sucursal 2": 980.5})
+    at = click(at, "Registrar ingresos")
     assert not at.exception
-    assert at.error == []
-    assert len(db.incomes) == 1
-    assert db.incomes[0]["amount"] == 0.0
+    assert {r["branch"]: r["amount"] for r in db.incomes} == {"Sucursal 1": 1500.0, "Sucursal 2": 980.5}
+    assert all(r["source"] == "app" and r["date"] == date.today().isoformat() for r in db.incomes)
+
+
+def test_sucursal_vacia_no_se_registra_y_cero_si(run_view, db):
+    # Un local cerrado ese día vendió 0 — es un dato válido (evita el aviso
+    # de "falta registrar" en el reporte diario); vacío es "aún no lo tengo".
+    at = _llenar(run_view(VIEW, role="admin"), {"Sucursal 1": 0.0})
+    at = click(at, "Registrar ingresos")
+    assert not at.exception
+    assert [(r["branch"], r["amount"]) for r in db.incomes] == [("Sucursal 1", 0.0)]
+
+
+def test_sin_montos_avisa_y_no_registra(run_view, db):
+    at = click(run_view(VIEW, role="admin"), "Registrar ingresos")
+    assert not at.exception
+    assert db.incomes == []
+    assert any("al menos una sucursal" in w.value for w in at.warning)
+
+
+def test_sucursal_ya_registrada_no_se_pide_de_nuevo(run_view, db):
+    hoy = date.today().isoformat()
+    db.create_income({"branch": "Sucursal 1", "date": hoy, "amount": 700.0})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    assert not any(ni.key == f"inc_monto_{hoy}_Sucursal 1" for ni in at.number_input)
+    assert any("Ya registrado: S/ 700.00" in c.value for c in at.caption)
+    at = _llenar(at, {"Sucursal 2": 200.0})
+    at = click(at, "Registrar ingresos")
+    assert not at.exception
+    assert sorted(r["branch"] for r in db.incomes) == ["Sucursal 1", "Sucursal 2"]
 
 
 def test_historial_filtra_por_sucursal(run_view, db):

@@ -56,7 +56,10 @@ def _render_row(e):
     cols = st.columns([3, 2, 2, 1.5, 1.5])
     cols[0].markdown(f"**{e['vendor']}**  \n<span style='font-size:12px;color:gray'>Fact. {e['invoice_number']} · {e['branch']}</span>", unsafe_allow_html=True)
     cols[1].write(e["label"])
-    badge = f"🔴 Vencido {utils.fmt_short(e['date'])}" if e["overdue"] else f"🟡 {utils.fmt_short(e['date'])}"
+    badge = (
+        f"🔴 Vencido {utils.fmt_short(e['date'])} · {utils.fmt_atraso(e['dias_atraso'])}"
+        if e["overdue"] else f"🟡 {utils.fmt_short(e['date'])}"
+    )
     cols[2].write(badge)
     cols[3].write(f"**{utils.money(e['amount'])}**")
     with cols[4]:
