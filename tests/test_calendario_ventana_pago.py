@@ -49,7 +49,8 @@ def test_seccion_atrasados_con_dias_de_atraso(run_view, db):
     db.create_expense({"kind": "fijo", "name": "Prestamo X", "category": "Servicios",
                        "amount": 100.0, "due_date": (hoy - timedelta(days=5)).isoformat(),
                        "status": "pendiente"})
-    # Letra: el atraso cuenta desde vencimiento + plazo máximo (10), no desde el vencimiento.
+    # Letra: sale como atrasada recién pasado el plazo máximo (10), pero los
+    # días de atraso se cuentan desde el vencimiento.
     db.create_letra({"numero": "L-1", "monto": 500.0, "vendor": "Prov Letra", "branch": "Sucursal 1",
                      "fecha_vencimiento": (hoy - timedelta(days=11)).isoformat()})
     db.create_letra({"numero": "L-2", "monto": 700.0, "vendor": "Prov Al Dia", "branch": "Sucursal 1",
@@ -59,7 +60,7 @@ def test_seccion_atrasados_con_dias_de_atraso(run_view, db):
     seccion = next(e for e in at.expander if "Atrasados: 2 · S/ 600.00" in e.label)
     text = " ".join(str(m.value) for m in seccion.markdown)
     assert "5 días de atraso" in text
-    assert "1 día de atraso" in text
+    assert "11 días de atraso" in text
     assert "Prov Al Dia" not in text
 
 
