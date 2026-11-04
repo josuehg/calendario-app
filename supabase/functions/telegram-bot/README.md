@@ -6,18 +6,20 @@ grupo de Telegram:
 
 - `/hoy` — pagos de hoy
 - `/manana` — pagos de mañana
-- `/semana` — resumen de los próximos 7 días
+- `/semana` — los próximos 7 días, día por día (numerados de corrido: sirven para `/pagar`)
 - `/meses` — totales por semana del mes actual y el próximo
 - `/atrasados` — lo vencido que aún no se paga, con días de atraso
 - `/ventana` — letras que ya vencieron por contrato pero siguen dentro del plazo **típico** de pago (ej. 8 días) — tu ventana normal con el proveedor. El plazo **máximo** de gracia (ej. 10 días) es aparte, solo para cuándo se marca "oficialmente" atrasada en `/atrasados`.
 - `/pagados` — lo pagado esta semana; `/pagados 1` = la semana pasada, `/pagados 2` = hace dos semanas, etc.
 - `/resumen` — panorama rápido: hoy + atrasados + total de los próximos 7 días, en un solo mensaje
-- `/ingreso <sucursal> <monto> [fecha]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 2026-10-25`. Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
-- `/pagar <N> [fecha]` — marca como pagado el ítem **N** de la última lista numerada que viste (`/hoy`, `/manana`, `/atrasados`, `/ventana` o `/resumen`). Ej: ves `/hoy` y el ítem 2 es el que acabas de pagar → `/pagar 2` (o `/pagar 2 2026-10-25` con otra fecha). La lista vale por 2 horas; si pasó más tiempo, pide una lista fresca otra vez.
+- `/ingreso <sucursal> <monto> [fecha] [reemplazar|sumar]` — registra una venta/cobro del día. Ej: `/ingreso 1 1500` (Sucursal 1, hoy) o `/ingreso 2 980 25/10`. Si esa sucursal ya tiene ingreso ese día **no registra nada** y avisa: hay que repetir el comando con `reemplazar` (cambia el monto) o `sumar` (lo agrega aparte). Escribe `/ingreso` solo para ver la lista de sucursales numeradas.
+- `/pagar <N> [fecha]` — marca como pagado el ítem **N** de la última lista numerada que viste (`/hoy`, `/manana`, `/semana`, `/atrasados`, `/ventana`, `/buscar`, `/resumen` o el reporte diario). Varios a la vez: `/pagar 1 3 5` o `/pagar 1-3`. Fecha opcional al final (`/pagar 2 25/10`; no puede ser futura). Solo cambia lo que **sigue pendiente**: si alguien ya lo pagó, avisa quién y cuándo y no lo toca. La lista vale por 2 horas.
+- `/deshacer` — vuelve a pendiente lo que marcó el último `/pagar` de ese chat (hasta 30 minutos después). Necesita `migracion_2026-10_bot_deshacer.sql`.
+- `/buscar <proveedor o número>` — todo lo pendiente de ese proveedor (o de esa factura/letra) con su total y fecha de vencimiento, más los últimos 5 pagados. Ignora espacios y mayúsculas: `/buscar mym` encuentra "M Y M PROMEFAR".
 - `/saldo` — saldo de caja real y cuánto queda disponible para comprometer en un pedido nuevo (requiere configurar el saldo inicial una vez, en la app → Configuración)
 - `/simular <plazo_dias> [monto]` — ¿cuánto puedes comprometer con un proveedor a ese plazo (30/45/60/75/90 días)? Revisa tu caja semana por semana desde hoy hasta la fecha en que vencería esa compra, y usa la semana más ajustada del camino (no solo el día final) como límite real. Ej: `/simular 60` o `/simular 60 5000` para además saber si 5000 te alcanza. Mismo cálculo que el simulador de Presupuesto.
 
-`/ingreso` y `/pagar` son los únicos comandos que **escriben** datos —
+`/ingreso`, `/pagar` y `/deshacer` son los únicos comandos que **escriben** datos —
 cualquiera en el grupo puede usarlos, no hay un control de permisos más
 fino que "está en el grupo de Telegram del negocio" (igual que los demás
 comandos leen datos sin restricción). `/ingreso` queda registrado con el
@@ -32,7 +34,8 @@ típico de pago, y se considera vencida solo pasado vencimiento + plazo
 máximo de gracia (configurables en Configuración de la app).
 
 Esta misma función también manda el **reporte diario** (pagos de hoy +
-atrasados + aviso de sucursales sin ingreso registrado de ayer) a las
+atrasados + letras en ventana, numerados de corrido para usar `/pagar <N>`
+directo + aviso de sucursales sin ingreso registrado de ayer) a las
 9:30am hora de Perú — antes lo mandaba un workflow de GitHub Actions
 (`scripts/telegram_daily_report.py`), pero su scheduler gratuito no
 garantiza la hora (puede atrasarse varias horas sin avisar). Ahora lo

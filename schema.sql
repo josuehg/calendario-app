@@ -70,7 +70,8 @@ create table if not exists incomes (
 create table if not exists bot_list_cache (
   chat_id bigint primary key,
   items jsonb not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  ultimo_pago jsonb  -- último /pagar de ese chat, para /deshacer
 );
 
 -- Facturas registradas por las sucursales
