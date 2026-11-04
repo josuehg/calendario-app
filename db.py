@@ -15,8 +15,12 @@ DEFAULT_BRANCHES = [
 
 @st.cache_resource
 def get_client() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_SERVICE_KEY"]
+    import utils  # local: evita el import circular utils <-> db
+
+    url = utils.secret("SUPABASE_URL")
+    key = utils.secret("SUPABASE_SERVICE_KEY")
+    if not url or not key:
+        raise RuntimeError("Faltan SUPABASE_URL y/o SUPABASE_SERVICE_KEY (en Secrets o variables de entorno).")
     return create_client(url, key)
 
 
@@ -472,16 +476,23 @@ def ensure_expense_instances(months_ahead: int = 6):
     La lógica pura vive en utils.fixed_expense_rows_to_create (testeable)."""
     import utils  # local: evita el import circular utils <-> db
 
-    fixed = list_fixed_expenses(active_only=True)
-    if not fixed:
+    # Una vez por sesión y día basta: los gastos fijos nuevos o editados ya
+    # generan sus filas al guardarse, y revisar en cada clic eran 2 consultas
+    # más por página.
+    hoy = date.today().isoformat()
+    if st.session_state.get("_instancias_gastos_ok") == hoy:
         return
-    rows = utils.fixed_expense_rows_to_create(fixed, list_expenses(), date.today(), months_ahead)
-    if rows:
-        try:
-            get_client().table("expenses").insert(rows).execute()
-        except Exception:
-            # carrera con otra sesión: el índice único ya cubrió el hueco
-            pass
+    fixed = list_fixed_expenses(active_only=True)
+    if fixed:
+        rows = utils.fixed_expense_rows_to_create(fixed, list_expenses(), date.today(), months_ahead)
+        if rows:
+            try:
+                get_client().table("expenses").insert(rows).execute()
+            except Exception:
+                # carrera con otra sesión: el índice único ya cubrió el hueco
+                pass
+            st.cache_data.clear()
+    st.session_state["_instancias_gastos_ok"] = hoy
 
 
 # ---------- deudas (capital/saldo, separado de la cuota en gastos fijos) ----------
@@ -507,3 +518,34 @@ def update_debt(debt_id, data: dict):
 def delete_debt(debt_id):
     sb = get_client()
     return sb.table("debts").delete().eq("id", debt_id).execute()
+
+
+# ---------- caché de lecturas ----------
+# Streamlit vuelve a correr la página entera en cada clic, y cada corrida
+# repetía todas sus consultas a Supabase (unas 8 en Calendario). Las lecturas
+# se guardan un minuto; cualquier escritura hecha desde la app las invalida
+# al instante. Lo que escriba el bot u otra PC se ve a más tardar en ese minuto.
+import functools  # noqa: E402
+
+_TTL_LECTURAS = 60
+_LECTURAS = ("get_", "list_", "find_")
+_ESCRITURAS = ("save_", "create_", "update_", "delete_", "mark_", "unmark_", "add_", "rename_", "set_")
+
+
+def _invalida_cache(fn):
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            st.cache_data.clear()
+    return wrapper
+
+
+for _nombre, _fn in list(globals().items()):
+    if not callable(_fn) or getattr(_fn, "__module__", None) != __name__ or _nombre == "get_client":
+        continue
+    if _nombre.startswith(_LECTURAS):
+        globals()[_nombre] = st.cache_data(ttl=_TTL_LECTURAS, show_spinner=False)(_fn)
+    elif _nombre.startswith(_ESCRITURAS):
+        globals()[_nombre] = _invalida_cache(_fn)

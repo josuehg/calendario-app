@@ -5,6 +5,7 @@ calendario y el presupuesto.
 """
 import calendar as _cal
 import io
+import os
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -24,6 +25,17 @@ MONTHS_ES = [
 
 # ---------- acceso ----------
 
+def secret(name, default=None):
+    """Lee un secreto de .streamlit/secrets.toml (Streamlit Cloud) o, si no
+    está ahí, de una variable de entorno (Railway)."""
+    try:
+        if name in st.secrets:
+            return st.secrets[name]
+    except Exception:
+        pass  # sin secrets.toml: st.secrets lanza en vez de devolver vacío
+    return os.environ.get(name, default)
+
+
 def authenticate():
     """
     Pide un PIN de acceso y detiene la app hasta que sea válido.
@@ -37,8 +49,8 @@ def authenticate():
     if st.session_state.get("auth_role"):
         return {"role": st.session_state["auth_role"], "branch": st.session_state.get("auth_branch")}
 
-    admin_pin = st.secrets.get("APP_PASSWORD")
-    validator_pin = st.secrets.get("VALIDATOR_PASSWORD")
+    admin_pin = secret("APP_PASSWORD")
+    validator_pin = secret("VALIDATOR_PASSWORD")
 
     st.title("🗓️ Control Compras")
     st.caption("Ingresa tu PIN de acceso.")
