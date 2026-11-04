@@ -96,6 +96,19 @@ with tab_todas:
             vis.append(l)
 
         today = date.today().isoformat()
+        _gracia_max = db.get_settings().get("letra_dias_gracia_max", 10)
+
+        def _vencimiento_md(l):
+            # Igual que Calendario: rojo recién pasado el plazo máximo, con el
+            # atraso contado desde el vencimiento; antes, "en plazo".
+            venc = utils.fmt_short(l["fecha_vencimiento"])
+            if l["estado"] != "pendiente" or l["fecha_vencimiento"] >= today:
+                return f"📅 {venc}"
+            limite = utils.add_days(l["fecha_vencimiento"], _gracia_max)
+            if limite < today:
+                return f"🔴 {venc} · {utils.fmt_atraso(utils.days_late(l['fecha_vencimiento'], today))}"
+            return f"🟠 {venc} · en plazo hasta {utils.fmt_short(limite)}"
+
         st.markdown(f"**{len(vis)} letra(s) · {utils.money(utils.dsum(l['monto'] for l in vis))}**")
         if vis:
             export_df = pd.DataFrame([
@@ -129,8 +142,7 @@ with tab_todas:
                 cc1.markdown(f"**{who}** · Letra {l.get('numero') or '—'}{estado}")
                 cc1.caption(sub)
                 cc2.markdown(utils.money(l["monto"]))
-                venc = utils.fmt_short(l["fecha_vencimiento"])
-                cc3.markdown(f"🔴 {venc}" if l["estado"] == "pendiente" and l["fecha_vencimiento"] < today else f"📅 {venc}")
+                cc3.markdown(_vencimiento_md(l))
                 if cc4.button("Gestionar", key=f"lt_mng_{l['id']}", width="stretch"):
                     st.session_state.pop("_canje_pending", None)
                     st.session_state["_letra_manage"] = l
