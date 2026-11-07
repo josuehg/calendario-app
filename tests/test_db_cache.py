@@ -56,6 +56,17 @@ def test_escritura_invalida_las_lecturas(real_db):
     assert client.calls == ["invoices", "invoices", "invoices"]
 
 
+def test_escritura_permite_generar_cuotas_de_un_gasto_fijo_nuevo(real_db, monkeypatch):
+    # Bug real: ensure_expense_instances corría una vez por sesión y día, así
+    # que un gasto fijo creado después no generaba sus cuotas hasta mañana.
+    db, _client = real_db
+    import streamlit as st
+    estado = {"_instancias_gastos_ok": "2026-11-06"}
+    monkeypatch.setattr(st, "session_state", estado)
+    db.create_fixed_expense({"name": "BCP 150K"})
+    assert "_instancias_gastos_ok" not in estado
+
+
 def test_secreto_desde_variable_de_entorno(monkeypatch):
     import utils
     monkeypatch.setenv("SECRETO_DE_PRUEBA", "abc")
