@@ -476,9 +476,9 @@ def ensure_expense_instances(months_ahead: int = 6):
     La lógica pura vive en utils.fixed_expense_rows_to_create (testeable)."""
     import utils  # local: evita el import circular utils <-> db
 
-    # Una vez por sesión y día basta: los gastos fijos nuevos o editados ya
-    # generan sus filas al guardarse, y revisar en cada clic eran 2 consultas
-    # más por página.
+    # Una vez por sesión y día (revisar en cada clic eran 2 consultas más por
+    # página). Cualquier escritura desde la app borra la marca (ver
+    # _invalida_cache), así un gasto fijo recién creado genera sus cuotas.
     hoy = date.today().isoformat()
     if st.session_state.get("_instancias_gastos_ok") == hoy:
         return
@@ -539,6 +539,9 @@ def _invalida_cache(fn):
             return fn(*args, **kwargs)
         finally:
             st.cache_data.clear()
+            # Un gasto fijo nuevo o editado necesita que ensure_expense_instances
+            # vuelva a correr para generar sus cuotas, aunque ya haya corrido hoy.
+            st.session_state.pop("_instancias_gastos_ok", None)
     return wrapper
 
 
