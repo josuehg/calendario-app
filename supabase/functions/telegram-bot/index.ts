@@ -1189,6 +1189,50 @@ const AYUDA = [
   "/simular <plazo_dias> [monto] — ¿cuánto me alcanza (o me alcanza X) con un proveedor a ese plazo?",
 ].join("\n");
 
+/** Lo que muestra el botón "Menú" de Telegram al lado del cuadro de texto
+ * (setMyCommands). Telegram solo acepta minúsculas, números y "_" en el
+ * comando, y hasta 256 caracteres en la descripción. */
+const MENU_COMANDOS = [
+  ["hoy", "Pagos de hoy"],
+  ["manana", "Pagos de mañana"],
+  ["semana", "Los próximos 7 días, día por día"],
+  ["atrasados", "Lo vencido que aún no se paga"],
+  ["ventana", "Letras vencidas aún dentro del plazo"],
+  ["resumen", "Panorama: hoy, atrasados y la semana"],
+  ["buscar", "Pendientes de un proveedor (ej. /buscar mym)"],
+  ["pagar", "Marca pagado el N° de la última lista (ej. /pagar 2)"],
+  ["deshacer", "Revierte el último /pagar (30 min)"],
+  ["ingreso", "Registra la venta de una sucursal"],
+  ["pagados", "Lo pagado esta semana (o /pagados 1)"],
+  ["meses", "Pagos por semana, este mes y el próximo"],
+  ["saldo", "Saldo de caja y disponible"],
+  ["simular", "¿Cuánto me alcanza a N días? (ej. /simular 60)"],
+  ["ayuda", "Todos los comandos con su explicación"],
+].map(([command, description]) => ({ command, description }));
+
+let menuRegistrado = false;
+
+/** Registra MENU_COMANDOS una vez por arranque de la función (Telegram lo
+ * guarda; repetirlo no cambia nada). Si falla, el bot sigue respondiendo. */
+async function registrarMenu(token: string) {
+  if (menuRegistrado) return;
+  menuRegistrado = true;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands: MENU_COMANDOS }),
+    });
+    if (!res.ok) {
+      menuRegistrado = false;
+      console.error("setMyCommands respondió", res.status, await res.text());
+    }
+  } catch (err) {
+    menuRegistrado = false;
+    console.error("No se pudo registrar el menú de comandos:", err);
+  }
+}
+
 /** null => no es un comando dirigido al bot: no se responde nada (el grupo
  * tiene el modo privacidad desactivado, así que el webhook recibe TODOS los
  * mensajes del grupo, no solo los que le escriben al bot). */
@@ -1287,6 +1331,7 @@ Deno.serve(async (req) => {
     console.error("Falta el secret TELEGRAM_BOT_TOKEN");
     return new Response("ok", { status: 200 });
   }
+  await registrarMenu(token);
 
   const body = await req.json().catch(() => null);
 
