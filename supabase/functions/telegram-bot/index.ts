@@ -89,6 +89,8 @@ interface Evento {
   kind: Kind;
   paidBy?: string;
   refId: string;
+  /** Para agrupar las listas de pagos: categoría del gasto, "Letras", "Contado"... */
+  tipo?: string;
 }
 
 interface Settings {
@@ -197,6 +199,7 @@ async function buildEvents(supabase: any, today: string, settings?: Settings): P
       overdue: inv.due_date < today,
       kind: "invoice",
       refId: inv.id,
+      tipo: inv.doc_type === "contado" ? "Contado" : "Facturas a crédito",
     });
   }
 
@@ -226,6 +229,7 @@ async function buildEvents(supabase: any, today: string, settings?: Settings): P
       overdue: fechaLimite < today,
       kind: "letra",
       refId: l.id,
+      tipo: "Letras",
     });
   }
 
@@ -240,6 +244,7 @@ async function buildEvents(supabase: any, today: string, settings?: Settings): P
       overdue: x.due_date < today,
       kind: "expense",
       refId: x.id,
+      tipo: x.category || "Gastos",
     });
   }
 
@@ -410,6 +415,49 @@ function sumAmount(events: Evento[]): number {
   return events.reduce((acc, e) => acc + e.amount, 0);
 }
 
+// Marcas de negrita: sendTelegram escapa el texto (un "&" o "<" en un nombre
+// rompería el HTML de Telegram) y recién después las cambia por <b></b>.
+const NEGRITA_INI = "\u0001";
+const NEGRITA_FIN = "\u0002";
+
+function negrita(s: string): string {
+  return `${NEGRITA_INI}${s}${NEGRITA_FIN}`;
+}
+
+/** Línea de un pago dentro de su grupo: el tipo ya va en el título del
+ * grupo, así que no se repite (salvo el n° de letra o de factura). */
+function lineaEnGrupo(e: Evento, n: number): string {
+  const detalle = e.kind === "letra" ? ` · ${e.label}` : refFactura(e);
+  return `${n}. ${e.vendor}${detalle} · ${e.branch} · ${money(e.amount)}`;
+}
+
+/** Agrupa una lista de pagos por tipo (Prestamos Pers. Jur., Letras, ...):
+ * título en negrita con cantidad y total, y debajo sus pagos. Los grupos van
+ * de mayor a menor monto; dentro de cada uno se respeta el orden recibido.
+ * Devuelve también el orden en que quedaron numerados, que es el que hay que
+ * guardar para /pagar. */
+function listaPorTipo(
+  items: Evento[], fmt: (e: Evento, n: number) => string, desde = 1,
+): { lines: string[]; orden: Evento[] } {
+  const grupos = new Map<string, Evento[]>();
+  for (const e of items) {
+    const t = e.tipo ?? "Otros";
+    if (!grupos.has(t)) grupos.set(t, []);
+    grupos.get(t)!.push(e);
+  }
+  const lines: string[] = [];
+  const orden: Evento[] = [];
+  for (const [tipo, evs] of [...grupos.entries()].sort((a, b) => sumAmount(b[1]) - sumAmount(a[1]))) {
+    if (lines.length) lines.push("");
+    lines.push(negrita(`${tipo} · ${evs.length} · ${money(sumAmount(evs))}`));
+    for (const e of evs) {
+      orden.push(e);
+      lines.push(fmt(e, desde + orden.length - 1));
+    }
+  }
+  return { lines, orden };
+}
+
 /** Guarda la lista numerada que se le acaba de mostrar a este chat, para
  * que /pagar <N> sepa a qué factura/letra/gasto se refiere ese número. Se
  * sobrescribe cada vez que se muestra una lista (LISTAS_PAGABLES, incluido
@@ -434,9 +482,10 @@ async function handleHoy(supabase: any, chatId: number | string): Promise<string
     lines.push("No hay pagos programados para hoy. 🎉");
     return lines.join("\n");
   }
-  lines.push(...numeradas(hoy, linea));
+  const lista = listaPorTipo(hoy, lineaEnGrupo);
+  lines.push(...lista.lines);
   lines.push("", `Total del día: ${money(sumAmount(hoy))}`);
-  await guardarListaParaPagar(supabase, chatId, hoy);
+  await guardarListaParaPagar(supabase, chatId, lista.orden);
   return lines.join("\n");
 }
 
@@ -450,9 +499,10 @@ async function handleManana(supabase: any, chatId: number | string): Promise<str
     lines.push("No hay pagos programados para mañana. 🎉");
     return lines.join("\n");
   }
-  lines.push(...numeradas(items, linea));
+  const lista = listaPorTipo(items, lineaEnGrupo);
+  lines.push(...lista.lines);
   lines.push("", `Total: ${money(sumAmount(items))}`);
-  await guardarListaParaPagar(supabase, chatId, items);
+  await guardarListaParaPagar(supabase, chatId, lista.orden);
   return lines.join("\n");
 }
 
@@ -532,11 +582,10 @@ async function handleAtrasados(supabase: any, chatId: number | string): Promise<
     lines.push("No tienes nada atrasado. 🎉");
     return lines.join("\n");
   }
-  atrasados.forEach((e, i) => {
-    lines.push(`${linea(e, i + 1)} · ${diasAtraso(e, today)} día(s) de atraso`);
-  });
+  const lista = listaPorTipo(atrasados, (e, n) => `${lineaEnGrupo(e, n)} · ${diasAtraso(e, today)} día(s) de atraso`);
+  lines.push(...lista.lines);
   lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
-  await guardarListaParaPagar(supabase, chatId, atrasados);
+  await guardarListaParaPagar(supabase, chatId, lista.orden);
   return lines.join("\n");
 }
 
@@ -593,7 +642,8 @@ async function handleResumen(supabase: any, chatId: number | string): Promise<st
   const lines = [`📊 Resumen rápido — ${fmtLong(today)}`, ""];
 
   lines.push(`📅 Hoy: ${hoy.length} pago(s) · ${money(sumAmount(hoy))}`);
-  lines.push(...numeradas(hoy, linea));
+  const listaHoy = listaPorTipo(hoy, lineaEnGrupo);
+  lines.push(...listaHoy.lines);
   lines.push("");
 
   lines.push(`⚠️ Atrasados: ${atrasados.length} pago(s) · ${money(sumAmount(atrasados))}`);
@@ -602,7 +652,7 @@ async function handleResumen(supabase: any, chatId: number | string): Promise<st
 
   lines.push(`📈 Próximos 7 días: ${money(sumAmount(semana))} (escribe /semana para el detalle)`);
 
-  await guardarListaParaPagar(supabase, chatId, hoy);
+  await guardarListaParaPagar(supabase, chatId, listaHoy.orden);
   return lines.join("\n");
 }
 
@@ -644,19 +694,20 @@ async function buildDailyReportMessage(supabase: any): Promise<{ text: string; i
   // Numeración continua entre secciones (hoy 1..n, atrasados n+1.., ventana
   // ...) para que el reporte sirva directo con /pagar <N>.
   const lines = [`📅 Pagos de hoy, ${fmtLong(today)}`, ""];
+  const listaHoy = listaPorTipo(hoy, lineaEnGrupo);
   if (hoy.length) {
-    lines.push(...numeradas(hoy, linea));
+    lines.push(...listaHoy.lines);
     lines.push("", `Total del día: ${money(sumAmount(hoy))}`);
   } else {
     lines.push("No hay pagos programados para hoy. 🎉");
   }
 
+  const listaAtrasados = listaPorTipo(
+    atrasados, (e, n) => `${lineaEnGrupo(e, n)} · ${diasAtraso(e, today)} día(s) de atraso`, hoy.length + 1,
+  );
   if (atrasados.length) {
-    const desde = hoy.length + 1;
-    lines.push("", "⚠️ Atrasados (aún sin pagar):");
-    atrasados.forEach((e, i) => {
-      lines.push(`${linea(e, i + desde)} · ${diasAtraso(e, today)} día(s) de atraso`);
-    });
+    lines.push("", "⚠️ Atrasados (aún sin pagar):", "");
+    lines.push(...listaAtrasados.lines);
     lines.push("", `Total atrasado: ${money(sumAmount(atrasados))}`);
   }
 
@@ -667,7 +718,7 @@ async function buildDailyReportMessage(supabase: any): Promise<{ text: string; i
     lines.push("", `Total en ventana: ${money(sumAmount(ventana))}`);
   }
 
-  const items = [...hoy, ...atrasados, ...ventana];
+  const items = [...listaHoy.orden, ...listaAtrasados.orden, ...ventana];
   if (items.length) lines.push("", "Para marcar uno: /pagar <N> (vale por 2 horas).");
 
   const ayer = addDays(today, -1);
@@ -1203,14 +1254,22 @@ function partirMensaje(text: string): string[] {
   return partes;
 }
 
+/** Texto del bot a HTML de Telegram: escapa todo (un "&" o "<" en un nombre
+ * de proveedor rompería el envío) y convierte las marcas de negrita(). */
+function aHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .split(NEGRITA_INI).join("<b>").split(NEGRITA_FIN).join("</b>");
+}
+
 async function sendTelegram(token: string, chatId: number | string, text: string) {
-  // Texto plano (sin parse_mode): un vendor con "_" o "*" en el nombre rompe
-  // el parser de Markdown de Telegram y el envío fallaría silenciosamente.
+  // HTML y no Markdown: con Markdown un vendor con "_" o "*" en el nombre
+  // rompía el parser y el envío fallaba en silencio.
   for (const parte of partirMensaje(text)) {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: parte }),
+      body: JSON.stringify({ chat_id: chatId, text: aHtml(parte), parse_mode: "HTML" }),
     });
     if (!res.ok) {
       console.error("Telegram respondió", res.status, await res.text());
