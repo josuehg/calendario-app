@@ -1,5 +1,6 @@
 from datetime import date
 
+import pandas as pd
 import streamlit as st
 import db
 import utils
@@ -94,6 +95,53 @@ if guardar:
             partes.append(f"{len(corregidos)} corregido(s)")
         st.session_state["inc_msg"] = f"Guardado: {' · '.join(partes)} · {utils.fmt_short(fecha_iso)}."
         st.rerun()
+
+st.divider()
+st.subheader("Indicadores")
+
+PERIODOS = ["Últimos 7 días", "Este mes", "Mes pasado", "Últimos 30 días"]
+periodo = st.radio("Periodo", PERIODOS, horizontal=True, key="inc_periodo", label_visibility="collapsed")
+ind_desde, ind_hasta = utils.income_period(periodo, utils.today_lima())
+ind = utils.income_indicators(incomes, branches, ind_desde, ind_hasta)
+st.caption(f"Del {utils.fmt_short(ind_desde)} al {utils.fmt_short(ind_hasta)}, comparado con el periodo anterior del mismo largo.")
+
+k1, k2, k3, k4 = st.columns(4)
+k1.metric(
+    "Venta total", utils.money(ind["total"]),
+    f"{ind['variacion']:+.1f}% vs anterior" if ind["variacion"] is not None else None,
+)
+k2.metric("Promedio por día", utils.money(ind["promedio_diario"]))
+k2.caption(f"{ind['dias_con_registro']} día(s) con registro")
+k3.metric("Mejor día", utils.money(ind["mejor_dia"][1]) if ind["mejor_dia"] else "—")
+if ind["mejor_dia"]:
+    k3.caption(utils.fmt_long(ind["mejor_dia"][0]))
+k4.metric("Locales", str(len(branches)))
+
+if ind["total"]:
+    st.dataframe(
+        pd.DataFrame([
+            {
+                "Sucursal": f["branch"],
+                "Venta": utils.money(f["total"]),
+                "Promedio por día abierto": utils.money(f["promedio"]),
+                "% del total": f"{f['participacion']:.1f}%",
+                "vs anterior": f"{f['variacion']:+.1f}%" if f["variacion"] is not None else "—",
+                "Días abiertos": f["dias_abiertos"],
+                "Cerrado (0)": f["dias_cerrados"],
+                "Sin registrar": f["dias_sin_registrar"],
+                "Mejor día": (
+                    f"{utils.fmt_short(f['mejor_dia'][0])} · {utils.money(f['mejor_dia'][1])}" if f["mejor_dia"] else "—"
+                ),
+            }
+            for f in ind["por_sucursal"]
+        ]),
+        hide_index=True, width="stretch",
+    )
+    faltan = [f["branch"] for f in ind["por_sucursal"] if f["dias_sin_registrar"]]
+    if faltan:
+        st.caption("Con días sin registrar en este periodo: " + ", ".join(faltan) + ". Los promedios solo cuentan lo registrado.")
+else:
+    st.info("No hay ingresos registrados en este periodo.")
 
 st.divider()
 st.subheader("Historial")

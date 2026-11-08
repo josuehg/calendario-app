@@ -732,3 +732,71 @@ def events_dataframe(events):
     if not events:
         return pd.DataFrame(columns=["date", "amount", "vendor", "branch", "invoice_number", "label", "overdue"])
     return pd.DataFrame(events)
+
+
+# ---------- indicadores de ingresos ----------
+
+def income_period(name, today):
+    """(desde, hasta) en ISO para los periodos de la página Ingresos."""
+    if name == "Últimos 7 días":
+        return (today - timedelta(days=6)).isoformat(), today.isoformat()
+    if name == "Últimos 30 días":
+        return (today - timedelta(days=29)).isoformat(), today.isoformat()
+    if name == "Mes pasado":
+        fin = today.replace(day=1) - timedelta(days=1)
+        return fin.replace(day=1).isoformat(), fin.isoformat()
+    return today.replace(day=1).isoformat(), today.isoformat()  # Este mes
+
+
+def income_indicators(incomes, branches, start, end):
+    """Indicadores de venta entre start y end (ISO, inclusive): total, promedio
+    por día, mejor día y, por sucursal, total, promedio por día abierto (un 0
+    es local cerrado y no baja el promedio), participación, días sin registrar
+    y variación contra el periodo anterior del mismo largo."""
+    d0, d1 = date.fromisoformat(start), date.fromisoformat(end)
+    largo = (d1 - d0).days + 1
+    prev_start = (d0 - timedelta(days=largo)).isoformat()
+    prev_end = (d0 - timedelta(days=1)).isoformat()
+
+    actuales = [r for r in incomes if start <= r["date"] <= end]
+    previos = [r for r in incomes if prev_start <= r["date"] <= prev_end]
+    total = dsum(r["amount"] for r in actuales)
+    total_prev = dsum(r["amount"] for r in previos)
+
+    por_dia = {}
+    for r in actuales:
+        por_dia[r["date"]] = por_dia.get(r["date"], 0) + float(r["amount"])
+    mejor_dia = max(por_dia.items(), key=lambda kv: kv[1]) if por_dia else None
+
+    def _variacion(actual, anterior):
+        return round((actual - anterior) / anterior * 100, 1) if anterior else None
+
+    filas = []
+    for b in branches:
+        mias = [r for r in actuales if r["branch"] == b]
+        abiertos = [r for r in mias if float(r["amount"]) > 0]
+        total_b = dsum(r["amount"] for r in mias)
+        dias_registrados = {r["date"] for r in mias}
+        mejor = max(abiertos, key=lambda r: float(r["amount"])) if abiertos else None
+        filas.append({
+            "branch": b,
+            "total": total_b,
+            "promedio": round2(total_b / len(abiertos)) if abiertos else 0.0,
+            "participacion": round(total_b / total * 100, 1) if total else 0.0,
+            "dias_abiertos": len(abiertos),
+            "dias_cerrados": len(mias) - len(abiertos),
+            "dias_sin_registrar": largo - len(dias_registrados),
+            "mejor_dia": (mejor["date"], float(mejor["amount"])) if mejor else None,
+            "variacion": _variacion(total_b, dsum(r["amount"] for r in previos if r["branch"] == b)),
+        })
+    filas.sort(key=lambda f: -f["total"])
+
+    return {
+        "total": total,
+        "dias_con_registro": len(por_dia),
+        "promedio_diario": round2(total / len(por_dia)) if por_dia else 0.0,
+        "mejor_dia": mejor_dia,
+        "total_anterior": total_prev,
+        "variacion": _variacion(total, total_prev),
+        "por_sucursal": filas,
+    }
