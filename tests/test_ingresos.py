@@ -6,18 +6,20 @@ from tests.conftest import click
 VIEW = "views/10_Ingresos.py"
 
 
+def _campo(at, branch, fecha=None):
+    prefijo = f"inc_monto_{(fecha or date.today().isoformat())}_{branch}_"
+    return next((ni for ni in at.number_input if (ni.key or "").startswith(prefijo)), None)
+
+
 def _llenar(at, montos):
-    hoy = date.today().isoformat()
-    for ni in at.number_input:
-        for branch, monto in montos.items():
-            if ni.key == f"inc_monto_{hoy}_{branch}":
-                ni.set_value(monto)
+    for branch, monto in montos.items():
+        _campo(at, branch).set_value(monto)
     return at
 
 
 def test_registra_varias_sucursales_de_una_vez(run_view, db):
     at = _llenar(run_view(VIEW, role="admin"), {"Sucursal 1": 1500.0, "Sucursal 2": 980.5})
-    at = click(at, "Registrar ingresos")
+    at = click(at, "Guardar ingresos")
     assert not at.exception
     assert {r["branch"]: r["amount"] for r in db.incomes} == {"Sucursal 1": 1500.0, "Sucursal 2": 980.5}
     assert all(r["source"] == "app" and r["date"] == date.today().isoformat() for r in db.incomes)
@@ -27,29 +29,40 @@ def test_sucursal_vacia_no_se_registra_y_cero_si(run_view, db):
     # Un local cerrado ese día vendió 0 — es un dato válido (evita el aviso
     # de "falta registrar" en el reporte diario); vacío es "aún no lo tengo".
     at = _llenar(run_view(VIEW, role="admin"), {"Sucursal 1": 0.0})
-    at = click(at, "Registrar ingresos")
+    at = click(at, "Guardar ingresos")
     assert not at.exception
     assert [(r["branch"], r["amount"]) for r in db.incomes] == [("Sucursal 1", 0.0)]
 
 
-def test_sin_montos_avisa_y_no_registra(run_view, db):
-    at = click(run_view(VIEW, role="admin"), "Registrar ingresos")
+def test_sin_cambios_avisa_y_no_registra(run_view, db):
+    at = click(run_view(VIEW, role="admin"), "Guardar ingresos")
     assert not at.exception
     assert db.incomes == []
-    assert any("al menos una sucursal" in w.value for w in at.warning)
+    assert any("No hay montos nuevos ni cambios" in w.value for w in at.warning)
 
 
-def test_sucursal_ya_registrada_no_se_pide_de_nuevo(run_view, db):
+def test_lo_ya_registrado_sale_precargado_y_se_corrige(run_view, db):
     hoy = date.today().isoformat()
     db.create_income({"branch": "Sucursal 1", "date": hoy, "amount": 700.0})
     at = run_view(VIEW, role="admin")
     assert not at.exception
-    assert not any(ni.key == f"inc_monto_{hoy}_Sucursal 1" for ni in at.number_input)
-    assert any("Ya registrado: S/ 700.00" in c.value for c in at.caption)
-    at = _llenar(at, {"Sucursal 2": 200.0})
-    at = click(at, "Registrar ingresos")
+    assert _campo(at, "Sucursal 1").value == 700.0
+    at = _llenar(at, {"Sucursal 1": 750.0, "Sucursal 2": 200.0})
+    at = click(at, "Guardar ingresos")
     assert not at.exception
-    assert sorted(r["branch"] for r in db.incomes) == ["Sucursal 1", "Sucursal 2"]
+    # Corrige el registro existente en vez de agregar otro.
+    assert sorted((r["branch"], r["amount"]) for r in db.incomes) == [("Sucursal 1", 750.0), ("Sucursal 2", 200.0)]
+
+
+def test_al_cambiar_de_dia_carga_lo_de_ese_dia(run_view, db):
+    # Caso real: ingresos registrados por error el día 8 y movidos al día 1
+    # desde el Historial; al elegir el día 1 arriba deben salir cargados.
+    db.create_income({"branch": "Sucursal 1", "date": "2026-11-08", "amount": 700.0})
+    at = run_view(VIEW, role="admin")
+    db.update_income(db.incomes[0]["id"], {"date": "2026-11-01"})
+    at.date_input(key="inc_fecha").set_value(date(2026, 11, 1)).run()
+    assert not at.exception
+    assert _campo(at, "Sucursal 1", "2026-11-01").value == 700.0
 
 
 def test_historial_filtra_por_sucursal(run_view, db):
@@ -71,7 +84,8 @@ def test_editar_ingreso_actualiza_monto(run_view, db):
     for ni in at.number_input:
         if ni.key == "inc_ed_monto":
             ni.set_value(250.0).run()
-    at = click(at, "Guardar")
+    # "Guardar" exacto: el formulario de arriba ahora dice "Guardar ingresos".
+    at = next(b for b in at.button if b.label == "Guardar").click().run()
     assert not at.exception
     assert db.incomes[0]["amount"] == 250.0
 
