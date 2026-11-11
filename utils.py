@@ -593,13 +593,16 @@ def expense_statement(invoices, letras, expenses, period_start, period_end, letr
     }
 
 
-def compute_cash_balance(invoices, letras, expenses, incomes, saldo_inicial=0.0, saldo_inicial_fecha=None):
+def compute_cash_balance(invoices, letras, expenses, incomes, saldo_inicial=0.0, saldo_inicial_fecha=None,
+                         fixed_receipts=None):
     """Saldo de caja real y cuánto queda libre para comprometer en un pedido
     nuevo, a partir de un saldo inicial que se configura una sola vez
     (Configuración → Saldo inicial de caja):
 
       saldo_actual = saldo_inicial + ingresos registrados DESPUÉS de esa
-                     fecha - egresos ya PAGADOS después de esa fecha.
+                     fecha (ventas y lo recibido de ingresos fijos, como
+                     las comisiones BCP) - egresos ya PAGADOS después de
+                     esa fecha.
                      (la fecha del saldo inicial se excluye, asumiendo que
                      ese saldo ya refleja el cierre de ese día).
       comprometido = todo lo que sigue 'pendiente' — ya se debe, tarde o
@@ -609,7 +612,10 @@ def compute_cash_balance(invoices, letras, expenses, incomes, saldo_inicial=0.0,
     """
     desde = saldo_inicial_fecha or "0001-01-01"
 
-    ingresos = dsum(i["amount"] for i in incomes if i["date"] > desde)
+    ingresos = dsum(
+        [i["amount"] for i in incomes if i["date"] > desde]
+        + [r["amount"] for r in (fixed_receipts or []) if r["date"] > desde]
+    )
 
     pagado_facturas = dsum(
         i["amount"] for i in invoices
@@ -684,7 +690,7 @@ def purchase_limit(incomes, fixed_expenses, days_back=30, today=None):
     }
 
 
-def max_new_purchase(events, saldo_actual, venta_diaria, term_days, today=None):
+def max_new_purchase(events, saldo_actual, venta_diaria, term_days, today=None, ingresos_esperados=None):
     """Cuánto se puede comprometer HOY con un proveedor a `term_days` de
     plazo, revisando semana por semana desde hoy hasta esa fecha (no solo el
     día exacto del vencimiento) — si algo grande cae unos días antes, esa
@@ -699,6 +705,10 @@ def max_new_purchase(events, saldo_actual, venta_diaria, term_days, today=None):
       Para cada semana entre hoy y fecha_vence: saldo_actual + (venta_diaria
       * días transcurridos hasta el fin de esa semana) - todo lo YA
       pendiente que vence en o antes de esa semana.
+      ingresos_esperados    = ingresos fijos aún no recibidos (comisiones
+                              BCP...): suman desde la semana en que se
+                              esperan, no como venta diaria. Los que ya
+                              debieron llegar y no llegaron no se cuentan.
       semana_mas_ajustada   = la de menor saldo proyectado de ese camino.
       máximo seguro         = ese saldo, nunca negativo (si ya proyecta rojo
                               en algún punto, el máximo es 0 — no "menos
@@ -713,7 +723,8 @@ def max_new_purchase(events, saldo_actual, venta_diaria, term_days, today=None):
         fin_semana = min(add_days(ws, 6), fecha_vence)
         dias = (date.fromisoformat(fin_semana) - date.fromisoformat(today)).days
         comprometido = dsum(e["amount"] for e in events if e["date"] <= fin_semana)
-        proyectado = dsum([saldo_actual, venta_diaria * dias, -comprometido])
+        esperado = dsum(i["amount"] for i in (ingresos_esperados or []) if today <= i["date"] <= fin_semana)
+        proyectado = dsum([saldo_actual, venta_diaria * dias, esperado, -comprometido])
         semanas.append({"fin_semana": fin_semana, "comprometido": comprometido, "proyectado": proyectado})
         ws = add_days(ws, 7)
 
@@ -726,6 +737,46 @@ def max_new_purchase(events, saldo_actual, venta_diaria, term_days, today=None):
         "proyectado": peor["proyectado"],
         "maximo": max(0.0, peor["proyectado"]),
     }
+
+
+# ---------- ingresos fijos mensuales (comisiones BCP, etc.) ----------
+
+def _sumar_meses(periodo, n):
+    y, m = int(periodo[:4]), int(periodo[5:7])
+    total = y * 12 + (m - 1) + n
+    return f"{total // 12:04d}-{total % 12 + 1:02d}"
+
+
+def fixed_income_expected(fixed_incomes, receipts, today=None, months_ahead=6):
+    """Ingresos fijos que todavía no se confirmaron como recibidos, mes por
+    mes desde el primer mes de cada plantilla activa hasta `months_ahead`
+    meses adelante. Cada uno se ubica en el ÚLTIMO día de su ventana (day_to)
+    para planificar caja sin contar con plata antes de tiempo; `date_from` es
+    el primer día en que suele llegar. `atrasado`: ya pasó el último día y
+    no se confirmó."""
+    today = today or today_str()
+    recibidos = {(r.get("fixed_income_id"), r["period"]) for r in receipts}
+    hasta = _sumar_meses(today[:7], months_ahead)
+    out = []
+    for f in fixed_incomes:
+        if not f.get("active", True):
+            continue
+        periodo = f["start_month"]
+        while periodo <= hasta:
+            if (f["id"], periodo) not in recibidos:
+                y, m = int(periodo[:4]), int(periodo[5:7])
+                fecha = f"{periodo}-{due_day_for_month(y, m, f['day_to']):02d}"
+                out.append({
+                    "fixed_income_id": f["id"],
+                    "name": f["name"],
+                    "period": periodo,
+                    "date": fecha,
+                    "date_from": f"{periodo}-{due_day_for_month(y, m, f['day_from']):02d}",
+                    "amount": round2(f["amount"]),
+                    "atrasado": fecha < today,
+                })
+            periodo = _sumar_meses(periodo, 1)
+    return sorted(out, key=lambda e: (e["date"], e["name"]))
 
 
 def events_dataframe(events):

@@ -97,6 +97,180 @@ if guardar:
         st.rerun()
 
 st.divider()
+st.subheader("Ingresos fijos mensuales")
+st.caption(
+    "Ingresos que llegan una vez al mes, como las comisiones del agente BCP. "
+    "Suman al saldo de caja cuando confirmas que llegaron, pero no se mezclan "
+    "con la venta de los locales ni con sus indicadores. Mientras no lleguen, "
+    "el Calendario y Presupuesto los esperan el último día de su ventana."
+)
+
+fixed_incomes = db.list_fixed_incomes()
+fixed_receipts = db.list_fixed_income_receipts()
+hoy_iso = utils.today_str()
+esperados = utils.fixed_income_expected(fixed_incomes, fixed_receipts, hoy_iso)
+
+
+def _nombre_periodo(periodo):
+    return f"{utils.MONTHS_ES[int(periodo[5:7]) - 1]} {periodo[:4]}"
+
+
+por_confirmar = [e for e in esperados if e["period"] <= hoy_iso[:7]]
+for e in por_confirmar:
+    with st.container(border=True):
+        fc1, fc2 = st.columns([4, 1])
+        estado = (
+            f"🔴 debía llegar hasta el {utils.fmt_short(e['date'])}" if e["atrasado"]
+            else f"suele llegar del {utils.fmt_short(e['date_from'])} al {utils.fmt_short(e['date'])}"
+        )
+        fc1.markdown(f"**{e['name']}** · {_nombre_periodo(e['period'])} · aprox. {utils.money(e['amount'])}")
+        fc1.caption(estado)
+        if fc2.button("✅ Llegó", key=f"fi_llego_{e['fixed_income_id']}_{e['period']}", width="stretch"):
+            st.session_state["_fi_recibir"] = e
+            st.rerun()
+
+proximos = [e for e in esperados if e["period"] > hoy_iso[:7]]
+siguiente = {}
+for e in proximos:
+    siguiente.setdefault(e["fixed_income_id"], e)
+if siguiente:
+    st.caption("Próximos: " + " · ".join(
+        f"{e['name']} {utils.money(e['amount'])} ({utils.fmt_short(e['date_from'])}–{utils.fmt_short(e['date'])})"
+        for e in siguiente.values()
+    ))
+if not fixed_incomes:
+    st.info("No hay ingresos fijos configurados. Agrégalos abajo.")
+
+with st.expander("⚙️ Configurar ingresos fijos"):
+    for f in fixed_incomes:
+        gc1, gc2 = st.columns([4, 1])
+        activo = "" if f.get("active", True) else " · ⏸️ desactivado"
+        gc1.markdown(
+            f"**{f['name']}** · aprox. {utils.money(f['amount'])} · "
+            f"del {f['day_from']} al {f['day_to']} de cada mes{activo}"
+        )
+        if gc2.button("Editar", key=f"fi_edit_{f['id']}", width="stretch"):
+            st.session_state["_fi_edit"] = f
+            st.rerun()
+    with st.form("fi_nuevo", clear_on_submit=True, enter_to_submit=False):
+        st.markdown("**Nuevo ingreso fijo**")
+        n1, n2 = st.columns([2, 1])
+        fi_nombre = n1.text_input("Nombre", placeholder="Ej.: Comisiones BCP")
+        fi_monto = n2.number_input("Monto aproximado (S/)", min_value=0.0, step=100.0, format="%.2f")
+        d1, d2 = st.columns(2)
+        fi_desde = d1.number_input("Suele llegar desde el día", min_value=1, max_value=31, value=1, step=1)
+        fi_hasta = d2.number_input("Hasta el día", min_value=1, max_value=31, value=1, step=1)
+        if st.form_submit_button("Agregar ingreso fijo", type="primary"):
+            if not fi_nombre.strip() or fi_monto <= 0:
+                st.warning("Pon un nombre y un monto mayor a 0.")
+            elif fi_desde > fi_hasta:
+                st.warning("El día 'desde' no puede ser mayor que el día 'hasta'.")
+            else:
+                db.create_fixed_income({
+                    "name": fi_nombre.strip(),
+                    "amount": utils.round2(fi_monto),
+                    "day_from": int(fi_desde),
+                    "day_to": int(fi_hasta),
+                    "start_month": hoy_iso[:7],
+                })
+                st.session_state["inc_msg"] = f"Ingreso fijo agregado: {fi_nombre.strip()}."
+                st.rerun()
+
+if fixed_receipts:
+    with st.expander(f"📥 Recibidos ({len(fixed_receipts)})"):
+        for r in fixed_receipts:
+            rc1, rc2 = st.columns([4, 1])
+            rc1.write(
+                f"**{r['name']}** · {_nombre_periodo(r['period'])} · llegó el "
+                f"{utils.fmt_short(r['date'])} · {utils.money(r['amount'])}"
+            )
+            if rc2.button("Eliminar", key=f"fi_rdel_{r['id']}", width="stretch"):
+                db.delete_fixed_income_receipt(r["id"])
+                st.session_state["inc_msg"] = (
+                    f"Eliminado: {r['name']} de {_nombre_periodo(r['period'])}. Vuelve a quedar por confirmar."
+                )
+                st.rerun()
+
+# ---------- diálogo: confirmar que llegó ----------
+if st.session_state.get("_fi_recibir"):
+    _fr = st.session_state["_fi_recibir"]
+
+    def _cerrar_fi_recibir():
+        st.session_state["_fi_recibir"] = None
+
+    @st.dialog("Confirmar ingreso recibido", on_dismiss=_cerrar_fi_recibir)
+    def _fi_recibir_dialog():
+        st.markdown(f"**{_fr['name']}** · {_nombre_periodo(_fr['period'])}")
+        fecha = st.date_input("Fecha en que llegó", value=date.today(), key="fi_rec_fecha")
+        monto = st.number_input(
+            "Monto que llegó (S/)", min_value=0.0, step=0.01, format="%.2f",
+            value=float(_fr["amount"]), key="fi_rec_monto",
+        )
+        c1, c2 = st.columns(2)
+        if c1.button("Cancelar", width="stretch"):
+            st.session_state["_fi_recibir"] = None
+            st.rerun()
+        if c2.button("Guardar", type="primary", width="stretch"):
+            db.create_fixed_income_receipt({
+                "fixed_income_id": _fr["fixed_income_id"],
+                "name": _fr["name"],
+                "period": _fr["period"],
+                "date": fecha.isoformat(),
+                "amount": utils.round2(monto),
+                "registered_by": utils.current_actor(),
+            })
+            st.session_state["_fi_recibir"] = None
+            st.session_state["inc_msg"] = (
+                f"Recibido: {_fr['name']} de {_nombre_periodo(_fr['period'])} · {utils.money(monto)}."
+            )
+            st.rerun()
+
+    _fi_recibir_dialog()
+
+# ---------- diálogo: editar ingreso fijo ----------
+if st.session_state.get("_fi_edit"):
+    _fe = st.session_state["_fi_edit"]
+
+    def _cerrar_fi_edit():
+        st.session_state["_fi_edit"] = None
+
+    @st.dialog("Editar ingreso fijo", on_dismiss=_cerrar_fi_edit)
+    def _fi_edit_dialog():
+        nombre = st.text_input("Nombre", value=_fe["name"], key="fi_ed_nombre")
+        monto = st.number_input(
+            "Monto aproximado (S/)", min_value=0.0, step=100.0, format="%.2f",
+            value=float(_fe["amount"]), key="fi_ed_monto",
+        )
+        d1, d2 = st.columns(2)
+        desde = d1.number_input("Desde el día", min_value=1, max_value=31, value=int(_fe["day_from"]), key="fi_ed_desde")
+        hasta = d2.number_input("Hasta el día", min_value=1, max_value=31, value=int(_fe["day_to"]), key="fi_ed_hasta")
+        activo = st.toggle("Activo (se espera cada mes)", value=_fe.get("active", True), key="fi_ed_activo")
+        st.caption("Desactivado deja de esperarse. Eliminar borra la plantilla; lo ya recibido se queda en caja.")
+        c1, c2, c3 = st.columns(3)
+        if c1.button("🗑️ Eliminar", width="stretch"):
+            db.delete_fixed_income(_fe["id"])
+            st.session_state["_fi_edit"] = None
+            st.rerun()
+        if c2.button("Cancelar", width="stretch"):
+            st.session_state["_fi_edit"] = None
+            st.rerun()
+        if c3.button("Guardar", type="primary", width="stretch"):
+            if not nombre.strip() or monto <= 0 or desde > hasta:
+                st.warning("Revisa: nombre, monto mayor a 0 y 'desde' no mayor que 'hasta'.")
+            else:
+                db.update_fixed_income(_fe["id"], {
+                    "name": nombre.strip(),
+                    "amount": utils.round2(monto),
+                    "day_from": int(desde),
+                    "day_to": int(hasta),
+                    "active": activo,
+                })
+                st.session_state["_fi_edit"] = None
+                st.rerun()
+
+    _fi_edit_dialog()
+
+st.divider()
 st.subheader("Indicadores")
 
 PERIODOS = ["Últimos 7 días", "Este mes", "Mes pasado", "Últimos 30 días"]

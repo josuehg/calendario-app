@@ -468,6 +468,45 @@ def delete_income(income_id: str):
     return sb.table("incomes").delete().eq("id", income_id).execute()
 
 
+# ---------- ingresos fijos mensuales (comisiones BCP, etc.) ----------
+# Aparte de `incomes` (ventas de los locales): no entran en los indicadores ni
+# en el promedio de venta, pero lo recibido sí suma al saldo de caja.
+def list_fixed_incomes():
+    sb = get_client()
+    return sb.table("fixed_incomes").select("*").order("name").execute().data
+
+
+def create_fixed_income(data: dict):
+    sb = get_client()
+    return sb.table("fixed_incomes").insert(data).execute()
+
+
+def update_fixed_income(fi_id: str, data: dict):
+    sb = get_client()
+    return sb.table("fixed_incomes").update(data).eq("id", fi_id).execute()
+
+
+def delete_fixed_income(fi_id: str):
+    """Borra la plantilla; lo ya recibido queda en el historial (y en caja)."""
+    sb = get_client()
+    return sb.table("fixed_incomes").delete().eq("id", fi_id).execute()
+
+
+def list_fixed_income_receipts():
+    sb = get_client()
+    return sb.table("fixed_income_receipts").select("*").order("date", desc=True).execute().data
+
+
+def create_fixed_income_receipt(data: dict):
+    sb = get_client()
+    return sb.table("fixed_income_receipts").insert(data).execute()
+
+
+def delete_fixed_income_receipt(receipt_id: str):
+    sb = get_client()
+    return sb.table("fixed_income_receipts").delete().eq("id", receipt_id).execute()
+
+
 def ensure_expense_instances(months_ahead: int = 6):
     """Genera las filas de 'expenses' que faltan para cada gasto fijo activo,
     desde el mes actual hasta months_ahead meses adelante. Idempotente: solo
