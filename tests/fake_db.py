@@ -32,6 +32,8 @@ class FakeDB:
         self.expenses = []
         self.debts = []
         self.incomes = []
+        self.fixed_incomes = []
+        self.fixed_income_receipts = []
         self._seq = itertools.count(1)
 
     def _nid(self, prefix):
@@ -347,6 +349,40 @@ class FakeDB:
 
     def delete_income(self, iid):
         self.incomes[:] = [i for i in self.incomes if i["id"] != iid]
+
+    # ---- ingresos fijos ----
+    def list_fixed_incomes(self):
+        return [dict(f) for f in sorted(self.fixed_incomes, key=lambda f: f["name"].lower())]
+
+    def create_fixed_income(self, data):
+        row = {"id": self._nid("fi"), "active": True, "notes": None, **data}
+        self.fixed_incomes.append(row)
+        return row
+
+    def update_fixed_income(self, fid, data):
+        for f in self.fixed_incomes:
+            if f["id"] == fid:
+                f.update(data)
+
+    def delete_fixed_income(self, fid):
+        self.fixed_incomes[:] = [f for f in self.fixed_incomes if f["id"] != fid]
+        for r in self.fixed_income_receipts:
+            if r["fixed_income_id"] == fid:
+                r["fixed_income_id"] = None
+
+    def list_fixed_income_receipts(self):
+        return [dict(r) for r in sorted(self.fixed_income_receipts, key=lambda r: r["date"], reverse=True)]
+
+    def create_fixed_income_receipt(self, data):
+        if any(r["fixed_income_id"] == data.get("fixed_income_id") and r["period"] == data["period"]
+               for r in self.fixed_income_receipts if data.get("fixed_income_id")):
+            raise ValueError("duplicate key value violates unique constraint")
+        row = {"id": self._nid("fir"), "registered_by": None, **data}
+        self.fixed_income_receipts.append(row)
+        return row
+
+    def delete_fixed_income_receipt(self, rid):
+        self.fixed_income_receipts[:] = [r for r in self.fixed_income_receipts if r["id"] != rid]
 
     # ---- deudas ----
     def list_debts(self, active_only=False):

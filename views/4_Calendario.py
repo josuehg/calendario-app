@@ -102,6 +102,27 @@ for e in events:
         ventana_marcas.setdefault(limite, []).append(("limite", f"Límite de pago: {detalle}"))
 
 
+# Ingresos fijos esperados (comisiones BCP...): marca verde en el último día
+# de su ventana. Es plata que entra, así que no se suma a los pagos del día.
+ingresos_por_fecha = {}
+for _ie in utils.fixed_income_expected(db.list_fixed_incomes(), db.list_fixed_income_receipts()):
+    ingresos_por_fecha.setdefault(_ie["date"], []).append(_ie)
+
+
+def _ingresos_html(ds):
+    items = ingresos_por_fecha.get(ds)
+    if not items:
+        return ""
+    partes = []
+    for i in items:
+        ventana = "Llega entre el " + utils.fmt_short(i["date_from"]) + " y el " + utils.fmt_short(i["date"])
+        partes.append(
+            f"<div style='font-size:10px;color:#2e7d4f;cursor:help' title='{html.escape(ventana, quote=True)}'>"
+            f"💵 {html.escape(i['name'])} ~{utils.money(i['amount'])}</div>"
+        )
+    return "".join(partes)
+
+
 def _marcas_html(marcas):
     """Un ícono por letra, cada uno con su propio detalle (proveedor, número,
     monto) al pasar el mouse, más el conteo en texto para que se entienda sin
@@ -191,7 +212,7 @@ if vista == "📅 Mes":
                 is_today = ds == today_str
                 border = "2px solid #0b5d68" if is_today else "1px solid #d7dee1"
                 marcas = ventana_marcas.get(ds)
-                marcas_html = _marcas_html(marcas) if marcas else ""
+                marcas_html = (_marcas_html(marcas) if marcas else "") + _ingresos_html(ds)
                 paid_html = (
                     f"<div style='font-size:10px;color:#2e9e5b'>✅ {len(paid_info)} pagado(s) · "
                     f"{utils.money(utils.dsum(p['amount'] for p in paid_info))}</div>"
@@ -228,6 +249,8 @@ if vista == "📅 Mes":
         )
     if paid_by_date:
         _leyenda += " &nbsp;&nbsp;&nbsp; ✅ Ya pagado ese día (tampoco cuenta en el total)"
+    if ingresos_por_fecha:
+        _leyenda += " &nbsp;&nbsp;&nbsp; 💵 Ingreso fijo esperado (entra plata, no es un pago)"
     st.markdown(_leyenda)
 
     st.divider()
@@ -251,7 +274,8 @@ else:
         ds = f"{y:04d}-{m:02d}-{day:02d}"
         info = by_date.get(ds)
         paid_info = paid_by_date.get(ds)
-        if not info and not paid_info:
+        ingresos_dia = ingresos_por_fecha.get(ds)
+        if not info and not paid_info and not ingresos_dia:
             continue
         hubo_algun_dia = True
         dow_label = DOW_ES[date.fromisoformat(ds).weekday()]
@@ -265,11 +289,13 @@ else:
                     unsafe_allow_html=True,
                 )
                 lc3.write(f"{info['count']} pago(s)")
-            if lc4.button("Ver", key=f"list_day_{ds}", width="stretch"):
+            if (info or paid_info) and lc4.button("Ver", key=f"list_day_{ds}", width="stretch"):
                 st.session_state["_cal_day"] = ds
                 st.rerun()
             if paid_info:
                 st.caption(f"✅ {len(paid_info)} pagado(s) · {utils.money(utils.dsum(p['amount'] for p in paid_info))}")
+            for _i in ingresos_dia or []:
+                st.caption(f"💵 Ingreso esperado: {_i['name']} ~{utils.money(_i['amount'])} (llega entre el {utils.fmt_short(_i['date_from'])} y el {utils.fmt_short(_i['date'])})")
     if not hubo_algun_dia:
         st.caption("No hay pagos este mes con estos filtros.")
     st.divider()

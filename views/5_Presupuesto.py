@@ -18,6 +18,8 @@ letras = db.list_letras()
 canje_facturas = db.list_canje_facturas()
 expenses = db.list_expenses()
 incomes = db.list_incomes()
+fixed_receipts = db.list_fixed_income_receipts()
+ingresos_esperados = utils.fixed_income_expected(db.list_fixed_incomes(), fixed_receipts, months_ahead=4)
 settings = db.get_settings()
 track_contado = settings.get("track_contado", True)
 events = utils.get_payment_events(
@@ -40,6 +42,7 @@ else:
         invoices, letras, expenses, incomes,
         saldo_inicial=settings.get("caja_saldo_inicial") or 0.0,
         saldo_inicial_fecha=settings.get("caja_saldo_inicial_fecha"),
+        fixed_receipts=fixed_receipts,
     )
     cc1, cc2, cc3 = st.columns(3)
     cc1.metric("Saldo de caja actual", utils.money(caja["saldo_actual"]))
@@ -63,7 +66,10 @@ else:
         format_func=lambda d: f"{d} días",
     )
     venta_diaria_sim = utils.average_daily_income(incomes, days_back=30)
-    sim = utils.max_new_purchase(events, caja["saldo_actual"], venta_diaria_sim, plazo_sim, today)
+    sim = utils.max_new_purchase(
+        events, caja["saldo_actual"], venta_diaria_sim, plazo_sim, today,
+        ingresos_esperados=ingresos_esperados,
+    )
     st.metric(
         f"Máximo recomendado a {plazo_sim} días (vencería el {utils.fmt_short(sim['fecha_vence'])})",
         utils.money(sim["maximo"]),
@@ -72,6 +78,14 @@ else:
         st.caption(
             f"📍 Limitado por la semana del {utils.fmt_short(sim['semana_mas_ajustada'])}, "
             "no por el día final — ahí es donde más ajustada se pone la caja en el camino."
+        )
+    _esperados_en_plazo = [
+        i for i in ingresos_esperados if today <= i["date"] <= sim["semana_mas_ajustada"]
+    ]
+    if _esperados_en_plazo:
+        st.caption(
+            "💵 Incluye ingresos fijos esperados: "
+            + " · ".join(f"{i['name']} {utils.money(i['amount'])} ({utils.fmt_short(i['date'])})" for i in _esperados_en_plazo)
         )
     if venta_diaria_sim == 0:
         st.caption("Sin ingresos registrados, esto no suma venta proyectada — registra en **Ingresos** para un número más real.")
