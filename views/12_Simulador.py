@@ -97,15 +97,13 @@ def _todo_lo_posible():
     return montos
 
 
-b1, b2, b3, b4 = st.columns(4)
-if b1.button("Guardar todo", width="stretch", help="No cancelar nada: todo el crédito queda en caja."):
+b1, b2, b3 = st.columns(3)
+if b1.button("No cancelar nada", width="stretch", help="Pone todo en 0: no cancelas ninguna deuda y todo el crédito queda en caja."):
     _poner({})
 if b2.button("Las más chicas", width="stretch", help="Cancela completas las deudas más chicas usando hasta el 70% del crédito."):
     _poner(_mas_chicas(credito * 0.7))
 if b3.button("Todo lo posible", width="stretch", help="Usa todo el crédito, empezando por las más chicas."):
     _poner(_todo_lo_posible())
-if b4.button("Limpiar", width="stretch"):
-    _poner({})
 
 pagos = {}
 cols = st.columns(2)
@@ -162,7 +160,7 @@ fig.add_trace(go.Scatter(
     line=dict(color="#0b5d68", width=3), fill="tozeroy", fillcolor="rgba(11,93,104,0.08)",
 ))
 fig.add_trace(go.Scatter(
-    x=x, y=[s["caja_fin"] for s in base_guardar["serie"]], name="Si guardas todo", mode="lines",
+    x=x, y=[s["caja_fin"] for s in base_guardar["serie"]], name="Si no cancelas nada", mode="lines",
     line=dict(color="#8a959b", width=2, dash="dash"),
 ))
 fig.add_hline(y=0, line_color="#b33f3f", line_width=1)
