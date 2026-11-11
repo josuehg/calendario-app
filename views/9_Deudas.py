@@ -97,7 +97,11 @@ if dialog_state:
             d.get("fixed_expense_id") for d in debts
             if d.get("fixed_expense_id") and (not editing or d["id"] != editing["id"])
         }
-        candidatos = [f for f in loan_fixed if f["id"] not in linked_elsewhere]
+        # Ni los desactivados (préstamos ya cancelados o reemplazados): al editar
+        # una deuda ya vinculada a uno de ellos, se vuelve a agregar más abajo.
+        candidatos = [
+            f for f in loan_fixed if f["id"] not in linked_elsewhere and f.get("active", True)
+        ]
 
         NINGUNO = "— Ninguno (deuda aparte, no vinculada a un gasto fijo) —"
         fx_by_label = {
