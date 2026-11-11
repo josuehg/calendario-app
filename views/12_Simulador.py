@@ -188,6 +188,24 @@ for i, d in enumerate(deudas):
             key=f"sim_pago_{d['id']}",
             help="Solo capital. Desde el mes siguiente su cuota baja en proporción a lo que canceles.",
         )
+        # Para cuando vayas a pagarle: atraso, interés por día y cuánto pediría hoy.
+        _e = utils.debt_status_today(d, expenses, today)
+        if _e["vencidas_n"]:
+            _estado = (
+                f"🔴 {_e['vencidas_n']} cuota(s) vencida(s) por {utils.money(_e['vencidas_monto'])} · "
+                f"{utils.fmt_atraso(_e['dias_atraso'])} (desde el {utils.fmt_short(_e['mas_antigua'])})"
+            )
+        else:
+            _estado = "🟢 Al día" + (f" · próxima cuota el {utils.fmt_short(_e['proxima'])}" if _e["proxima"] else "")
+        st.caption(
+            f"{_estado} · interés por día {utils.money(_e['interes_dia'])}"
+            + (
+                f" · para cancelar hoy ≈ **{utils.money(_e['cancelar_hoy'])}** (capital"
+                + (" + cuotas vencidas" if _e["vencidas_n"] else "")
+                + f" + {_e['dias_desde_corte']} día(s) de interés desde el {utils.fmt_short(_e['corte'])})"
+                if _e["corte"] else ""
+            )
+        )
 
 def _mes(m):
     return f"{utils.MONTHS_ES[int(m[5:7]) - 1][:3].capitalize()} {m[2:4]}"
