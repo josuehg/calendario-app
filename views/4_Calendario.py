@@ -4,8 +4,13 @@ from datetime import date
 import streamlit as st
 import db
 import utils
+import ventas
 
 st.title("📅 Calendario de pagos")
+
+_cal_msg = st.session_state.pop("cal_msg", None)
+if _cal_msg:
+    st.success(_cal_msg)
 
 _CAL_ACTION_KEYS = ["_cal_pay_target", "_cal_edit_target", "_cal_del_target", "_cal_bulk_pay_targets"]
 
@@ -17,6 +22,7 @@ def _cerrar_dialogos_del_dia():
     que sin esto, _cal_day queda pegado y el diálogo se reabre solo (mostrando
     el día viejo) en el siguiente rerun, como el de 'Anterior'/'Siguiente'."""
     st.session_state["_cal_day"] = None
+    st.session_state["_cal_ventas"] = None
     for k in _CAL_ACTION_KEYS:
         st.session_state[k] = None
 
@@ -40,6 +46,11 @@ categorias_cal = ["Todas"] + [c["name"] for c in db.list_expense_categories()]
 f_cat_cal = fc2.selectbox("Categoría (solo gastos)", categorias_cal, key="cal_f_categoria")
 fc3.write("")
 mostrar_pagados = fc3.checkbox("Mostrar pagados", key="cal_f_pagados")
+mostrar_ventas = fc3.checkbox(
+    "Mostrar ventas", key="cal_f_ventas",
+    help="Ventas registradas de los locales y los ingresos fijos que ya llegaron (comisiones BCP...). "
+         "Se ven en verde y nunca se suman a los pagos.",
+)
 
 
 def _cal_matches(e):
@@ -102,23 +113,51 @@ for e in events:
         ventana_marcas.setdefault(limite, []).append(("limite", f"Límite de pago: {detalle}"))
 
 
-# Ingresos fijos esperados (comisiones BCP...): marca verde en el último día
-# de su ventana. Es plata que entra, así que no se suma a los pagos del día.
+# Plata que ENTRA, siempre en verde y nunca sumada a los pagos del día:
+# - ingresos fijos esperados (comisiones BCP...), en el último día de su ventana;
+# - con "Mostrar ventas": lo ya recibido de ingresos fijos (en el día real en
+#   que llegó) y las ventas registradas de los locales.
+branches = db.get_branches()
+incomes = db.list_incomes()
+fixed_receipts = db.list_fixed_income_receipts()
+ingresos_esperados = utils.fixed_income_expected(db.list_fixed_incomes(), fixed_receipts)
 ingresos_por_fecha = {}
-for _ie in utils.fixed_income_expected(db.list_fixed_incomes(), db.list_fixed_income_receipts()):
+for _ie in ingresos_esperados:
     ingresos_por_fecha.setdefault(_ie["date"], []).append(_ie)
+recibidos_por_fecha = {}
+ventas_por_fecha = {}
+if mostrar_ventas:
+    for _r in fixed_receipts:
+        recibidos_por_fecha.setdefault(_r["date"], []).append(_r)
+    for _v in incomes:
+        ventas_por_fecha.setdefault(_v["date"], []).append(_v)
+
+
+def _ventas_dia(ds):
+    """(total, n° de locales con registro) de las ventas de ese día."""
+    regs = ventas_por_fecha.get(ds, [])
+    return utils.dsum(float(r["amount"]) for r in regs), len({r["branch"] for r in regs})
 
 
 def _ingresos_html(ds):
-    items = ingresos_por_fecha.get(ds)
-    if not items:
-        return ""
     partes = []
-    for i in items:
+    for i in ingresos_por_fecha.get(ds, []):
         ventana = "Llega entre el " + utils.fmt_short(i["date_from"]) + " y el " + utils.fmt_short(i["date"])
         partes.append(
             f"<div style='font-size:10px;color:#2e7d4f;cursor:help' title='{html.escape(ventana, quote=True)}'>"
             f"💵 {html.escape(i['name'])} ~{utils.money(i['amount'])}</div>"
+        )
+    for r in recibidos_por_fecha.get(ds, []):
+        partes.append(
+            "<div style='font-size:10px;color:#2e7d4f;font-weight:600'>"
+            f"💵✅ {html.escape(r['name'])} {utils.money(r['amount'])} recibido</div>"
+        )
+    if ds in ventas_por_fecha:
+        total, n = _ventas_dia(ds)
+        detalle = " · ".join(f"{r['branch']}: {utils.money(r['amount'])}" for r in ventas_por_fecha[ds])
+        partes.append(
+            f"<div style='font-size:10px;color:#2e7d4f;cursor:help' title='{html.escape(detalle, quote=True)}'>"
+            f"💰 Ventas {utils.money(total)} · {n}/{len(branches)} locales</div>"
         )
     return "".join(partes)
 
@@ -171,6 +210,25 @@ mc2.metric("Vencido del mes", utils.money(utils.dsum(e["amount"] for e in month_
 mc3.metric("Por vencer del mes", utils.money(utils.dsum(e["amount"] for e in month_items if e["date"] >= today_str)))
 mc4.metric("N° de pagos", len(month_items))
 
+# Ingresos fijos del mes: lo que se espera y aún no llega + lo que ya llegó.
+_fijos_mes = utils.dsum(
+    [i["amount"] for i in ingresos_esperados if i["date"].startswith(month_prefix)]
+    + [float(r["amount"]) for r in fixed_receipts if r["date"].startswith(month_prefix)]
+)
+_total_pagos_mes = utils.dsum(e["amount"] for e in month_items)
+mi1, mi2, mi3, _mi4 = st.columns(4)
+mi1.metric(
+    "💵 Ingresos fijos del mes", utils.money(_fijos_mes),
+    help="Comisiones BCP y otros ingresos fijos: esperados + ya recibidos.",
+)
+mi2.metric(
+    "Neto del mes", utils.money(utils.dsum([_total_pagos_mes, -_fijos_mes])),
+    help="Total de pagos del mes menos los ingresos fijos del mes. No resta las ventas de los locales.",
+)
+if mostrar_ventas:
+    _ventas_mes = [v for v in incomes if v["date"].startswith(month_prefix)]
+    mi3.metric("💰 Ventas registradas del mes", utils.money(utils.dsum(float(v["amount"]) for v in _ventas_mes)))
+
 # Todo lo atrasado, no solo del mes que se está viendo (respeta los filtros).
 atrasados = sorted((e for e in events if e["overdue"]), key=lambda e: -e["dias_atraso"])
 if atrasados:
@@ -184,7 +242,12 @@ if atrasados:
 
 st.divider()
 
-vista = st.radio("Vista", ["📅 Mes", "📋 Lista"], horizontal=True, key="cal_vista")
+vc1, vc2 = st.columns([3, 1])
+vista = vc1.radio("Vista", ["📅 Mes", "📋 Lista"], horizontal=True, key="cal_vista")
+if vc2.button("💰 Registrar ventas", width="stretch"):
+    _cerrar_dialogos_del_dia()
+    st.session_state["_cal_ventas"] = today.isoformat()
+    st.rerun()
 
 weeks = cal.Calendar(firstweekday=0).monthdayscalendar(y, m)
 DOW_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
@@ -251,6 +314,11 @@ if vista == "📅 Mes":
         _leyenda += " &nbsp;&nbsp;&nbsp; ✅ Ya pagado ese día (tampoco cuenta en el total)"
     if ingresos_por_fecha:
         _leyenda += " &nbsp;&nbsp;&nbsp; 💵 Ingreso fijo esperado (entra plata, no es un pago)"
+    if mostrar_ventas:
+        _leyenda += (
+            " &nbsp;&nbsp;&nbsp; 💵✅ Ingreso fijo recibido &nbsp;&nbsp; "
+            "💰 Ventas de los locales (pasa el mouse para ver el detalle)"
+        )
     st.markdown(_leyenda)
 
     st.divider()
@@ -275,7 +343,8 @@ else:
         info = by_date.get(ds)
         paid_info = paid_by_date.get(ds)
         ingresos_dia = ingresos_por_fecha.get(ds)
-        if not info and not paid_info and not ingresos_dia:
+        recibidos_dia = recibidos_por_fecha.get(ds)
+        if not (info or paid_info or ingresos_dia or recibidos_dia or ds in ventas_por_fecha):
             continue
         hubo_algun_dia = True
         dow_label = DOW_ES[date.fromisoformat(ds).weekday()]
@@ -296,6 +365,11 @@ else:
                 st.caption(f"✅ {len(paid_info)} pagado(s) · {utils.money(utils.dsum(p['amount'] for p in paid_info))}")
             for _i in ingresos_dia or []:
                 st.caption(f"💵 Ingreso esperado: {_i['name']} ~{utils.money(_i['amount'])} (llega entre el {utils.fmt_short(_i['date_from'])} y el {utils.fmt_short(_i['date'])})")
+            for _r in recibidos_dia or []:
+                st.caption(f"💵✅ Recibido: {_r['name']} {utils.money(_r['amount'])}")
+            if ds in ventas_por_fecha:
+                _tv, _nv = _ventas_dia(ds)
+                st.caption(f"💰 Ventas: {utils.money(_tv)} · {_nv}/{len(branches)} locales")
     if not hubo_algun_dia:
         st.caption("No hay pagos este mes con estos filtros.")
     st.divider()
@@ -352,6 +426,12 @@ if st.session_state.get("_cal_day") and not any(st.session_state.get(k) for k in
             ):
                 st.session_state["_cal_bulk_pay_targets"] = seleccionadas
                 st.rerun()
+
+        st.divider()
+        if st.button("💰 Ventas de este día", width="stretch", key="cal_day_ventas"):
+            _cerrar_dialogos_del_dia()
+            st.session_state["_cal_ventas"] = ds
+            st.rerun()
 
         if day_paid:
             st.divider()
@@ -530,3 +610,17 @@ if st.session_state.get("_cal_del_target"):
                 st.rerun()
 
     _cal_del_dialog()
+
+
+# ---------- diálogo: registrar ventas de los locales ----------
+_hay_otro_dialogo = st.session_state.get("_cal_day") or any(st.session_state.get(k) for k in _CAL_ACTION_KEYS)
+if st.session_state.get("_cal_ventas") and not _hay_otro_dialogo:
+    def _cerrar_cal_ventas():
+        st.session_state["_cal_ventas"] = None
+
+    @st.dialog("Registrar ventas", width="large", on_dismiss=_cerrar_cal_ventas)
+    def _cal_ventas_dialog():
+        fecha = st.date_input("Fecha", value=date.fromisoformat(st.session_state["_cal_ventas"]), key="calv_fecha")
+        ventas.formulario_ventas(branches, incomes, fecha.isoformat(), "calv", "cal_msg", al_guardar=_cerrar_cal_ventas)
+
+    _cal_ventas_dialog()
