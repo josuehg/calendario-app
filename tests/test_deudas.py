@@ -216,3 +216,15 @@ def test_listado_marca_vinculada(run_view, db):
     at = run_view(VIEW, role="admin")
     text = " ".join(str(m.value) for m in at.markdown)
     assert "🔗 vinculada a Gastos Fijos" in text
+
+
+def test_prestamo_desactivado_no_se_ofrece(run_view, db):
+    db.create_fixed_expense({"name": "SCOTIABANK 450K", "category": "Prestamos Pers. Jur.",
+                             "branch": None, "amount": 15870.0, "pay_day": 19, "active": False})
+    db.create_fixed_expense({"name": "SCOTIABANK 700K", "category": "Prestamos Pers. Jur.",
+                             "branch": None, "amount": 23259.59, "pay_day": 10})
+    at = run_view(VIEW, role="admin")
+    click(at, "➕ Nueva deuda")
+    sb = _fx_link_selectbox(at)
+    assert any("700K" in o for o in sb.options)
+    assert not any("450K" in o for o in sb.options)
