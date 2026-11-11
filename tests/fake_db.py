@@ -4,7 +4,7 @@ Se instala en sys.modules['db'] (ver conftest.py) para que las páginas de
 Streamlit y las utilidades corran en los tests sin Supabase.
 """
 import itertools
-from datetime import date
+from datetime import date, datetime, timezone
 
 
 class FakeDB:
@@ -34,6 +34,7 @@ class FakeDB:
         self.incomes = []
         self.fixed_incomes = []
         self.fixed_income_receipts = []
+        self.sim_scenarios = []
         self._seq = itertools.count(1)
 
     def _nid(self, prefix):
@@ -383,6 +384,18 @@ class FakeDB:
 
     def delete_fixed_income_receipt(self, rid):
         self.fixed_income_receipts[:] = [r for r in self.fixed_income_receipts if r["id"] != rid]
+
+    # ---- escenarios del simulador ----
+    def list_sim_scenarios(self):
+        return [dict(e) for e in reversed(self.sim_scenarios)]
+
+    def create_sim_scenario(self, data):
+        row = {"id": self._nid("esc"), "created_at": datetime.now(timezone.utc).isoformat(), **data}
+        self.sim_scenarios.append(row)
+        return row
+
+    def delete_sim_scenario(self, eid):
+        self.sim_scenarios[:] = [e for e in self.sim_scenarios if e["id"] != eid]
 
     # ---- deudas ----
     def list_debts(self, active_only=False):

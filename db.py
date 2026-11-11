@@ -507,6 +507,22 @@ def delete_fixed_income_receipt(receipt_id: str):
     return sb.table("fixed_income_receipts").delete().eq("id", receipt_id).execute()
 
 
+# ---------- escenarios guardados del Simulador ----------
+def list_sim_scenarios():
+    sb = get_client()
+    return sb.table("sim_scenarios").select("*").order("created_at", desc=True).execute().data
+
+
+def create_sim_scenario(data: dict):
+    sb = get_client()
+    return sb.table("sim_scenarios").insert(data).execute()
+
+
+def delete_sim_scenario(scenario_id: str):
+    sb = get_client()
+    return sb.table("sim_scenarios").delete().eq("id", scenario_id).execute()
+
+
 def ensure_expense_instances(months_ahead: int = 6):
     """Genera las filas de 'expenses' que faltan para cada gasto fijo activo,
     desde el mes actual hasta months_ahead meses adelante. Idempotente: solo

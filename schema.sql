@@ -102,6 +102,17 @@ alter table fixed_incomes enable row level security;
 alter table fixed_income_receipts enable row level security;
 
 
+-- Escenarios guardados del Simulador de crédito: los supuestos (crédito,
+-- caja, venta, compras), cuánto se cancela de cada deuda y las inversiones.
+create table if not exists sim_scenarios (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+alter table sim_scenarios enable row level security;
+
 -- Última lista numerada que el bot de Telegram le mostró a cada chat (de
 -- /hoy, /manana, /atrasados o /resumen), para que /pagar <N> sepa a qué
 -- factura/letra/gasto se refiere ese número.
