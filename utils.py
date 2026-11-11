@@ -864,7 +864,7 @@ def simulator_debts(debts, fixed_expenses):
 
 
 def simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes,
-                    today=None, n_meses=7):
+                    today=None, n_meses=7, compras_nuevas=None):
     """Lo que entra y sale cada mes desde el mes en curso, SIN las cuotas de
     las deudas del simulador (esas dependen de cuánto se cancele):
 
@@ -875,6 +875,9 @@ def simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, comp
                     tercer mes, al menos `compras_mes` (lo que se compre de
                     ahora en adelante vence recién ahí, a 60-90 días).
       otros       = el resto de lo pendiente (gastos fijos, bancos...).
+    Con `compras_nuevas` ({mes: monto}) los proveedores de cada mes son lo ya
+    registrado (fijo) + lo nuevo que se planea comprar y que vence ese mes, en
+    vez de completar hasta `compras_mes`.
     El mes en curso incluye lo atrasado y deja las cuotas de esas deudas tal
     como están registradas (el crédito todavía no llegó)."""
     today = today or today_str()
@@ -893,17 +896,34 @@ def simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, comp
             ]
             y, m = int(mes[:4]), int(mes[5:7])
             dias = _cal.monthrange(y, m)[1]
-        prov = dsum(e["amount"] for e in del_mes if e["kind"] in ("invoice", "letra"))
-        if k >= 2:
-            prov = max(prov, round2(compras_mes))
+        registrado = dsum(e["amount"] for e in del_mes if e["kind"] in ("invoice", "letra"))
+        if compras_nuevas is not None:
+            nuevas = round2(compras_nuevas.get(mes, 0.0) or 0.0)
+        else:
+            nuevas = max(0.0, dsum([round2(compras_mes), -registrado])) if k >= 2 else 0.0
+        prov = dsum([registrado, nuevas])
         filas.append({
             "mes": mes,
             "ventas": round2(venta_dia * dias),
             "fijos": dsum(i["amount"] for i in ingresos_esperados if i["date"][:7] == mes and i["date"] >= today),
             "proveedores": prov,
+            "prov_registrado": registrado,
+            "prov_nuevas": nuevas,
             "otros": dsum(e["amount"] for e in del_mes if e["kind"] not in ("invoice", "letra")),
         })
     return filas
+
+
+def default_new_purchases(base, compras_mes, today=None, plazo_minimo=60):
+    """Compras nuevas por mes que propone el simulador: lo que falta para
+    llegar a `compras_mes` sobre lo ya registrado, solo en los meses donde
+    todavía puede vencer algo que se pida hoy (desde hoy + plazo_minimo)."""
+    today = today or today_str()
+    primero = add_days(today, plazo_minimo)[:7]
+    return {
+        f["mes"]: max(0.0, dsum([round2(compras_mes), -f["prov_registrado"]]))
+        for f in base if f["mes"] >= primero
+    }
 
 
 def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None):
@@ -959,7 +979,7 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None
     }
 
 
-def purchase_windows(events, invoices, serie, meta_mensual, today=None, plazos=(60, 75, 90)):
+def purchase_windows(events, invoices, serie, meta_mensual, today=None, plazos=(60, 75, 90), plan=None):
     """Ventanas de compra de HOY: si coloco un pedido a cada plazo, en qué
     mes vence y cuánto espacio queda ese mes según la meta de compras.
 
@@ -977,7 +997,9 @@ def purchase_windows(events, invoices, serie, meta_mensual, today=None, plazos=(
         vence = add_days(today, plazo)
         mes = vence[:7]
         ya = dsum(e["amount"] for e in events if e["kind"] in ("invoice", "letra") and e["date"][:7] == mes)
-        espacio = max(0.0, dsum([meta_mensual, -ya]))
+        # Con un plan de compras nuevas por mes, el espacio es lo planeado para
+        # ese mes; si no, lo que falta para llegar a la meta.
+        espacio = max(0.0, plan[mes]) if plan is not None and mes in plan else max(0.0, dsum([meta_mensual, -ya]))
         desde_mes = [s["caja_fin"] for s in serie if s["mes"] >= mes]
         caja_rojo = bool(desde_mes) and min(desde_mes) < 0
         filas.append({

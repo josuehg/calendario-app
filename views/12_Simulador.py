@@ -83,6 +83,7 @@ def _cargar_escenario(esc):
     for deuda in deudas:
         st.session_state[f"sim_pago_{deuda['id']}"] = float(min(guardados.get(str(deuda["id"]), 0), deuda["saldo"]))
     st.session_state["sim_inv_data"] = d.get("inversiones") or []
+    st.session_state["sim_prov_data"] = d.get("prov_nuevas")
     st.session_state["sim_inv_ver"] = st.session_state.get("sim_inv_ver", 0) + 1
     st.session_state["sim_msg"] = f"Escenario cargado: {esc['name']}."
 
@@ -119,9 +120,9 @@ venta_dia = s3.number_input(
     help="Promedio de tus ventas registradas de los últimos 30 días (solo los días con registro).",
 )
 compras_mes = s4.number_input(
-    "Compras a proveedores por mes (S/)", min_value=0.0, step=1000.0, format="%.0f", key="sim_compras",
-    help="Promedio de tus facturas de los últimos 3 meses. Desde el tercer mes se usa esto como mínimo "
-         "de pagos a proveedores, porque lo que compres desde hoy vence recién ahí (60-90 días).",
+    "Meta de compras por mes (S/)", min_value=0.0, step=1000.0, format="%.0f", key="sim_compras",
+    help="Sale del promedio de tus facturas de los últimos meses. Con esto se llena la tabla de compras nuevas por "
+         "mes (más abajo), que luego puedes ajustar mes por mes.",
 )
 s2.caption(
     f"Según la app: {utils.money(caja_app)}" + (" · faltan ventas u otros ingresos por registrar" if caja_app < 0 else "")
@@ -183,11 +184,61 @@ for i, d in enumerate(deudas):
             help="Solo capital. Desde el mes siguiente su cuota baja en proporción a lo que canceles.",
         )
 
-base = utils.simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes, today)
-
-
 def _mes(m):
     return f"{utils.MONTHS_ES[int(m[5:7]) - 1][:3].capitalize()} {m[2:4]}"
+
+
+# ---------- pagos a proveedores: lo registrado es fijo, lo nuevo se planea ----------
+_base_registrado = utils.simulation_base(
+    events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes, today, compras_nuevas={},
+)
+_propuesta = utils.default_new_purchases(_base_registrado, compras_mes, today)
+_plan_guardado = st.session_state.get("sim_prov_data")
+st.subheader("🧾 Pagos a proveedores por mes")
+_fijos_lbl = [f for f in _base_registrado if f["mes"] not in _propuesta]
+st.caption(
+    "Lo ya registrado (facturas y letras) es fijo. Lo nuevo es lo que pienses comprar desde hoy y vencería ese mes: "
+    f"sale de tu meta de {utils.money(compras_mes)} al mes, pero puedes cambiarlo mes por mes "
+    "(con balanceo de stock y mejores compras, debería bajar)."
+    + (
+        " " + " y ".join(f"{_mes(f['mes'])} ya está cerrado ({utils.money(f['prov_registrado'])})" for f in _fijos_lbl)
+        + ": lo que pidas hoy vence recién después."
+        if _fijos_lbl else ""
+    )
+)
+_prov_df = pd.DataFrame([
+    {
+        "Mes": _mes(m),
+        "Ya registrado (fijo)": next(f["prov_registrado"] for f in _base_registrado if f["mes"] == m),
+        "Compras nuevas que vencen ese mes": float(
+            (_plan_guardado or {}).get(m, _propuesta[m]) if _plan_guardado is not None else _propuesta[m]
+        ),
+    }
+    for m in _propuesta
+])
+_prov_edit = st.data_editor(
+    _prov_df, hide_index=True, width="stretch", num_rows="fixed",
+    key=f"sim_prov_{int(compras_mes)}_{st.session_state.get('sim_inv_ver', 0)}",
+    disabled=["Mes", "Ya registrado (fijo)"],
+    column_config={
+        "Ya registrado (fijo)": st.column_config.NumberColumn(format="%.0f"),
+        "Compras nuevas que vencen ese mes": st.column_config.NumberColumn(min_value=0, step=1000, format="%.0f"),
+    },
+)
+compras_nuevas = {
+    m: float(v) if pd.notna(v) else 0.0
+    for m, v in zip(_propuesta, _prov_edit["Compras nuevas que vencen ese mes"])
+}
+_total_prov = _prov_edit["Ya registrado (fijo)"] + _prov_edit["Compras nuevas que vencen ese mes"].fillna(0)
+st.caption(
+    "Total a proveedores: "
+    + " · ".join(f"{fila['Mes']} {utils.money(t)}" for (_, fila), t in zip(_prov_edit.iterrows(), _total_prov))
+    + ". Si cambias la meta de compras de arriba, esta tabla se vuelve a llenar con la nueva meta."
+)
+
+base = utils.simulation_base(
+    events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes, today, compras_nuevas=compras_nuevas,
+)
 
 
 # ---------- inversiones ----------
@@ -373,10 +424,10 @@ st.caption(
 # ---------- ventanas de compra ----------
 st.divider()
 st.subheader("🛒 Ventanas de compra (hoy)")
-ventanas = utils.purchase_windows(events, invoices, r["serie"], compras_mes, today)
+ventanas = utils.purchase_windows(events, invoices, r["serie"], compras_mes, today, plan=compras_nuevas)
 st.caption(
-    f"Si colocas un pedido hoy, en qué mes vence según el plazo y cuánto espacio queda ese mes con tu meta de "
-    f"compras de **{utils.money(compras_mes)}** al mes (la casilla de arriba: bájala y la tabla se ajusta)."
+    f"Si colocas un pedido hoy, en qué mes vence según el plazo y cuánto espacio queda ese mes según tu plan de "
+    "compras nuevas (la tabla de Pagos a proveedores por mes: cámbiala y esta se ajusta)."
 )
 _ESTADO = {
     "ok": "🟢 Hay espacio",
@@ -389,7 +440,7 @@ st.dataframe(
             "Si pides hoy a…": f"{v['plazo']} días",
             "Vence": utils.fmt_long(v["vence"]) + (" ⚠️" if v["dias_1_10"] else ""),
             "Ya por pagar a proveedores ese mes": utils.money(v["ya_por_pagar"]),
-            "Espacio según tu meta": utils.money(v["espacio"]),
+            "Espacio según tu plan": utils.money(v["espacio"]),
             "Estado": _ESTADO[v["estado"]],
         }
         for v in ventanas["filas"]
@@ -418,6 +469,7 @@ with st.form("sim_guardar", clear_on_submit=True, border=False):
                     "sim_credito": credito, "sim_caja": caja_hoy, "sim_venta": venta_dia, "sim_compras": compras_mes,
                     "pagos": {str(k): v for k, v in pagos.items() if v},
                     "inversiones": inversiones,
+                    "prov_nuevas": compras_nuevas,
                 },
             })
             st.session_state["sim_msg"] = f"Escenario guardado: {nombre.strip()}. Lo encuentras arriba, en Escenarios guardados."
