@@ -822,6 +822,23 @@ def month_expected_inflows(incomes, ingresos_esperados, month_prefix, today=None
 
 # ---------- simulador: usar un crédito para cancelar deudas ----------
 
+def current_month_daily_sales(incomes, today=None, min_dias=7, days_back=30):
+    """Venta promedio por día del mes en curso (total / días con registro).
+    A principio de mes, con menos de `min_dias` días registrados, el promedio
+    sería poco confiable: usa los últimos `days_back` días. Devuelve
+    (promedio, n° de días usados, 'mes' o 'ultimos')."""
+    today = today or today_str()
+    del_mes = [i for i in incomes if i["date"][:7] == today[:7] and i["date"] <= today]
+    dias = {i["date"] for i in del_mes}
+    if len(dias) >= min_dias:
+        return round2(dsum(i["amount"] for i in del_mes) / len(dias)), len(dias), "mes"
+    desde = add_days(today, -days_back)
+    recientes = [i for i in incomes if desde <= i["date"] <= today]
+    dias = {i["date"] for i in recientes}
+    prom = round2(dsum(i["amount"] for i in recientes) / len(dias)) if dias else 0.0
+    return prom, len(dias), "ultimos"
+
+
 def average_monthly_purchases(invoices, today=None, months=3):
     """Compras promedio por mes (facturas por fecha de emisión) en los últimos
     `months` meses completos, sin contar el mes en curso."""

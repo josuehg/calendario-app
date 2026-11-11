@@ -46,7 +46,7 @@ if settings.get("caja_saldo_inicial_fecha"):
         saldo_inicial_fecha=settings.get("caja_saldo_inicial_fecha"),
         fixed_receipts=fixed_receipts,
     )["saldo_actual"]
-venta_dia_app = utils.month_expected_inflows(incomes, [], today[:7], today)["promedio_diario"]
+venta_dia_app, _dias_venta, _base_venta = utils.current_month_daily_sales(incomes, today)
 compras_app = utils.average_monthly_purchases(invoices, today)
 
 DEL_SISTEMA = {
@@ -117,7 +117,8 @@ caja_hoy = s2.number_input(
 )
 venta_dia = s3.number_input(
     "Venta por día (S/)", min_value=0.0, step=100.0, format="%.0f", key="sim_venta",
-    help="Promedio de tus ventas registradas de los últimos 30 días (solo los días con registro).",
+    help="Promedio por día de tus ventas registradas en el mes actual (solo los días con registro). "
+         "Con menos de 7 días registrados en el mes, usa los últimos 30 días.",
 )
 compras_mes = s4.number_input(
     "Meta de compras por mes (S/)", min_value=0.0, step=1000.0, format="%.0f", key="sim_compras",
@@ -128,7 +129,11 @@ s2.caption(
     f"Según la app: {utils.money(caja_app)}" + (" · faltan ventas u otros ingresos por registrar" if caja_app < 0 else "")
     if caja_app is not None else "Configura el saldo inicial de caja en Configuración."
 )
-s3.caption(f"Según la app: {utils.money(venta_dia_app)}")
+s3.caption(
+    f"Según la app: {utils.money(venta_dia_app)} · "
+    + (f"promedio de {utils.MONTHS_ES[int(today[5:7]) - 1]} ({_dias_venta} días registrados)" if _base_venta == "mes"
+       else f"últimos 30 días ({_dias_venta} con registro): aún hay pocos días este mes")
+)
 s4.caption(f"Según la app: {utils.money(compras_app)}")
 
 # ---------- cuánto cancelar ----------
