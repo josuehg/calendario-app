@@ -121,3 +121,18 @@ def test_pagina_explica_arranque_y_hasta_cuando_alcanza(run_view, db):
     assert any("Arrancas con S/ 220,000.00" in m.value for m in at.markdown)
     assert any(b.label == "No cancelar nada" for b in at.button)
     assert not any(b.label in ("Guardar todo", "Limpiar") for b in at.button)
+
+
+def test_boton_carga_datos_del_sistema(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    hoy = date.today().isoformat()
+    db.create_income({"branch": "Sucursal 1", "date": hoy, "amount": 6500.0})
+    at = run_view(VIEW, role="admin")
+    venta = next(n for n in at.number_input if n.key == "sim_venta")
+    assert venta.value == 6500.0
+    venta.set_value(9000.0).run()
+    assert next(n for n in at.number_input if n.key == "sim_venta").value == 9000.0
+    at = click(at, "Cargar datos del sistema")
+    assert not at.exception
+    assert next(n for n in at.number_input if n.key == "sim_venta").value == 6500.0

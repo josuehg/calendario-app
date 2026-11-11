@@ -49,24 +49,52 @@ if settings.get("caja_saldo_inicial_fecha"):
 venta_dia_app = utils.month_expected_inflows(incomes, [], today[:7], today)["promedio_diario"]
 compras_app = utils.average_monthly_purchases(invoices, today)
 
+DEL_SISTEMA = {
+    "sim_caja": float(utils.round2(caja_app)) if caja_app is not None else 0.0,
+    "sim_venta": float(venta_dia_app),
+    "sim_compras": float(compras_app),
+}
+
+
+def _cargar_del_sistema():
+    for k, v in DEL_SISTEMA.items():
+        st.session_state[k] = v
+
+
+# Valores iniciales una sola vez; después mandan lo que escribas (o el botón).
+st.session_state.setdefault("sim_credito", 220000.0)
+for _k, _v in DEL_SISTEMA.items():
+    st.session_state.setdefault(_k, _v)
+
+h1, h2 = st.columns([3, 1])
+h1.caption(
+    "Caja, venta por día y compras salen de lo registrado en la app. Puedes cambiarlos para probar; "
+    "el botón los vuelve a cargar con lo último registrado."
+)
+h2.button("🔄 Cargar datos del sistema", width="stretch", on_click=_cargar_del_sistema,
+          help="Recalcula caja, venta promedio y compras promedio con lo registrado hasta este momento.")
+
 s1, s2, s3, s4 = st.columns(4)
-credito = s1.number_input("Monto del crédito (S/)", min_value=0.0, value=220000.0, step=5000.0, format="%.0f", key="sim_credito")
+credito = s1.number_input("Monto del crédito (S/)", min_value=0.0, step=5000.0, format="%.0f", key="sim_credito")
 caja_hoy = s2.number_input(
-    "Caja real hoy (S/)", value=float(max(caja_app or 0.0, 0.0)), step=1000.0, format="%.0f", key="sim_caja",
+    "Caja real hoy (S/)", step=1000.0, format="%.0f", key="sim_caja",
     help="Efectivo + bancos de hoy. Sale con lo que calcula la app; cámbialo si tu caja real es otra.",
 )
 venta_dia = s3.number_input(
-    "Venta por día (S/)", min_value=0.0, value=float(venta_dia_app), step=100.0, format="%.0f", key="sim_venta",
+    "Venta por día (S/)", min_value=0.0, step=100.0, format="%.0f", key="sim_venta",
     help="Promedio de tus ventas registradas de los últimos 30 días (solo los días con registro).",
 )
 compras_mes = s4.number_input(
-    "Compras a proveedores por mes (S/)", min_value=0.0, value=float(compras_app), step=1000.0, format="%.0f",
-    key="sim_compras",
+    "Compras a proveedores por mes (S/)", min_value=0.0, step=1000.0, format="%.0f", key="sim_compras",
     help="Promedio de tus facturas de los últimos 3 meses. Desde el tercer mes se usa esto como mínimo "
          "de pagos a proveedores, porque lo que compres desde hoy vence recién ahí (60-90 días).",
 )
-if caja_app is not None and caja_app < 0:
-    s2.caption(f"La app calcula {utils.money(caja_app)}: faltan ventas u otros ingresos por registrar.")
+s2.caption(
+    f"Según la app: {utils.money(caja_app)}" + (" · faltan ventas u otros ingresos por registrar" if caja_app < 0 else "")
+    if caja_app is not None else "Configura el saldo inicial de caja en Configuración."
+)
+s3.caption(f"Según la app: {utils.money(venta_dia_app)}")
+s4.caption(f"Según la app: {utils.money(compras_app)}")
 
 # ---------- cuánto cancelar ----------
 st.subheader("Cuánto le cancelas a cada deuda")
