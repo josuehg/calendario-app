@@ -925,7 +925,12 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito):
         serie.append({**f, "cuotas_deudas": round2(cuotas), "caja_fin": caja})
     minimo = min(serie, key=lambda s: s["caja_fin"]) if serie else None
     rojo = next((s["mes"] for s in serie if s["caja_fin"] < 0), None)
+    # Cuánto cambia la caja en un mes "normal" (sin el mes en curso, que
+    # arrastra lo atrasado): negativo = la caja baja eso cada mes.
+    netos = [dsum([b["caja_fin"], -a["caja_fin"]]) for a, b in zip(serie, serie[1:])]
     return {
+        "caja_arranque": dsum([caja_inicial, credito, -usado]),
+        "cambio_mensual_promedio": round2(sum(netos) / len(netos)) if netos else 0.0,
         "usado": usado,
         "sobra_credito": dsum([credito, -usado]),
         "cuota_antes": cuota_antes,

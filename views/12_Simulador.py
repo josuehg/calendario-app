@@ -70,6 +70,11 @@ if caja_app is not None and caja_app < 0:
 
 # ---------- cuánto cancelar ----------
 st.subheader("Cuánto le cancelas a cada deuda")
+st.caption(
+    "Pon solo el **capital** que le devuelves a cada una (máximo, lo que debes). El interés de este mes "
+    "no va aquí: ya está en los pagos del mes en curso. Al pagarle, lo normal es que te pida capital + "
+    "el interés del mes, y eso cuadra con el simulador."
+)
 
 
 def _poner(montos):
@@ -113,6 +118,7 @@ for i, d in enumerate(deudas):
             f"{d['nombre']} · debes {utils.money(d['saldo'])} · cuota {utils.money(d['cuota'])}",
             min_value=0.0, max_value=float(d["saldo"]), step=5000.0, format="%.0f",
             key=f"sim_pago_{d['id']}",
+            help="Solo capital. Desde el mes siguiente su cuota baja en proporción a lo que canceles.",
         )
 
 r = utils.simulate_credit(
@@ -146,12 +152,35 @@ k4.metric(
     _mes(r["mes_minimo"]) if r["mes_minimo"] else None, delta_arrow="off", delta_color="off",
 )
 
+# Con qué caja arrancas: el sobrante del crédito NO queda aparte, se suma a la
+# caja y se va usando para cubrir lo que falte cada mes.
+st.markdown(
+    f"**Arrancas con {utils.money(r['caja_arranque'])}** = caja de hoy {utils.money(caja_hoy)} "
+    f"+ crédito {utils.money(credito)} − lo que cancelas {utils.money(r['usado'])}. "
+    f"El sobrante del crédito ({utils.money(r['sobra_credito'])}) no queda aparte: se suma a tu caja "
+    "y se va usando cada mes para cubrir lo que falte."
+)
+
 if r["usado"] > credito:
     st.error(f"Te pasas del crédito por {utils.money(r['usado'] - credito)}.")
 elif r["mes_rojo"]:
-    st.warning(f"Con este escenario la caja entra en rojo en **{_mes(r['mes_rojo'])}**.")
+    _i = next(i for i, s in enumerate(r["serie"]) if s["mes"] == r["mes_rojo"])
+    _hasta = f"hasta **{_mes(r['serie'][_i - 1]['mes'])}**" if _i else "ni para este mes"
+    st.warning(
+        f"Tu caja y el sobrante del crédito alcanzan {_hasta}. Desde **{_mes(r['mes_rojo'])}** "
+        "faltaría plata: lo negativo del gráfico es lo que tendrías que conseguir de otro lado."
+    )
 else:
-    st.success("Con este escenario la caja no entra en rojo en los meses simulados.")
+    st.success("Con este escenario la caja alcanza en todos los meses simulados.")
+
+if r["cambio_mensual_promedio"] < 0:
+    st.info(
+        f"Después de este mes, tu caja **baja en promedio {utils.money(-r['cambio_mensual_promedio'])} al mes**. "
+        "Eso es lo que habría que ajustar para que se estabilice: comprar menos, vender más o bajar cuotas "
+        "(por ejemplo, reprogramando un préstamo). Prueba bajando las compras arriba."
+    )
+elif r["cambio_mensual_promedio"] > 0:
+    st.caption(f"Después de este mes, tu caja sube en promedio {utils.money(r['cambio_mensual_promedio'])} al mes.")
 
 fig = go.Figure()
 x = [_mes(s["mes"]) for s in r["serie"]]
