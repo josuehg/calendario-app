@@ -135,3 +135,34 @@ def test_calendario_registra_ventas(run_view, db):
     assert not at.exception
     assert sorted((r["branch"], r["amount"]) for r in db.incomes) == [("Sucursal 1", 800.0), ("Sucursal 2", 0.0)]
     assert any("Guardado: 2 nuevo(s)" in s.value for s in at.success)
+
+
+def test_entradas_esperadas_del_mes(db):
+    import utils
+    incomes = [
+        {"date": "2026-11-09", "amount": 3000.0}, {"date": "2026-11-09", "amount": 1000.0},
+        {"date": "2026-11-10", "amount": 6000.0},
+        {"date": "2026-11-11", "amount": 2000.0},  # hoy ya registrado: no cuenta como día restante
+    ]
+    esperados = [
+        {"date": "2026-11-23", "amount": 10000.0},
+        {"date": "2026-11-05", "amount": 500.0},   # ya debió llegar: no se cuenta
+        {"date": "2026-12-23", "amount": 10000.0},  # otro mes
+    ]
+    e = utils.month_expected_inflows(incomes, esperados, "2026-11", today="2026-11-11")
+    # Promedio solo entre días con registro: (4000 + 6000 + 2000) / 3.
+    assert e["promedio_diario"] == 4000.0
+    assert e["dias_restantes"] == 19  # 12..30 nov
+    assert e["venta_esperada"] == 76000.0
+    assert e["fijos_por_llegar"] == 10000.0
+    assert e["total"] == 86000.0
+    # Mes futuro: todos sus días; mes pasado: nada.
+    assert utils.month_expected_inflows(incomes, esperados, "2026-12", "2026-11-11")["dias_restantes"] == 31
+    assert utils.month_expected_inflows(incomes, esperados, "2026-10", "2026-11-11")["total"] == 0.0
+
+
+def test_calendario_neto_proyectado(run_view, db):
+    at = run_view("views/4_Calendario.py", role="admin")
+    assert not at.exception
+    m = {x.label: x for x in at.metric}
+    assert "📈 Neto proyectado" in m

@@ -779,6 +779,47 @@ def fixed_income_expected(fixed_incomes, receipts, today=None, months_ahead=6):
     return sorted(out, key=lambda e: (e["date"], e["name"]))
 
 
+def month_expected_inflows(incomes, ingresos_esperados, month_prefix, today=None, days_back=30):
+    """Plata que todavía puede ENTRAR en el mes `month_prefix` ('YYYY-MM'),
+    para compararla con lo que falta pagar ese mes:
+
+      promedio_diario = venta total de los locales en los últimos
+                        `days_back` días, dividida solo entre los días que
+                        tienen registro (un día sin registrar no es un día
+                        sin venta, así que no baja el promedio).
+      dias_restantes  = días del mes desde hoy que aún no tienen ventas
+                        registradas (hoy cuenta si todavía no se registró).
+      venta_esperada  = promedio_diario * dias_restantes.
+      fijos_por_llegar= ingresos fijos esperados de ese mes con fecha desde
+                        hoy (los que ya debieron llegar y no llegaron no se
+                        cuentan, igual que en el simulador de Presupuesto).
+    Un mes ya pasado da 0: ahí ya no entra nada nuevo."""
+    today = today or today_str()
+    desde = add_days(today, -days_back)
+    recientes = [i for i in incomes if desde <= i["date"] <= today]
+    dias_con_registro = {i["date"] for i in recientes}
+    promedio = round2(dsum(i["amount"] for i in recientes) / len(dias_con_registro)) if dias_con_registro else 0.0
+
+    y, m = int(month_prefix[:4]), int(month_prefix[5:7])
+    registrados = {i["date"] for i in incomes if i["date"].startswith(month_prefix)}
+    dias_restantes = sum(
+        1 for d in range(1, _cal.monthrange(y, m)[1] + 1)
+        if (ds := f"{month_prefix}-{d:02d}") >= today and ds not in registrados
+    )
+    venta_esperada = round2(promedio * dias_restantes)
+    fijos = dsum(
+        i["amount"] for i in ingresos_esperados
+        if i["date"].startswith(month_prefix) and i["date"] >= today
+    )
+    return {
+        "promedio_diario": promedio,
+        "dias_restantes": dias_restantes,
+        "venta_esperada": venta_esperada,
+        "fijos_por_llegar": fijos,
+        "total": dsum([venta_esperada, fijos]),
+    }
+
+
 def events_dataframe(events):
     if not events:
         return pd.DataFrame(columns=["date", "amount", "vendor", "branch", "invoice_number", "label", "overdue"])

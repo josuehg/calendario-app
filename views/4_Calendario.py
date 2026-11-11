@@ -225,9 +225,29 @@ mi2.metric(
     "Neto del mes", utils.money(utils.dsum([_total_pagos_mes, -_fijos_mes])),
     help="Total de pagos del mes menos los ingresos fijos del mes. No resta las ventas de los locales.",
 )
+# Neto proyectado: lo pendiente de pagar del mes contra lo que todavía puede
+# entrar (venta esperada de los días que faltan + ingresos fijos por llegar).
+_entradas = utils.month_expected_inflows(incomes, ingresos_esperados, month_prefix, today_str)
+_neto_proy = utils.dsum([_total_pagos_mes, -_entradas["total"]])
+mi3.metric(
+    "📈 Neto proyectado", utils.money(abs(_neto_proy)),
+    "falta cubrir con caja" if _neto_proy > 0 else "alcanza y sobra",
+    delta_color="inverse" if _neto_proy > 0 else "normal",
+    delta_arrow="off",
+    help=(
+        "Pagos pendientes del mes menos lo que todavía puede entrar: la venta esperada "
+        "de los días que faltan (tu promedio diario de los últimos 30 días) y los "
+        "ingresos fijos por llegar. Si falta, es lo que tendrías que cubrir con la caja actual."
+    ),
+)
+mi3.caption(
+    f"Pagos {utils.money(_total_pagos_mes)} − venta esperada {utils.money(_entradas['venta_esperada'])} "
+    f"({utils.money(_entradas['promedio_diario'])} × {_entradas['dias_restantes']} días) − "
+    f"ingresos fijos {utils.money(_entradas['fijos_por_llegar'])}"
+)
 if mostrar_ventas:
     _ventas_mes = [v for v in incomes if v["date"].startswith(month_prefix)]
-    mi3.metric("💰 Ventas registradas del mes", utils.money(utils.dsum(float(v["amount"]) for v in _ventas_mes)))
+    _mi4.metric("💰 Ventas registradas del mes", utils.money(utils.dsum(float(v["amount"]) for v in _ventas_mes)))
 
 # Todo lo atrasado, no solo del mes que se está viendo (respeta los filtros).
 atrasados = sorted((e for e in events if e["overdue"]), key=lambda e: -e["dias_atraso"])
