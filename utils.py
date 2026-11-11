@@ -906,11 +906,22 @@ def simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, comp
     return filas
 
 
-def simulate_credit(base, deudas, pagos, caja_inicial, credito):
+def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None):
     """Caja a fin de cada mes si del `credito` se usan `pagos` ({id: monto})
     para cancelar capital de `deudas`. Cada deuda cobra su cuota sobre lo
     que queda: cancelar la mitad baja la cuota a la mitad (préstamos que se
-    pagan solo con interés). El mes 0 no cambia (ver simulation_base)."""
+    pagan solo con interés). El mes 0 no cambia (ver simulation_base).
+
+    `inversiones`: [{monto, mes, recupera, mes_recupera}] — salen de la caja
+    en `mes` y, si se espera recuperar algo (p. ej. mercadería de temporada
+    que se vende), eso vuelve en `mes_recupera`."""
+    inversiones = inversiones or []
+
+    def _inv_del_mes(mes):
+        sale = dsum(float(i.get("monto") or 0) for i in inversiones if i.get("mes") == mes)
+        vuelve = dsum(float(i.get("recupera") or 0) for i in inversiones if i.get("mes_recupera") == mes)
+        return dsum([vuelve, -sale])
+
     usado = dsum(pagos.get(d["id"], 0) for d in deudas)
     cuota_antes = dsum(d["cuota"] for d in deudas)
     cuota_despues = dsum(
@@ -921,15 +932,19 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito):
     serie = []
     for k, f in enumerate(base):
         cuotas = 0.0 if k == 0 else cuota_despues
-        caja = dsum([caja, f["ventas"], f["fijos"], -f["proveedores"], -f["otros"], -cuotas])
-        serie.append({**f, "cuotas_deudas": round2(cuotas), "caja_fin": caja})
+        inv = _inv_del_mes(f["mes"])
+        caja = dsum([caja, f["ventas"], f["fijos"], -f["proveedores"], -f["otros"], -cuotas, inv])
+        serie.append({**f, "cuotas_deudas": round2(cuotas), "inversiones": inv, "caja_fin": caja})
     minimo = min(serie, key=lambda s: s["caja_fin"]) if serie else None
     rojo = next((s["mes"] for s in serie if s["caja_fin"] < 0), None)
     # Cuánto cambia la caja en un mes "normal" (sin el mes en curso, que
     # arrastra lo atrasado): negativo = la caja baja eso cada mes.
-    netos = [dsum([b["caja_fin"], -a["caja_fin"]]) for a, b in zip(serie, serie[1:])]
+    # Las inversiones son puntuales: no cuentan para la tendencia de la caja.
+    netos = [dsum([b["caja_fin"], -a["caja_fin"], -b["inversiones"]]) for a, b in zip(serie, serie[1:])]
     return {
         "caja_arranque": dsum([caja_inicial, credito, -usado]),
+        "total_inversiones": dsum(float(i.get("monto") or 0) for i in inversiones),
+        "total_recupera": dsum(float(i.get("recupera") or 0) for i in inversiones),
         "cambio_mensual_promedio": round2(sum(netos) / len(netos)) if netos else 0.0,
         "usado": usado,
         "sobra_credito": dsum([credito, -usado]),

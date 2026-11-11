@@ -149,22 +149,60 @@ for i, d in enumerate(deudas):
             help="Solo capital. Desde el mes siguiente su cuota baja en proporción a lo que canceles.",
         )
 
-r = utils.simulate_credit(
-    utils.simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes, today),
-    deudas, pagos, caja_hoy, credito,
-)
-base_guardar = utils.simulate_credit(
-    utils.simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes, today),
-    deudas, {}, caja_hoy, credito,
-)
-
-# ---------- resultado ----------
-st.divider()
+base = utils.simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes, today)
 
 
 def _mes(m):
     return f"{utils.MONTHS_ES[int(m[5:7]) - 1][:3].capitalize()} {m[2:4]}"
 
+
+# ---------- inversiones ----------
+st.subheader("Inversiones")
+st.caption(
+    "Plata que separas para mejorar el negocio. Sale de la caja en el mes que elijas. Si esperas "
+    "recuperar algo (por ejemplo, mercadería de temporada que se vende), pon cuánto y en qué mes vuelve. "
+    "Agrega o borra filas como quieras."
+)
+_meses_lbl = {_mes(f["mes"]): f["mes"] for f in base}
+_lbls = list(_meses_lbl)
+_mes_inv = _lbls[1] if len(_lbls) > 1 else _lbls[0]
+INV_INICIAL = pd.DataFrame([
+    {"Concepto": "Mejoras Odoo (compras, balanceo de stock)", "Monto (S/)": 10000.0, "Mes": _mes_inv,
+     "Recupera (S/)": None, "Mes en que recupera": None},
+    {"Concepto": "Línea Dermosol (temporada)", "Monto (S/)": 5000.0, "Mes": _mes_inv,
+     "Recupera (S/)": None, "Mes en que recupera": None},
+])
+# Tipos explícitos: así las celdas vacías se ven vacías y no como "None".
+INV_INICIAL["Recupera (S/)"] = INV_INICIAL["Recupera (S/)"].astype("float")
+INV_INICIAL["Mes en que recupera"] = INV_INICIAL["Mes en que recupera"].astype("string")
+inv_df = st.data_editor(
+    INV_INICIAL, key="sim_inversiones", num_rows="dynamic", hide_index=True, width="stretch",
+    column_config={
+        "Concepto": st.column_config.TextColumn(required=True),
+        "Monto (S/)": st.column_config.NumberColumn(min_value=0, step=500, format="%.0f"),
+        "Mes": st.column_config.SelectboxColumn(options=_lbls, required=True),
+        "Recupera (S/)": st.column_config.NumberColumn(
+            min_value=0, step=500, format="%.0f", help="Opcional: lo que esperas que vuelva (ventas de esa mercadería)."
+        ),
+        "Mes en que recupera": st.column_config.SelectboxColumn(options=_lbls),
+    },
+)
+inversiones = [
+    {
+        "monto": float(row["Monto (S/)"] or 0),
+        "mes": _meses_lbl.get(row["Mes"]),
+        "recupera": float(row["Recupera (S/)"]) if pd.notna(row["Recupera (S/)"]) else 0.0,
+        "mes_recupera": _meses_lbl.get(row["Mes en que recupera"]) if pd.notna(row["Mes en que recupera"]) else None,
+    }
+    for _, row in inv_df.iterrows()
+    if pd.notna(row["Monto (S/)"]) and row["Monto (S/)"] and pd.notna(row["Mes"])
+]
+
+r = utils.simulate_credit(base, deudas, pagos, caja_hoy, credito, inversiones)
+base_guardar = utils.simulate_credit(base, deudas, {}, caja_hoy, credito, inversiones)
+
+# ---------- resultado ----------
+st.divider()
 
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Crédito usado", utils.money(r["usado"]), f"quedan {utils.money(r['sobra_credito'])} en caja", delta_arrow="off",
@@ -187,6 +225,12 @@ st.markdown(
     f"+ crédito {utils.money(credito)} − lo que cancelas {utils.money(r['usado'])}. "
     f"El sobrante del crédito ({utils.money(r['sobra_credito'])}) no queda aparte: se suma a tu caja "
     "y se va usando cada mes para cubrir lo que falte."
+    + (
+        f" Las inversiones ({utils.money(r['total_inversiones'])}) salen de la caja en su mes"
+        + (f" y vuelven {utils.money(r['total_recupera'])}" if r["total_recupera"] else "")
+        + "."
+        if r["total_inversiones"] else ""
+    )
 )
 
 if r["usado"] > credito:
@@ -236,6 +280,7 @@ st.dataframe(
             "Proveedores": utils.money(s["proveedores"]),
             "Otros pagos": utils.money(s["otros"]),
             "Cuotas de estas deudas": utils.money(s["cuotas_deudas"]) if k else "como están registradas",
+            "Inversiones": utils.money(s["inversiones"]) if s["inversiones"] else "—",
             "Caja a fin de mes": utils.money(s["caja_fin"]),
         }
         for k, s in enumerate(r["serie"])
