@@ -314,3 +314,22 @@ def test_venta_promedio_del_mes_actual(db):
     # A principio de mes (menos de 7 días), usa los últimos 30 días.
     prom, dias, base = utils.current_month_daily_sales(oct_ + nov[:3], "2026-11-03")
     assert (prom, dias, base) == (6333.33, 9, "ultimos")
+
+
+def test_estado_de_deuda_hoy(db):
+    import utils
+    d = {"id": "a", "nombre": "China", "saldo": 30000.0, "cuota": 3000.0, "fixed_expense_id": 70}
+    gastos = [
+        {"fixed_expense_id": 70, "due_date": "2026-10-24", "amount": 3000.0, "status": "pagado"},
+        {"fixed_expense_id": 70, "due_date": "2026-11-06", "amount": 3000.0, "status": "pendiente"},
+        {"fixed_expense_id": 70, "due_date": "2026-12-06", "amount": 3000.0, "status": "pendiente"},
+        {"fixed_expense_id": 99, "due_date": "2026-11-01", "amount": 50.0, "status": "pendiente"},
+    ]
+    e = utils.debt_status_today(d, gastos, "2026-11-11")
+    assert (e["vencidas_n"], e["vencidas_monto"], e["dias_atraso"]) == (1, 3000.0, 5)
+    assert (e["interes_dia"], e["corte"], e["dias_desde_corte"], e["interes_corrido"]) == (100.0, "2026-11-06", 5, 500.0)
+    assert e["cancelar_hoy"] == 33500.0 and e["proxima"] == "2026-12-06"
+    # Al día: sin vencidas, el interés corre desde la última cuota pagada.
+    gastos[1]["status"] = "pagado"
+    e = utils.debt_status_today(d, gastos, "2026-11-11")
+    assert (e["vencidas_n"], e["cancelar_hoy"]) == (0, 30500.0)

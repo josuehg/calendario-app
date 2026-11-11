@@ -822,6 +822,45 @@ def month_expected_inflows(incomes, ingresos_esperados, month_prefix, today=None
 
 # ---------- simulador: usar un crédito para cancelar deudas ----------
 
+def debt_status_today(deuda, expenses, today=None):
+    """Cómo está hoy una deuda informal que cobra interés por día (cuota
+    mensual = interés del mes, p. ej. 10%):
+
+      vencidas      = sus cuotas pendientes con fecha ya pasada (cuántas, cuánto
+                      suman y desde cuándo: días de atraso de la más antigua).
+      interes_dia   = cuota / 30.
+      corte         = la última fecha de cuota hasta hoy (pagada o no); desde
+                      ahí corre el interés nuevo.
+      cancelar_hoy  = capital + cuotas vencidas + interés desde el corte: lo
+                      que más o menos pediría para cancelarla hoy.
+      proxima       = la próxima cuota que vence (desde hoy)."""
+    today = today or today_str()
+    fid = deuda.get("fixed_expense_id")
+    cuotas = [x for x in expenses if fid and x.get("fixed_expense_id") == fid]
+    vencidas = sorted(
+        (x for x in cuotas if x.get("status") == "pendiente" and x["due_date"] < today), key=lambda x: x["due_date"]
+    )
+    pasadas = [x["due_date"] for x in cuotas if x["due_date"] <= today and x.get("status") != "omitido"]
+    corte = max(pasadas) if pasadas else None
+    futuras = sorted(x["due_date"] for x in cuotas if x.get("status") == "pendiente" and x["due_date"] >= today)
+    interes_dia = round2(deuda["cuota"] / 30)
+    dias_corte = (date.fromisoformat(today) - date.fromisoformat(corte)).days if corte else 0
+    interes_corrido = round2(interes_dia * dias_corte)
+    monto_vencidas = dsum(x["amount"] for x in vencidas)
+    return {
+        "vencidas_n": len(vencidas),
+        "vencidas_monto": monto_vencidas,
+        "mas_antigua": vencidas[0]["due_date"] if vencidas else None,
+        "dias_atraso": days_late(vencidas[0]["due_date"], today) if vencidas else 0,
+        "interes_dia": interes_dia,
+        "corte": corte,
+        "dias_desde_corte": dias_corte,
+        "interes_corrido": interes_corrido,
+        "cancelar_hoy": dsum([deuda["saldo"], monto_vencidas, interes_corrido]),
+        "proxima": futuras[0] if futuras else None,
+    }
+
+
 def current_month_daily_sales(incomes, today=None, min_dias=7, days_back=30):
     """Venta promedio por día del mes en curso (total / días con registro).
     A principio de mes, con menos de `min_dias` días registrados, el promedio
