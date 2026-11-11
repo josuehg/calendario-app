@@ -820,6 +820,115 @@ def month_expected_inflows(incomes, ingresos_esperados, month_prefix, today=None
     }
 
 
+# ---------- simulador: usar un crédito para cancelar deudas ----------
+
+def average_monthly_purchases(invoices, today=None, months=3):
+    """Compras promedio por mes (facturas por fecha de emisión) en los últimos
+    `months` meses completos, sin contar el mes en curso."""
+    today = today or today_str()
+    hasta = today[:7]
+    desde = _sumar_meses(hasta, -months)
+    total = dsum(i["amount"] for i in invoices if desde <= (i.get("issue_date") or "")[:7] < hasta)
+    return round2(total / months) if months else 0.0
+
+
+def simulator_debts(debts, fixed_expenses):
+    """Deudas que el simulador ofrece cancelar: las informales activas con
+    saldo. Su cuota mensual se toma del gasto fijo vinculado (que es lo que
+    de verdad se paga) o, si no está vinculada, de la ficha de la deuda."""
+    fx = {f["id"]: f for f in fixed_expenses}
+    out = []
+    for d in debts:
+        if d.get("debt_type") != "informal" or not d.get("active", True) or float(d.get("balance") or 0) <= 0:
+            continue
+        vinculado = fx.get(d.get("fixed_expense_id"))
+        cuota = float(vinculado["amount"]) if vinculado else float(d.get("monthly_payment") or 0)
+        out.append({
+            "id": d["id"],
+            "nombre": vinculado["name"] if vinculado else d["creditor"],
+            "saldo": round2(d["balance"]),
+            "cuota": round2(cuota),
+            "fixed_expense_id": d.get("fixed_expense_id"),
+        })
+    return sorted(out, key=lambda x: (-x["saldo"], x["nombre"]))
+
+
+def simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes,
+                    today=None, n_meses=7):
+    """Lo que entra y sale cada mes desde el mes en curso, SIN las cuotas de
+    las deudas del simulador (esas dependen de cuánto se cancele):
+
+      ventas      = venta_dia * días (mes en curso: solo los que faltan y
+                    aún no tienen ventas registradas).
+      fijos       = ingresos fijos esperados de ese mes (desde hoy).
+      proveedores = facturas y letras pendientes que vencen ese mes; desde el
+                    tercer mes, al menos `compras_mes` (lo que se compre de
+                    ahora en adelante vence recién ahí, a 60-90 días).
+      otros       = el resto de lo pendiente (gastos fijos, bancos...).
+    El mes en curso incluye lo atrasado y deja las cuotas de esas deudas tal
+    como están registradas (el crédito todavía no llegó)."""
+    today = today or today_str()
+    mes0 = today[:7]
+    meses = [_sumar_meses(mes0, k) for k in range(n_meses)]
+    ids_deudas = {d["fixed_expense_id"] for d in deudas if d.get("fixed_expense_id")}
+    filas = []
+    for k, mes in enumerate(meses):
+        if k == 0:
+            del_mes = [e for e in events if e["date"][:7] <= mes]
+            dias = month_expected_inflows(incomes, [], mes, today)["dias_restantes"]
+        else:
+            del_mes = [
+                e for e in events
+                if e["date"][:7] == mes and not (e["kind"] == "expense" and e.get("fixed_expense_id") in ids_deudas)
+            ]
+            y, m = int(mes[:4]), int(mes[5:7])
+            dias = _cal.monthrange(y, m)[1]
+        prov = dsum(e["amount"] for e in del_mes if e["kind"] in ("invoice", "letra"))
+        if k >= 2:
+            prov = max(prov, round2(compras_mes))
+        filas.append({
+            "mes": mes,
+            "ventas": round2(venta_dia * dias),
+            "fijos": dsum(i["amount"] for i in ingresos_esperados if i["date"][:7] == mes and i["date"] >= today),
+            "proveedores": prov,
+            "otros": dsum(e["amount"] for e in del_mes if e["kind"] not in ("invoice", "letra")),
+        })
+    return filas
+
+
+def simulate_credit(base, deudas, pagos, caja_inicial, credito):
+    """Caja a fin de cada mes si del `credito` se usan `pagos` ({id: monto})
+    para cancelar capital de `deudas`. Cada deuda cobra su cuota sobre lo
+    que queda: cancelar la mitad baja la cuota a la mitad (préstamos que se
+    pagan solo con interés). El mes 0 no cambia (ver simulation_base)."""
+    usado = dsum(pagos.get(d["id"], 0) for d in deudas)
+    cuota_antes = dsum(d["cuota"] for d in deudas)
+    cuota_despues = dsum(
+        d["cuota"] * (d["saldo"] - min(pagos.get(d["id"], 0), d["saldo"])) / d["saldo"] for d in deudas
+    )
+    deuda_restante = dsum(d["saldo"] - min(pagos.get(d["id"], 0), d["saldo"]) for d in deudas)
+    caja = dsum([caja_inicial, credito, -usado])
+    serie = []
+    for k, f in enumerate(base):
+        cuotas = 0.0 if k == 0 else cuota_despues
+        caja = dsum([caja, f["ventas"], f["fijos"], -f["proveedores"], -f["otros"], -cuotas])
+        serie.append({**f, "cuotas_deudas": round2(cuotas), "caja_fin": caja})
+    minimo = min(serie, key=lambda s: s["caja_fin"]) if serie else None
+    rojo = next((s["mes"] for s in serie if s["caja_fin"] < 0), None)
+    return {
+        "usado": usado,
+        "sobra_credito": dsum([credito, -usado]),
+        "cuota_antes": cuota_antes,
+        "cuota_despues": round2(cuota_despues),
+        "ahorro_mensual": dsum([cuota_antes, -round2(cuota_despues)]),
+        "deuda_restante": deuda_restante,
+        "serie": serie,
+        "caja_minima": minimo["caja_fin"] if minimo else caja,
+        "mes_minimo": minimo["mes"] if minimo else None,
+        "mes_rojo": rojo,
+    }
+
+
 def events_dataframe(events):
     if not events:
         return pd.DataFrame(columns=["date", "amount", "vendor", "branch", "invoice_number", "label", "overdue"])
