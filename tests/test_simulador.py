@@ -87,3 +87,12 @@ def test_pagina_sin_deudas(run_view, db):
     at = run_view(VIEW, role="admin")
     assert not at.exception
     assert any("No hay deudas informales" in i.value for i in at.info)
+
+
+def test_compras_promedio_ignora_meses_antes_de_usar_la_app(db):
+    import utils
+    inv = [{"issue_date": "2026-09-05", "amount": 113000.0}, {"issue_date": "2026-10-05", "amount": 114000.0},
+           {"issue_date": "2026-11-02", "amount": 16000.0}]
+    # Agosto no tiene facturas (aún no se usaba la app): promedio de sep y oct.
+    assert utils.average_monthly_purchases(inv, "2026-11-11") == 113500.0
+    assert utils.average_monthly_purchases([], "2026-11-11") == 0.0

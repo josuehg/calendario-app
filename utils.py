@@ -828,8 +828,18 @@ def average_monthly_purchases(invoices, today=None, months=3):
     today = today or today_str()
     hasta = today[:7]
     desde = _sumar_meses(hasta, -months)
+    # Los meses antes de empezar a registrar facturas no cuentan: sin esto, un
+    # mes vacío (antes de usar la app) bajaba el promedio un tercio.
+    emitidas = [(i.get("issue_date") or "")[:7] for i in invoices if i.get("issue_date")]
+    primero = min((m for m in emitidas if m), default=hasta)
+    desde = max(desde, primero)
+    n = 0
+    m = desde
+    while m < hasta:
+        n += 1
+        m = _sumar_meses(m, 1)
     total = dsum(i["amount"] for i in invoices if desde <= (i.get("issue_date") or "")[:7] < hasta)
-    return round2(total / months) if months else 0.0
+    return round2(total / n) if n else 0.0
 
 
 def simulator_debts(debts, fixed_expenses):
