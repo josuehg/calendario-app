@@ -304,3 +304,13 @@ def test_escenario_guarda_y_carga_plan_de_proveedores(run_view, db):
     assert not at.exception
     editor = next(d.value for d in at.dataframe if "Compras nuevas que vencen ese mes" in d.value.columns)
     assert set(editor["Compras nuevas que vencen ese mes"]) == {1234.0}
+
+
+def test_venta_promedio_del_mes_actual(db):
+    import utils
+    oct_ = [{"date": f"2026-10-{d}", "amount": 6000.0} for d in range(26, 32)]
+    nov = [{"date": f"2026-11-{d:02d}", "amount": 7000.0} for d in range(1, 11)]
+    assert utils.current_month_daily_sales(oct_ + nov, "2026-11-11") == (7000.0, 10, "mes")
+    # A principio de mes (menos de 7 días), usa los últimos 30 días.
+    prom, dias, base = utils.current_month_daily_sales(oct_ + nov[:3], "2026-11-03")
+    assert (prom, dias, base) == (6333.33, 9, "ultimos")
