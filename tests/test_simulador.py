@@ -163,3 +163,67 @@ def test_pagina_trae_inversiones_de_ejemplo(run_view, db):
     tabla = at.dataframe[-1].value  # la primera es la tabla editable de inversiones
     assert "Inversiones" in tabla.columns
     assert tabla["Inversiones"].iloc[1] == "S/ -15,000.00"
+
+
+def _serie(*cajas):
+    return [{"mes": f"m{k}", "caja_fin": c} for k, c in enumerate(cajas)]
+
+
+def test_ajuste_sin_rojo_es_cero(db):
+    import utils
+    a = utils.adjustment_to_stay_positive(_serie(1000.0, 500.0, 200.0))
+    assert a == {"compras_mes": 0.0, "venta_mes": 0.0, "venta_dia": 0.0, "extra_inicio": 0.0, "extra_inicio_ventas": 0.0}
+
+
+def test_ajuste_compras_y_ventas(db):
+    import utils
+    # Cae 10k al mes desde el mes 2: hasta -30k en el mes 4.
+    a = utils.adjustment_to_stay_positive(_serie(20000.0, 10000.0, 0.0, -10000.0, -30000.0))
+    # Compras se notan desde el mes 2: el mes 4 tiene 3 meses de ahorro → 10k; el 3, 2 meses → 5k.
+    assert a["compras_mes"] == 10000.0 and a["extra_inicio"] == 0.0
+    # Ventas desde el mes 1: mes 4 → 30k/4 = 7.5k al mes = 250 por día.
+    assert (a["venta_mes"], a["venta_dia"]) == (7500.0, 250.0)
+
+
+def test_ajuste_pide_plata_ya_si_el_mes_siguiente_queda_en_rojo(db):
+    import utils
+    a = utils.adjustment_to_stay_positive(_serie(5000.0, -8000.0, -10000.0))
+    assert a["extra_inicio"] == 8000.0
+    assert a["compras_mes"] == 2000.0  # con los 8k cubiertos, al mes 2 le faltan 2k en 1 mes de ahorro
+
+
+def test_guardar_y_cargar_escenario(run_view, db):
+    d = db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                        "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin")
+    next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").set_value(30000.0)
+    next(n for n in at.number_input if n.key == "sim_venta").set_value(7000.0)
+    next(t for t in at.text_input if t.label == "Nombre del escenario").set_value("Plan B")
+    at = click(at, "Guardar escenario")
+    assert not at.exception
+    [esc] = db.sim_scenarios
+    assert esc["name"] == "Plan B"
+    assert esc["data"]["pagos"] == {str(d["id"]): 30000.0} and esc["data"]["sim_venta"] == 7000.0
+    assert len(esc["data"]["inversiones"]) == 2
+
+    # Otra sesión: arranca de cero y carga el escenario guardado.
+    at = run_view(VIEW, role="admin")
+    assert next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").value == 0.0
+    at = next(b for b in at.button if b.label == "Cargar").click().run()
+    assert not at.exception
+    assert next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").value == 30000.0
+    assert next(n for n in at.number_input if n.key == "sim_venta").value == 7000.0
+    assert any("Escenario cargado: Plan B" in s.value for s in at.success)
+
+    at = next(b for b in at.button if b.label == "Eliminar").click().run()
+    assert db.sim_scenarios == []
+
+
+def test_pagina_muestra_meta_para_no_entrar_en_rojo(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    db.create_expense({"name": "Alquiler", "amount": 250000.0, "due_date": date.today().isoformat(),
+                       "status": "pendiente", "category": "Alquiler", "branch": "Sucursal 1", "kind": "variable"})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    assert any("Para que tu caja no entre en rojo" in i.value for i in at.info)

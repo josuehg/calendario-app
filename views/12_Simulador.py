@@ -10,7 +10,7 @@ st.caption(
     "¿Qué pasa con tu caja si usas un crédito para cancelar deudas caras? Mueve "
     "cuánto le cancelas a cada una y mira la caja a fin de cada mes. Todo sale de "
     "tus datos: Deudas (las informales), lo pendiente del Calendario, tus ventas "
-    "registradas y los ingresos fijos. Nada se guarda: es solo para comparar."
+    "registradas y los ingresos fijos. No cambia tus datos; puedes guardar escenarios para compararlos."
 )
 
 db.ensure_expense_instances()
@@ -65,6 +65,40 @@ def _cargar_del_sistema():
 st.session_state.setdefault("sim_credito", 220000.0)
 for _k, _v in DEL_SISTEMA.items():
     st.session_state.setdefault(_k, _v)
+
+_msg = st.session_state.pop("sim_msg", None)
+if _msg:
+    st.success(_msg)
+
+escenarios = db.list_sim_scenarios()
+
+
+def _cargar_escenario(esc):
+    """Pone en los campos lo guardado en el escenario (corre antes de dibujar)."""
+    d = esc.get("data") or {}
+    for k in ("sim_credito", "sim_caja", "sim_venta", "sim_compras"):
+        if d.get(k) is not None:
+            st.session_state[k] = float(d[k])
+    guardados = d.get("pagos") or {}
+    for deuda in deudas:
+        st.session_state[f"sim_pago_{deuda['id']}"] = float(min(guardados.get(str(deuda["id"]), 0), deuda["saldo"]))
+    st.session_state["sim_inv_data"] = d.get("inversiones") or []
+    st.session_state["sim_inv_ver"] = st.session_state.get("sim_inv_ver", 0) + 1
+    st.session_state["sim_msg"] = f"Escenario cargado: {esc['name']}."
+
+
+def _eliminar_escenario(esc):
+    db.delete_sim_scenario(esc["id"])
+    st.session_state["sim_msg"] = f"Escenario eliminado: {esc['name']}."
+
+
+if escenarios:
+    with st.expander(f"📂 Escenarios guardados ({len(escenarios)})"):
+        e1, e2, e3 = st.columns([3, 1, 1])
+        _por_nombre = {f"{e['name']} · {utils.fmt_time(e.get('created_at'))}": e for e in escenarios}
+        _elegido = _por_nombre[e1.selectbox("Escenario", list(_por_nombre), label_visibility="collapsed", key="sim_esc_sel")]
+        e2.button("Cargar", width="stretch", type="primary", on_click=_cargar_escenario, args=(_elegido,))
+        e3.button("Eliminar", width="stretch", on_click=_eliminar_escenario, args=(_elegido,))
 
 h1, h2 = st.columns([3, 1])
 h1.caption(
@@ -166,17 +200,29 @@ st.caption(
 _meses_lbl = {_mes(f["mes"]): f["mes"] for f in base}
 _lbls = list(_meses_lbl)
 _mes_inv = _lbls[1] if len(_lbls) > 1 else _lbls[0]
-INV_INICIAL = pd.DataFrame([
-    {"Concepto": "Mejoras Odoo (compras, balanceo de stock)", "Monto (S/)": 10000.0, "Mes": _mes_inv,
-     "Recupera (S/)": None, "Mes en que recupera": None},
-    {"Concepto": "Línea Dermosol (temporada)", "Monto (S/)": 5000.0, "Mes": _mes_inv,
-     "Recupera (S/)": None, "Mes en que recupera": None},
-])
+_lbl_de_mes = {v: k for k, v in _meses_lbl.items()}
+if "sim_inv_data" in st.session_state:
+    # De un escenario guardado: un mes que ya pasó (fuera de la proyección) queda vacío.
+    _filas = [
+        {"Concepto": i.get("concepto") or "", "Monto (S/)": i.get("monto"), "Mes": _lbl_de_mes.get(i.get("mes")),
+         "Recupera (S/)": i.get("recupera") or None, "Mes en que recupera": _lbl_de_mes.get(i.get("mes_recupera"))}
+        for i in st.session_state["sim_inv_data"]
+    ]
+else:
+    _filas = [
+        {"Concepto": "Mejoras Odoo (compras, balanceo de stock)", "Monto (S/)": 10000.0, "Mes": _mes_inv,
+         "Recupera (S/)": None, "Mes en que recupera": None},
+        {"Concepto": "Línea Dermosol (temporada)", "Monto (S/)": 5000.0, "Mes": _mes_inv,
+         "Recupera (S/)": None, "Mes en que recupera": None},
+    ]
+INV_INICIAL = pd.DataFrame(
+    _filas, columns=["Concepto", "Monto (S/)", "Mes", "Recupera (S/)", "Mes en que recupera"],
+)
 # Tipos explícitos: así las celdas vacías se ven vacías y no como "None".
 INV_INICIAL["Recupera (S/)"] = INV_INICIAL["Recupera (S/)"].astype("float")
 INV_INICIAL["Mes en que recupera"] = INV_INICIAL["Mes en que recupera"].astype("string")
 inv_df = st.data_editor(
-    INV_INICIAL, key="sim_inversiones", num_rows="dynamic", hide_index=True, width="stretch",
+    INV_INICIAL, key=f"sim_inversiones_{st.session_state.get('sim_inv_ver', 0)}", num_rows="dynamic", hide_index=True, width="stretch",
     column_config={
         "Concepto": st.column_config.TextColumn(required=True),
         "Monto (S/)": st.column_config.NumberColumn(min_value=0, step=500, format="%.0f"),
@@ -189,6 +235,7 @@ inv_df = st.data_editor(
 )
 inversiones = [
     {
+        "concepto": str(row["Concepto"]) if pd.notna(row["Concepto"]) else "",
         "monto": float(row["Monto (S/)"] or 0),
         "mes": _meses_lbl.get(row["Mes"]),
         "recupera": float(row["Recupera (S/)"]) if pd.notna(row["Recupera (S/)"]) else 0.0,
@@ -245,11 +292,39 @@ elif r["mes_rojo"]:
 else:
     st.success("Con este escenario la caja alcanza en todos los meses simulados.")
 
-if r["cambio_mensual_promedio"] < 0:
+ajuste = utils.adjustment_to_stay_positive(r["serie"])
+if ajuste["compras_mes"] or ajuste["venta_mes"] or ajuste["extra_inicio"]:
+    _mes2 = _mes(r["serie"][2]["mes"]) if len(r["serie"]) > 2 else "más adelante"
+    _lineas = ["**🎯 Para que tu caja no entre en rojo necesitas, una de estas:**"]
+    if ajuste["extra_inicio"]:
+        _lineas.append(
+            f"- Primero, conseguir **{utils.money(ajuste['extra_inicio'])} ya** (más crédito, cobrar antes o "
+            "postergar algún pago): los primeros meses quedan en rojo antes de que comprar menos llegue a notarse."
+        )
+    if ajuste["compras_mes"] and ajuste["compras_mes"] > compras_mes:
+        _lineas.append(
+            f"- Solo con comprar menos **no alcanza**: harían falta {utils.money(ajuste['compras_mes'])} menos al mes "
+            f"y compras {utils.money(compras_mes)}."
+        )
+    elif ajuste["compras_mes"]:
+        _lineas.append(
+            f"- **Comprar {utils.money(ajuste['compras_mes'])} menos cada mes** (de "
+            f"{utils.money(compras_mes)} a {utils.money(max(compras_mes - ajuste['compras_mes'], 0))}). "
+            f"Se nota en caja desde {_mes2}, cuando vence lo que compres desde hoy."
+        )
+    if ajuste["venta_mes"]:
+        _lineas.append(
+            f"- O **vender {utils.money(ajuste['venta_dia'])} más por día** ({utils.money(ajuste['venta_mes'])} al mes)"
+            + (f", y además conseguir {utils.money(ajuste['extra_inicio_ventas'])} para este mes"
+               if ajuste["extra_inicio_ventas"] else "")
+            + "."
+        )
+    _lineas.append("También sirve combinarlas (la mitad con compras y la mitad con ventas) o bajar cuotas reprogramando un préstamo.")
+    st.info("\n\n".join(_lineas))
+elif r["cambio_mensual_promedio"] < 0:
     st.info(
-        f"Después de este mes, tu caja **baja en promedio {utils.money(-r['cambio_mensual_promedio'])} al mes**. "
-        "Eso es lo que habría que ajustar para que se estabilice: comprar menos, vender más o bajar cuotas "
-        "(por ejemplo, reprogramando un préstamo). Prueba bajando las compras arriba."
+        f"Tu caja no entra en rojo, pero después de este mes **baja en promedio "
+        f"{utils.money(-r['cambio_mensual_promedio'])} al mes**: vigílalo."
     )
 elif r["cambio_mensual_promedio"] > 0:
     st.caption(f"Después de este mes, tu caja sube en promedio {utils.money(r['cambio_mensual_promedio'])} al mes.")
@@ -291,5 +366,26 @@ st.caption(
     "Supuestos: el crédito entra este mes y lo que cancelas deja de cobrarse desde el mes siguiente. "
     "Cada deuda cobra su cuota sobre lo que queda (cancelar la mitad baja la cuota a la mitad). "
     "\"Otros pagos\" son los gastos fijos, préstamos bancarios y demás pendientes del Calendario; "
-    "el mes en curso incluye lo atrasado. Ninguna cifra se guarda: no cambia nada en tus datos."
+    "el mes en curso incluye lo atrasado. Nada de esto cambia tus datos; solo se guarda el escenario si "
+    "pulsas Guardar escenario."
 )
+
+# ---------- guardar este escenario ----------
+st.divider()
+with st.form("sim_guardar", clear_on_submit=True, border=False):
+    g1, g2 = st.columns([3, 1])
+    nombre = g1.text_input("Nombre del escenario", placeholder="Plan B: China + Marlene + KR Carmen")
+    if g2.form_submit_button("💾 Guardar escenario", width="stretch"):
+        if not nombre.strip():
+            st.warning("Ponle un nombre al escenario.")
+        else:
+            db.create_sim_scenario({
+                "name": nombre.strip(),
+                "data": {
+                    "sim_credito": credito, "sim_caja": caja_hoy, "sim_venta": venta_dia, "sim_compras": compras_mes,
+                    "pagos": {str(k): v for k, v in pagos.items() if v},
+                    "inversiones": inversiones,
+                },
+            })
+            st.session_state["sim_msg"] = f"Escenario guardado: {nombre.strip()}. Lo encuentras arriba, en Escenarios guardados."
+            st.rerun()

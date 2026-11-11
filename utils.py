@@ -959,6 +959,35 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None
     }
 
 
+def adjustment_to_stay_positive(serie):
+    """Cuánto habría que ajustar cada mes para que la caja (`serie` de
+    simulate_credit) nunca quede en rojo:
+
+      compras_mes  = comprar eso menos cada mes. Se nota recién desde el
+                     tercer mes (lo que compras hoy vence en 60-90 días).
+      venta_mes    = vender eso más cada mes (entra al toque, desde el mes
+                     siguiente); venta_dia = lo mismo por día (/30).
+      extra_inicio = plata que haría falta conseguir YA (más crédito, cobrar
+                     antes, postergar un pago) porque los primeros meses
+                     quedan en rojo antes de que bajar compras llegue a
+                     tiempo. Con eso cubierto se calcula lo demás.
+    Todo 0 si la caja no entra en rojo."""
+    cajas = [s["caja_fin"] for s in serie]
+    if not cajas or min(cajas) >= 0:
+        return {"compras_mes": 0.0, "venta_mes": 0.0, "venta_dia": 0.0, "extra_inicio": 0.0, "extra_inicio_ventas": 0.0}
+    extra = max(0.0, -min(cajas[:2]))
+    compras = max([0.0] + [-(c + extra) / (k - 1) for k, c in enumerate(cajas) if k >= 2])
+    extra_v = max(0.0, -cajas[0])
+    venta = max([0.0] + [-(c + extra_v) / k for k, c in enumerate(cajas) if k >= 1])
+    return {
+        "compras_mes": round2(compras),
+        "venta_mes": round2(venta),
+        "venta_dia": round2(venta / 30),
+        "extra_inicio": round2(extra),
+        "extra_inicio_ventas": round2(extra_v),
+    }
+
+
 def events_dataframe(events):
     if not events:
         return pd.DataFrame(columns=["date", "amount", "vendor", "branch", "invoice_number", "label", "overdue"])
