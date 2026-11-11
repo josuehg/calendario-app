@@ -828,8 +828,18 @@ def average_monthly_purchases(invoices, today=None, months=3):
     today = today or today_str()
     hasta = today[:7]
     desde = _sumar_meses(hasta, -months)
+    # Los meses antes de empezar a registrar facturas no cuentan: sin esto, un
+    # mes vacío (antes de usar la app) bajaba el promedio un tercio.
+    emitidas = [(i.get("issue_date") or "")[:7] for i in invoices if i.get("issue_date")]
+    primero = min((m for m in emitidas if m), default=hasta)
+    desde = max(desde, primero)
+    n = 0
+    m = desde
+    while m < hasta:
+        n += 1
+        m = _sumar_meses(m, 1)
     total = dsum(i["amount"] for i in invoices if desde <= (i.get("issue_date") or "")[:7] < hasta)
-    return round2(total / months) if months else 0.0
+    return round2(total / n) if n else 0.0
 
 
 def simulator_debts(debts, fixed_expenses):
@@ -915,7 +925,12 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito):
         serie.append({**f, "cuotas_deudas": round2(cuotas), "caja_fin": caja})
     minimo = min(serie, key=lambda s: s["caja_fin"]) if serie else None
     rojo = next((s["mes"] for s in serie if s["caja_fin"] < 0), None)
+    # Cuánto cambia la caja en un mes "normal" (sin el mes en curso, que
+    # arrastra lo atrasado): negativo = la caja baja eso cada mes.
+    netos = [dsum([b["caja_fin"], -a["caja_fin"]]) for a, b in zip(serie, serie[1:])]
     return {
+        "caja_arranque": dsum([caja_inicial, credito, -usado]),
+        "cambio_mensual_promedio": round2(sum(netos) / len(netos)) if netos else 0.0,
         "usado": usado,
         "sobra_credito": dsum([credito, -usado]),
         "cuota_antes": cuota_antes,
