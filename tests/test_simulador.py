@@ -80,7 +80,7 @@ def test_pagina(run_view, db):
     m = {x.label: x.value for x in at.metric}
     assert m["Crédito usado"] == "S/ 80,000.00"
     assert m["Cuotas de estas deudas / mes"] == "S/ 0.00"
-    assert len(at.dataframe[0].value) == 7
+    assert len(at.dataframe[-1].value) == 7
 
 
 def test_pagina_sin_deudas(run_view, db):
@@ -136,3 +136,30 @@ def test_boton_carga_datos_del_sistema(run_view, db):
     at = click(at, "Cargar datos del sistema")
     assert not at.exception
     assert next(n for n in at.number_input if n.key == "sim_venta").value == 6500.0
+
+
+def test_inversiones_salen_en_su_mes_y_recuperan_despues(db):
+    import utils
+    base = [
+        {"mes": "2026-11", "ventas": 0.0, "fijos": 0.0, "proveedores": 0.0, "otros": 0.0},
+        {"mes": "2026-12", "ventas": 1000.0, "fijos": 0.0, "proveedores": 0.0, "otros": 0.0},
+        {"mes": "2027-01", "ventas": 1000.0, "fijos": 0.0, "proveedores": 0.0, "otros": 0.0},
+    ]
+    inv = [{"monto": 10000.0, "mes": "2026-12", "recupera": 0.0, "mes_recupera": None},
+           {"monto": 5000.0, "mes": "2026-12", "recupera": 8000.0, "mes_recupera": "2027-01"}]
+    r = utils.simulate_credit(base, [], {}, caja_inicial=0.0, credito=20000.0, inversiones=inv)
+    assert [s["inversiones"] for s in r["serie"]] == [0.0, -15000.0, 8000.0]
+    assert [s["caja_fin"] for s in r["serie"]] == [20000.0, 6000.0, 15000.0]
+    assert (r["total_inversiones"], r["total_recupera"]) == (15000.0, 8000.0)
+    # La tendencia no cuenta las inversiones: solo las ventas de 1000 al mes.
+    assert r["cambio_mensual_promedio"] == 1000.0
+
+
+def test_pagina_trae_inversiones_de_ejemplo(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    tabla = at.dataframe[-1].value  # la primera es la tabla editable de inversiones
+    assert "Inversiones" in tabla.columns
+    assert tabla["Inversiones"].iloc[1] == "S/ -15,000.00"
