@@ -370,6 +370,39 @@ st.caption(
     "pulsas Guardar escenario."
 )
 
+# ---------- ventanas de compra ----------
+st.divider()
+st.subheader("🛒 Ventanas de compra (hoy)")
+ventanas = utils.purchase_windows(events, invoices, r["serie"], compras_mes, today)
+st.caption(
+    f"Si colocas un pedido hoy, en qué mes vence según el plazo y cuánto espacio queda ese mes con tu meta de "
+    f"compras de **{utils.money(compras_mes)}** al mes (la casilla de arriba: bájala y la tabla se ajusta)."
+)
+_ESTADO = {
+    "ok": "🟢 Hay espacio",
+    "caja": "🟠 Hay espacio, pero tu caja está en rojo desde ese mes",
+    "lleno": "🔴 Ese mes ya está lleno",
+}
+st.dataframe(
+    pd.DataFrame([
+        {
+            "Si pides hoy a…": f"{v['plazo']} días",
+            "Vence": utils.fmt_long(v["vence"]) + (" ⚠️" if v["dias_1_10"] else ""),
+            "Ya por pagar a proveedores ese mes": utils.money(v["ya_por_pagar"]),
+            "Espacio según tu meta": utils.money(v["espacio"]),
+            "Estado": _ESTADO[v["estado"]],
+        }
+        for v in ventanas["filas"]
+    ]),
+    hide_index=True, width="stretch",
+)
+_m_actual = utils.MONTHS_ES[int(today[5:7]) - 1]
+st.caption(
+    f"⚠️ Vence entre el 1 y el 10, cuando ya pagas planilla, alquileres, bancos y la hipoteca: mejor que caiga "
+    f"después del 10. · En {_m_actual} ya colocaste {utils.money(ventanas['comprado_este_mes'])} en facturas: "
+    f"te quedan **{utils.money(ventanas['queda_este_mes'])}** de tu meta para este mes."
+)
+
 # ---------- guardar este escenario ----------
 st.divider()
 with st.form("sim_guardar", clear_on_submit=True, border=False):

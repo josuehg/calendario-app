@@ -959,6 +959,44 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None
     }
 
 
+def purchase_windows(events, invoices, serie, meta_mensual, today=None, plazos=(60, 75, 90)):
+    """Ventanas de compra de HOY: si coloco un pedido a cada plazo, en qué
+    mes vence y cuánto espacio queda ese mes según la meta de compras.
+
+      ya_por_pagar = facturas y letras pendientes que ya vencen ese mes.
+      espacio      = meta_mensual - ya_por_pagar (nunca negativo).
+      estado       = 'lleno' sin espacio; 'caja' si hay espacio pero en el
+                     escenario la caja queda en rojo desde ese mes; si no, 'ok'.
+      dias_1_10    = vence entre el 1 y el 10, cuando se juntan planilla,
+                     alquileres y bancos.
+    También devuelve cuánto queda de la meta para colocar en el mes en curso
+    (meta - facturas ya emitidas este mes)."""
+    today = today or today_str()
+    filas = []
+    for plazo in plazos:
+        vence = add_days(today, plazo)
+        mes = vence[:7]
+        ya = dsum(e["amount"] for e in events if e["kind"] in ("invoice", "letra") and e["date"][:7] == mes)
+        espacio = max(0.0, dsum([meta_mensual, -ya]))
+        desde_mes = [s["caja_fin"] for s in serie if s["mes"] >= mes]
+        caja_rojo = bool(desde_mes) and min(desde_mes) < 0
+        filas.append({
+            "plazo": plazo,
+            "vence": vence,
+            "mes": mes,
+            "ya_por_pagar": ya,
+            "espacio": round2(espacio),
+            "dias_1_10": int(vence[8:10]) <= 10,
+            "estado": "lleno" if espacio <= 0 else ("caja" if caja_rojo else "ok"),
+        })
+    comprado_mes = dsum(i["amount"] for i in invoices if (i.get("issue_date") or "")[:7] == today[:7])
+    return {
+        "filas": filas,
+        "comprado_este_mes": comprado_mes,
+        "queda_este_mes": max(0.0, dsum([meta_mensual, -comprado_mes])),
+    }
+
+
 def adjustment_to_stay_positive(serie):
     """Cuánto habría que ajustar cada mes para que la caja (`serie` de
     simulate_credit) nunca quede en rojo:

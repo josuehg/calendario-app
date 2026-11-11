@@ -80,7 +80,7 @@ def test_pagina(run_view, db):
     m = {x.label: x.value for x in at.metric}
     assert m["Crédito usado"] == "S/ 80,000.00"
     assert m["Cuotas de estas deudas / mes"] == "S/ 0.00"
-    assert len(at.dataframe[-1].value) == 7
+    assert len(next(d.value for d in at.dataframe if "Caja a fin de mes" in d.value.columns)) == 7
 
 
 def test_pagina_sin_deudas(run_view, db):
@@ -160,7 +160,7 @@ def test_pagina_trae_inversiones_de_ejemplo(run_view, db):
                     "monthly_payment": 3000.0, "active": True})
     at = run_view(VIEW, role="admin")
     assert not at.exception
-    tabla = at.dataframe[-1].value  # la primera es la tabla editable de inversiones
+    tabla = next(d.value for d in at.dataframe if "Caja a fin de mes" in d.value.columns)
     assert "Inversiones" in tabla.columns
     assert tabla["Inversiones"].iloc[1] == "S/ -15,000.00"
 
@@ -227,3 +227,35 @@ def test_pagina_muestra_meta_para_no_entrar_en_rojo(run_view, db):
     at = run_view(VIEW, role="admin")
     assert not at.exception
     assert any("Para que tu caja no entre en rojo" in i.value for i in at.info)
+
+
+def test_ventanas_de_compra(db):
+    import utils
+    events = [
+        {"date": "2027-01-15", "amount": 101100.0, "kind": "letra"},
+        {"date": "2027-02-20", "amount": 8700.0, "kind": "invoice"},
+        {"date": "2027-01-05", "amount": 50000.0, "kind": "expense"},  # gastos no cuentan
+    ]
+    serie = [{"mes": "2026-12", "caja_fin": 1000.0}, {"mes": "2027-01", "caja_fin": 500.0},
+             {"mes": "2027-02", "caja_fin": -100.0}]
+    inv = [{"issue_date": "2026-11-03", "amount": 16000.0}, {"issue_date": "2026-10-03", "amount": 99.0}]
+    v = utils.purchase_windows(events, inv, serie, 113500.0, today="2026-11-11")
+    f60, f75, f90 = v["filas"]
+    assert (f60["vence"], f60["espacio"], f60["dias_1_10"]) == ("2027-01-10", 12400.0, True)
+    assert (f75["vence"], f75["dias_1_10"]) == ("2027-01-25", False)
+    # Enero tiene espacio pero febrero (después) queda en rojo en el escenario.
+    assert f60["estado"] == "caja"
+    assert (f90["vence"], f90["espacio"], f90["estado"]) == ("2027-02-09", 104800.0, "caja")
+    assert (v["comprado_este_mes"], v["queda_este_mes"]) == (16000.0, 97500.0)
+    # Con una meta más baja, enero se llena.
+    v = utils.purchase_windows(events, inv, serie, 95000.0, today="2026-11-11")
+    assert v["filas"][0]["estado"] == "lleno" and v["filas"][0]["espacio"] == 0.0
+
+
+def test_pagina_muestra_ventanas(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    tabla = next(d.value for d in at.dataframe if "Si pides hoy a…" in d.value.columns)
+    assert list(tabla["Si pides hoy a…"]) == ["60 días", "75 días", "90 días"]
