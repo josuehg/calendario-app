@@ -259,3 +259,48 @@ def test_pagina_muestra_ventanas(run_view, db):
     assert not at.exception
     tabla = next(d.value for d in at.dataframe if "Si pides hoy a…" in d.value.columns)
     assert list(tabla["Si pides hoy a…"]) == ["60 días", "75 días", "90 días"]
+
+
+def test_proveedores_fijo_mas_nuevas(db):
+    import utils
+    events = [{"date": "2027-01-15", "amount": 101100.0, "kind": "letra"},
+              {"date": "2026-12-15", "amount": 125000.0, "kind": "invoice"}]
+    base = utils.simulation_base(events, [], [], [], 0.0, 113500.0, today="2026-11-11", n_meses=4, compras_nuevas={})
+    assert [f["prov_registrado"] for f in base] == [0.0, 125000.0, 101100.0, 0.0]
+    # Lo que se pida hoy vence desde enero (hoy + 60 días): nov y dic quedan fijos.
+    prop = utils.default_new_purchases(base, 113500.0, today="2026-11-11")
+    assert prop == {"2027-01": 12400.0, "2027-02": 113500.0}
+    # Con un plan propio, proveedores = fijo + lo planeado.
+    plan = {"2027-01": 0.0, "2027-02": 90000.0}
+    base = utils.simulation_base(events, [], [], [], 0.0, 113500.0, today="2026-11-11", n_meses=4, compras_nuevas=plan)
+    assert [f["proveedores"] for f in base] == [0.0, 125000.0, 101100.0, 90000.0]
+    # Sin plan, se completa hasta la meta desde el tercer mes (como antes).
+    base = utils.simulation_base(events, [], [], [], 0.0, 113500.0, today="2026-11-11", n_meses=4)
+    assert [f["proveedores"] for f in base] == [0.0, 125000.0, 113500.0, 113500.0]
+
+
+def test_ventanas_usan_el_plan(db):
+    import utils
+    v = utils.purchase_windows([], [], [], 113500.0, today="2026-11-11", plan={"2027-01": 5000.0, "2027-02": 0.0})
+    assert [f["espacio"] for f in v["filas"]] == [5000.0, 5000.0, 0.0]
+    assert v["filas"][2]["estado"] == "lleno"
+
+
+def test_escenario_guarda_y_carga_plan_de_proveedores(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin")
+    editor = next(d.value for d in at.dataframe if "Compras nuevas que vencen ese mes" in d.value.columns)
+    assert list(editor.columns) == ["Mes", "Ya registrado (fijo)", "Compras nuevas que vencen ese mes"]
+    next(t for t in at.text_input if t.label == "Nombre del escenario").set_value("Base")
+    at = click(at, "Guardar escenario")
+    [esc] = db.sim_scenarios
+    meses = list(esc["data"]["prov_nuevas"])
+    assert meses  # guarda el plan de compras nuevas
+
+    esc["data"]["prov_nuevas"] = {m: 1234.0 for m in meses}
+    at = run_view(VIEW, role="admin")
+    at = next(b for b in at.button if b.label == "Cargar").click().run()
+    assert not at.exception
+    editor = next(d.value for d in at.dataframe if "Compras nuevas que vencen ese mes" in d.value.columns)
+    assert set(editor["Compras nuevas que vencen ese mes"]) == {1234.0}
