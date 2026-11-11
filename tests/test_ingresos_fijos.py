@@ -89,3 +89,49 @@ def test_calendario_muestra_ingreso_esperado(run_view, db):
     at = run_view("views/4_Calendario.py", role="admin")
     assert not at.exception
     assert any("💵 Comisiones BCP" in m.value for m in at.markdown)
+
+
+def test_calendario_cifras_de_ingresos_fijos_y_neto(run_view, db):
+    hoy = date.today()
+    mes = hoy.isoformat()[:7]
+    db.create_fixed_income({**BCP, "day_from": 28, "day_to": 28, "start_month": mes})
+    db.create_expense({"name": "Alquiler", "amount": 15000.0, "due_date": f"{mes}-27", "status": "pendiente",
+                       "category": "Alquiler", "branch": "Sucursal 1", "kind": "variable"})
+    at = run_view("views/4_Calendario.py", role="admin")
+    assert not at.exception
+    m = {x.label: x.value for x in at.metric}
+    assert m["💵 Ingresos fijos del mes"] == "S/ 10,000.00"
+    assert m["Neto del mes"] == "S/ 5,000.00"
+    assert "💰 Ventas registradas del mes" not in m
+
+
+def test_calendario_muestra_ventas_y_recibidos_con_filtro(run_view, db):
+    hoy = date.today().isoformat()
+    fi = db.create_fixed_income({**BCP, "start_month": hoy[:7]})
+    db.create_fixed_income_receipt({"fixed_income_id": fi["id"], "name": fi["name"], "period": hoy[:7],
+                                    "date": hoy, "amount": 9850.0})
+    db.create_income({"branch": "Sucursal 1", "date": hoy, "amount": 1200.0})
+    at = run_view("views/4_Calendario.py", role="admin")
+    assert not any("💰 Ventas S/" in x.value for x in at.markdown)
+    at = run_view("views/4_Calendario.py", role="admin", cal_f_ventas=True)
+    assert not at.exception
+    textos = " ".join(x.value for x in at.markdown)
+    assert "💵✅ Comisiones BCP S/ 9,850.00 recibido" in textos
+    assert "💰 Ventas S/ 1,200.00 · 1/3 locales" in textos
+    m = {x.label: x.value for x in at.metric}
+    assert m["💰 Ventas registradas del mes"] == "S/ 1,200.00"
+    assert m["💵 Ingresos fijos del mes"] == "S/ 9,850.00"
+
+
+def test_calendario_registra_ventas(run_view, db):
+    hoy = date.today().isoformat()
+    at = run_view("views/4_Calendario.py", role="admin")
+    at = click(at, "💰 Registrar ventas")
+    campos = [ni for ni in at.number_input if (ni.key or "").startswith(f"calv_monto_{hoy}_")]
+    assert len(campos) == 3
+    campos[0].set_value(800.0)
+    campos[1].set_value(0.0)
+    at = click(at, "Guardar ingresos")
+    assert not at.exception
+    assert sorted((r["branch"], r["amount"]) for r in db.incomes) == [("Sucursal 1", 800.0), ("Sucursal 2", 0.0)]
+    assert any("Guardado: 2 nuevo(s)" in s.value for s in at.success)
