@@ -37,6 +37,14 @@ def test_validator_pin_logs_in_as_validador(db):
     assert at.session_state["auth_branch"] is None
 
 
+def test_pin_tolera_espacios_y_comillas_pero_no_mayusculas(db):
+    # Variable guardada con comillas y espacio (común en Railway) y PIN con espacio al final (celular).
+    at = _login("ClaveVal1 ", validator_pin=' "ClaveVal1" ')
+    assert at.session_state["auth_role"] == "validador"
+    at = _login("clavevAL1", validator_pin="ClaveVal1")
+    assert "auth_role" not in at.session_state
+
+
 def test_wrong_pin_shows_error(db):
     at = _login("no-existe")
     assert any("PIN incorrecto" in e.value for e in at.error)
