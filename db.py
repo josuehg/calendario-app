@@ -386,6 +386,13 @@ def update_fixed_expense(fx_id: int, data: dict):
             new_period = f"{y:04d}-{mo:02d}"
 
         day = utils.due_day_for_month(y, mo, pay_day)
+        inicio = utils.fixed_start_date(fx)
+        if inicio and date(y, mo, day) < inicio:
+            # Antes del día en que empieza: la cuota que aún no vence sobra; una
+            # ya vencida sin pagar no se toca (se ajusta a mano).
+            if e["due_date"] >= date.today().isoformat():
+                sb.table("expenses").delete().eq("id", e["id"]).execute()
+            continue
         sb.table("expenses").update({
             "name": fx["name"],
             "category": fx["category"],
