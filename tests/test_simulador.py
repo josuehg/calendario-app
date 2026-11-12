@@ -389,3 +389,50 @@ def test_pagina_inventario_y_pdf(run_view, db):
     assert not at.exception
     textos = " ".join(x.value for x in list(at.success) + list(at.warning) + list(at.error))
     assert "días** de inventario" in textos
+
+
+def _eventos_mes(meses_montos, kind):
+    return [{"date": f"{m}-15", "amount": a, "kind": kind} for m, a in meses_montos]
+
+
+def test_plan_sugerido_cancela_chicas_respetando_colchon(db):
+    import utils
+    deudas = [
+        {"id": "g", "nombre": "Grande", "saldo": 100000.0, "cuota": 10000.0, "fixed_expense_id": None},
+        {"id": "c1", "nombre": "Chica 1", "saldo": 10000.0, "cuota": 1000.0, "fixed_expense_id": None},
+        {"id": "c2", "nombre": "Chica 2", "saldo": 30000.0, "cuota": 3000.0, "fixed_expense_id": None},
+    ]
+    meses = ["2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05"]
+    events = _eventos_mes([(m, 150000.0) for m in meses], "expense")
+    s = utils.suggest_plan(events, [], [], deudas, venta_dia=6000.0, credito=100000.0, caja_hoy=0.0,
+                           inversiones=[], costo_pct=0.5, today="2026-11-11")
+    # Consumo 90k, sin stock lento: 15% menos -> 76.5k -> redondeado a 76k (o 77k).
+    assert s["compras"] in (76000.0, 77000.0)
+    # Cancela las chicas completas (nunca parcial) y la caja no baja de 10k.
+    assert set(s["pagos"]) <= {"c1", "c2", "g"}
+    assert all(s["pagos"][k] == next(d["saldo"] for d in deudas if d["id"] == k) for k in s["pagos"])
+    assert s["r"]["caja_minima"] >= 10000 or not s["pagos"]
+    assert "c1" in s["pagos"] or not s["pagos"]  # la más chica va primero
+    assert s["razones"]
+
+
+def test_plan_sugerido_usa_stock_lento_y_no_baja_de_60_dias(db):
+    import utils
+    s = utils.suggest_plan([], [], [], [], venta_dia=6000.0, credito=0.0, caja_hoy=0.0, inversiones=[],
+                           costo_pct=0.5, inv_hoy=500000.0, inv_lento=240000.0, today="2026-11-11")
+    # Consumo 90k - (240k / 2 / 6 = 20k) = 70k.
+    assert s["compras"] == 70000.0
+    poco = utils.suggest_plan([], [], [], [], venta_dia=6000.0, credito=0.0, caja_hoy=0.0, inversiones=[],
+                              costo_pct=0.5, inv_hoy=150000.0, inv_lento=600000.0, today="2026-11-11")
+    # Con poco inventario, sube las compras para no quedar bajo 60 días.
+    assert poco["compras"] > 45000.0
+
+
+def test_boton_plan_sugerido(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 10000.0, "balance": 10000.0,
+                    "monthly_payment": 1000.0, "active": True})
+    at = run_view(VIEW, role="admin", sim_caja=50000.0)
+    at = click(at, "Plan sugerido")
+    assert not at.exception
+    assert any("Por qué este plan" in i.value for i in at.info)
+    assert any("Plan sugerido cargado" in s.value for s in at.success)

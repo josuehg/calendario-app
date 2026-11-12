@@ -80,7 +80,8 @@ escenarios = db.list_sim_scenarios()
 def _cargar_escenario(esc):
     """Pone en los campos lo guardado en el escenario (corre antes de dibujar)."""
     d = esc.get("data") or {}
-    for k in ("sim_credito", "sim_caja", "sim_venta", "sim_compras", "sim_inv_hoy", "sim_costo_pct"):
+    for k in ("sim_credito", "sim_caja", "sim_venta", "sim_compras", "sim_inv_hoy", "sim_costo_pct",
+              "sim_inv_lento", "sim_inv_balanceo"):
         if d.get(k) is not None:
             st.session_state[k] = float(d[k])
     guardados = d.get("pagos") or {}
@@ -151,6 +152,7 @@ st.caption(
 
 
 def _poner(montos):
+    st.session_state.pop("sim_sugerido_razones", None)
     for d in deudas:
         st.session_state[f"sim_pago_{d['id']}"] = float(montos.get(d["id"], 0.0))
 
@@ -175,13 +177,39 @@ def _todo_lo_posible():
     return montos
 
 
-b1, b2, b3 = st.columns(3)
+def _aplicar_sugerido():
+    """Llena el simulador con el plan sugerido (corre antes de dibujar)."""
+    ss = st.session_state
+    sug = utils.suggest_plan(
+        events, incomes, ingresos_esperados, deudas,
+        venta_dia=float(ss.get("sim_venta", venta_dia_app)), credito=float(ss.get("sim_credito", 0)),
+        caja_hoy=float(ss.get("sim_caja", 0)), inversiones=ss.get("_sim_inv_last", []),
+        costo_pct=float(ss.get("sim_costo_pct", 60)) / 100, inv_hoy=float(ss.get("sim_inv_hoy", 0) or 0),
+        inv_lento=float(ss.get("sim_inv_lento", 0) or 0), today=today,
+    )
+    ss["sim_compras"] = sug["compras"]
+    for d in deudas:
+        ss[f"sim_pago_{d['id']}"] = float(sug["pagos"].get(d["id"], 0.0))
+    ss["sim_prov_data"] = sug["plan"]
+    ss["sim_inv_data"] = ss.get("_sim_inv_last", [])  # las inversiones no cambian
+    ss["sim_inv_ver"] = ss.get("sim_inv_ver", 0) + 1
+    ss["sim_esc_nombre"] = "Plan sugerido"
+    ss["sim_sugerido_razones"] = sug["razones"]
+    ss["sim_msg"] = "Plan sugerido cargado. Revísalo y ajústalo si quieres; luego guárdalo con un nombre."
+
+
+b1, b2, b3, b4 = st.columns(4)
 if b1.button("No cancelar nada", width="stretch", help="Pone todo en 0: no cancelas ninguna deuda y todo el crédito queda en caja."):
     _poner({})
 if b2.button("Las más chicas", width="stretch", help="Cancela completas las deudas más chicas usando hasta el 70% del crédito."):
     _poner(_mas_chicas(credito * 0.7))
 if b3.button("Todo lo posible", width="stretch", help="Usa todo el crédito, empezando por las más chicas."):
     _poner(_todo_lo_posible())
+b4.button("✨ Plan sugerido", width="stretch", type="primary", on_click=_aplicar_sugerido,
+          help="Compras según tu stock, cancela las deudas más chicas completas mientras la caja no baje de "
+               "S/ 10,000 en ningún mes. No cambia la venta, el crédito ni tus inversiones.")
+if st.session_state.get("sim_sugerido_razones"):
+    st.info("**✨ Por qué este plan:**\n\n" + "\n".join(f"- {x}" for x in st.session_state["sim_sugerido_razones"]))
 
 pagos = {}
 cols = st.columns(2)
@@ -284,6 +312,20 @@ costo_pct = i2.number_input(
          "si Odoo te da el costo de ventas real, ajústalo.",
 )
 i2.caption(f"≈ {utils.money(venta_dia * 30 * costo_pct / 100)} al mes con la venta de {utils.money(venta_dia)} por día")
+st.session_state.setdefault("sim_inv_lento", 0.0)
+st.session_state.setdefault("sim_inv_balanceo", 0.0)
+i3, i4 = st.columns(2)
+inv_lento = i3.number_input(
+    "Stock lento a costo (S/)", min_value=0.0, step=10000.0, format="%.0f", key="sim_inv_lento",
+    help="Lo que no se vendió en los últimos días o tiene stock para más de 6 meses (del análisis de Odoo). "
+         "El plan sugerido usa la mitad de esto, repartida en 6 meses, para bajar compras.",
+)
+inv_balanceo = i4.number_input(
+    "Balanceo posible entre locales (S/)", min_value=0.0, step=5000.0, format="%.0f", key="sim_inv_balanceo",
+    help="Stock que se puede mover de un local o almacén a donde sí se vende, sin comprar (del análisis de Odoo).",
+)
+if inv_hoy and inv_lento:
+    i3.caption(f"{inv_lento / inv_hoy * 100:.0f}% de tu inventario es lento.")
 inventario = utils.inventory_projection(base, inv_hoy, costo_pct / 100, venta_dia)
 if not inv_hoy:
     st.caption("Pon el valor de tu inventario para ver si tu plan de compras es compatible con el stock que tienes.")
@@ -378,6 +420,7 @@ inversiones = [
     if pd.notna(row["Monto (S/)"]) and row["Monto (S/)"] and pd.notna(row["Mes"])
 ]
 
+st.session_state["_sim_inv_last"] = inversiones  # para el plan sugerido
 r = utils.simulate_credit(base, deudas, pagos, caja_hoy, credito, inversiones)
 base_guardar = utils.simulate_credit(base, deudas, {}, caja_hoy, credito, inversiones)
 
@@ -549,6 +592,7 @@ _pdf = reporte_pdf.pdf_simulador({
     "credito": credito, "caja_hoy": caja_hoy, "venta_dia": venta_dia,
     "r": r, "deudas": deudas, "pagos": pagos, "inversiones": inversiones, "ajuste": ajuste, "compras_promedio": compras_app,
     "inventario": inventario if inv_hoy else None,
+    "inv_lento": inv_lento, "inv_balanceo": inv_balanceo, "razones": st.session_state.get("sim_sugerido_razones") or [],
 })
 p1, p2 = st.columns([3, 1])
 p1.caption(
@@ -574,6 +618,7 @@ with st.form("sim_guardar", clear_on_submit=True, border=False):
                 "data": {
                     "sim_credito": credito, "sim_caja": caja_hoy, "sim_venta": venta_dia, "sim_compras": compras_mes,
                     "sim_inv_hoy": inv_hoy, "sim_costo_pct": costo_pct,
+                    "sim_inv_lento": inv_lento, "sim_inv_balanceo": inv_balanceo,
                     "pagos": {str(k): v for k, v in pagos.items() if v},
                     "inversiones": inversiones,
                     "prov_nuevas": compras_nuevas,
