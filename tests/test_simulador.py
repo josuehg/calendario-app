@@ -560,3 +560,31 @@ def test_pdf_gestion(db):
         "compras_promedio": 20000.0, "venta_dia": 1000.0,
     })
     assert pdf[:4] == b"%PDF"
+
+
+def test_mezcla_de_plazos_y_pago_por_plazo(db):
+    import utils
+    inv = [{"issue_date": "2026-10-01", "due_date": "2026-12-30", "amount": 60.0, "doc_type": "credito"},   # 90
+           {"issue_date": "2026-10-05", "due_date": "2026-12-04", "amount": 30.0, "doc_type": "credito"},   # 60
+           {"issue_date": "2026-10-10", "due_date": None, "amount": 10.0, "doc_type": "contado"},
+           {"issue_date": "2026-05-01", "due_date": "2026-07-30", "amount": 999.0, "doc_type": "credito"}]  # viejo
+    assert utils.purchase_term_mix(inv, "2026-11-11") == {0: 0.1, 60: 0.3, 90: 0.6}
+    meses = ["m0", "m1", "m2", "m3", "m4"]
+    compras = {"m1": 100.0}
+    # Comprado en m1: 60 días -> se paga en m3; 90 -> m4; 75 -> mitad m3 y mitad m4.
+    assert utils._pago_de_compras(compras, meses, 3, {60: 1.0}) == 100.0
+    assert utils._pago_de_compras(compras, meses, 4, {90: 1.0}) == 100.0
+    assert utils._pago_de_compras(compras, meses, 3, {75: 1.0}) == 50.0
+    assert utils._pago_de_compras(compras, meses, 4, {75: 1.0}) == 50.0
+
+
+def test_proyeccion_larga_respeta_el_plan_de_pagos_del_simulador(db):
+    import utils
+    args = dict(events=[], fixed_expenses=[], ingresos_esperados=[], deudas=[], pagos={}, cancel_mes={},
+                caja_hoy=0.0, credito=0.0, inversiones=[], venta_dia=1000.0, costo_pct=0.5, inv_hoy=900000.0,
+                compras_plan=20000.0, today="2026-11-11", n_meses=8, mezcla={90: 1.0})
+    r = utils.long_projection(**args, pagos_plan={"2027-01": 5000.0, "2027-02": 7000.0})
+    s = {x["mes"]: x for x in r["serie"]}
+    assert s["2027-01"]["compras_pagadas"] == 5000.0 and s["2027-02"]["compras_pagadas"] == 7000.0
+    # Después del plan, se paga a 90 días lo comprado 3 meses antes (20k al mes).
+    assert s["2027-03"]["compras_pagadas"] == 20000.0

@@ -699,12 +699,13 @@ if _libre:
     while utils._sumar_meses(today[:7], _k) < _libre and _k < 30:
         _k += 1
     _n_largo = min(max(_k + 7, 12), 24)
+_mezcla = utils.purchase_term_mix(invoices, today)
 _ing_largo = utils.fixed_income_expected(db.list_fixed_incomes(), fixed_receipts, months_ahead=_n_largo + 1)
 _args = dict(
     events=events, fixed_expenses=fixed_expenses, ingresos_esperados=_ing_largo, deudas=deudas, pagos=pagos,
     cancel_mes=(renov or {}).get("cancel_mes", {}), caja_hoy=caja_hoy, credito=credito, inversiones=inversiones,
     venta_dia=venta_dia, costo_pct=costo_pct / 100, inv_hoy=inv_hoy or (compras_mes * 4), compras_plan=_compras_plan,
-    today=today, n_meses=_n_largo, inv_lento=inv_lento,
+    today=today, n_meses=_n_largo, inv_lento=inv_lento, mezcla=_mezcla, pagos_plan=compras_nuevas,
 )
 largo_base = utils.long_projection(**_args)
 largo_mej = utils.long_projection(**_args, crec_anual=g_crec / 100, margen_pts=g_margen, ahorro_mes=g_ahorro,
@@ -721,7 +722,7 @@ _pdf_g = reporte_gestion.pdf_gestion({
     "base": largo_base, "mejoras": largo_mej,
     "params": {"crec_anual": g_crec / 100, "margen_pts": g_margen, "ahorro_mes": g_ahorro, "liquidacion_mes": g_liq},
     "renov": renov, "inv_hoy": inv_hoy, "inv_lento": inv_lento, "inv_balanceo": inv_balanceo,
-    "compras_promedio": compras_app, "venta_dia": venta_dia,
+    "compras_promedio": compras_app, "venta_dia": venta_dia, "mezcla": _mezcla,
 })
 st.download_button("📊 Descargar informe de gestión", data=_pdf_g, mime="application/pdf",
                    file_name=f"gestion_{(st.session_state.get('sim_esc_nombre') or 'escenario').replace(' ', '_')}_{today}.pdf")

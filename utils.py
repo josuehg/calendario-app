@@ -1306,18 +1306,62 @@ def _fijos_del_mes(fixed_expenses, mes, excluir_ids):
     return round2(total)
 
 
+PLAZOS_COMPRA = (0, 30, 60, 75, 90)
+
+
+def purchase_term_mix(invoices, today=None, months=3):
+    """Qué parte de las compras se hace a cada plazo (contado, 30, 60, 75 o
+    90 días), según las facturas de los últimos `months` meses (por monto).
+    Sin facturas, todo a 60 días."""
+    today = today or today_str()
+    desde = _sumar_meses(today[:7], -months)
+    tot = {p: 0.0 for p in PLAZOS_COMPRA}
+    for i in invoices:
+        emis = (i.get("issue_date") or "")[:10]
+        if not emis or emis[:7] < desde:
+            continue
+        if i.get("doc_type") == "contado" or not i.get("due_date"):
+            dias = 0
+        else:
+            dias = (date.fromisoformat(i["due_date"][:10]) - date.fromisoformat(emis)).days
+        plazo = min(PLAZOS_COMPRA, key=lambda p_: abs(p_ - dias))
+        tot[plazo] += float(i.get("amount") or 0)
+    total = sum(tot.values())
+    if not total:
+        return {60: 1.0}
+    return {p_: round(v / total, 4) for p_, v in tot.items() if v}
+
+
+def _pago_de_compras(compras, meses, k, mezcla):
+    """Lo que se paga en el mes k por compras nuevas: cada parte se paga
+    `plazo/30` meses después de comprarse (75 días: mitad a los 2 meses y
+    mitad a los 3)."""
+    total = 0.0
+    for plazo, share in mezcla.items():
+        lag = plazo / 30
+        base_ = int(lag)
+        frac = lag - base_
+        for atras, peso in ((base_, 1 - frac), (base_ + 1, frac)):
+            if peso and k - atras >= 1:
+                total += share * peso * compras.get(meses[k - atras], 0)
+    return total
+
+
 def long_projection(events, fixed_expenses, ingresos_esperados, deudas, pagos, cancel_mes, caja_hoy, credito,
                     inversiones, venta_dia, costo_pct, inv_hoy, compras_plan, today=None, n_meses=20,
                     crec_anual=0.0, margen_pts=0.0, ahorro_mes=0.0, liquidacion_mes=0.0, inv_lento=0.0,
-                    recupero_liquidacion=0.7):
+                    recupero_liquidacion=0.7, mezcla=None, pagos_plan=None):
     """Caja mes a mes hasta `n_meses`, más allá de lo que tiene cuotas
     generadas (para eso usa las plantillas de gastos fijos, con su fecha de
     fin: los préstamos que terminan dejan de sumar).
 
       ventas      = venta_dia (creciendo crec_anual) * días; el mes en curso, lo que falta.
       compras     = compras_plan mientras el inventario esté sobre 90 días;
-                    después, reponer lo que se vende (venta * costo). Se pagan
-                    ~2 meses después; antes, solo lo ya registrado.
+                    después, reponer lo que se vende (venta * costo). Cada
+                    parte se paga según su plazo (`mezcla`: {días: parte},
+                    por defecto todo a 60 días); antes, solo lo ya registrado.
+                    Con `pagos_plan` ({mes: monto}), esos meses usan ese plan (el
+                    mismo del simulador) y la mezcla solo los meses siguientes.
       deudas      = cuota de cada deuda hasta que se cancela (con el crédito
                     al inicio, o con una renovación en `cancel_mes`).
       mejoras     = margen_pts (ganancia extra sobre la venta, desde el 3er mes:
@@ -1330,6 +1374,7 @@ def long_projection(events, fixed_expenses, ingresos_esperados, deudas, pagos, c
                     se abarata).
     """
     today = today or today_str()
+    mezcla = mezcla or {60: 1.0}  # plazo (días) -> parte de las compras
     mes0 = today[:7]
     meses = [_sumar_meses(mes0, k) for k in range(n_meses)]
     corte = _sumar_meses(mes0, 6)  # hasta acá hay cuotas generadas
@@ -1356,7 +1401,11 @@ def long_projection(events, fixed_expenses, ingresos_esperados, deudas, pagos, c
         compra = (compras_plan if dias_inv > 90 else vd * costo * 30) * (dias / dias_mes if k == 0 else 1)
         del_mes = [e for e in events if (e["date"][:7] <= mes if k == 0 else e["date"][:7] == mes)]
         registrado = dsum(e["amount"] for e in del_mes if e["kind"] in ("invoice", "letra"))
-        pago_prov = dsum([registrado, compras.get(meses[k - 2], 0) if k >= 2 else 0])
+        if pagos_plan is not None and mes in pagos_plan:
+            # Mismo plan de pagos que el simulador (tabla de proveedores por mes).
+            pago_prov = dsum([registrado, float(pagos_plan[mes] or 0)])
+        else:
+            pago_prov = dsum([registrado, _pago_de_compras(compras, meses, k, mezcla)])
         if mes <= corte:
             otros = dsum(e["amount"] for e in del_mes if e["kind"] not in ("invoice", "letra")
                          and (k == 0 or e.get("fixed_expense_id") not in ids_deudas))

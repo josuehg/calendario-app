@@ -129,6 +129,33 @@ def pdf_gestion(d):
     texto("Compras máximas: lo que se puede comprar en el mes sin pasarse del plan (bajo mientras sobra stock; "
           "luego reponer lo vendido). Días de inventario: sano entre 60 y 120.", 7, GRIS)
 
+    # ---- compras por plazo ----
+    mezcla = d.get("mezcla") or {}
+    if mezcla:
+        titulo("3b. Cómo repartir las compras por plazo")
+        plazos = sorted(mezcla)
+        nombre = {0: "Contado", 30: "30 días", 60: "60 días", 75: "75 días", 90: "90 días"}
+        texto("Según cómo compras hoy (por monto, últimos 3 meses): "
+              + ", ".join(f"{nombre.get(p_, f'{p_} días')} {mezcla[p_] * 100:.0f}%" for p_ in plazos)
+              + ". Lo comprado a 90 días se paga 3 meses después; a 60, 2 meses; a 75, entre 2 y 3; al contado, el mismo mes.",
+              7.5, GRIS)
+        heads = [("Mes", 18), ("Compra del mes", 30)] + [(nombre.get(p_, f"{p_} días"), 26) for p_ in plazos]
+        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_fill_color(*CLARO)
+        for h, w in heads:
+            pdf.cell(w, 5.5, _t(h), fill=True, align="L" if h == "Mes" else "R")
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 7)
+        for sm in mej["serie"][1:13]:
+            pdf.cell(18, 4.6, _t(_mes(sm["mes"])))
+            pdf.cell(30, 4.6, _t(_m(sm["compra_mes"])), align="R")
+            for p_ in plazos:
+                pdf.cell(26, 4.6, _t(_m(sm["compra_mes"] * mezcla[p_])), align="R")
+            pdf.ln()
+        texto("Si un mes de pago viene apretado (ver la caja de la sección 2), pasa una parte de lo de 60 o 75 días a 90: "
+              "el pago se corre un mes. En el simulador, las Ventanas de compra muestran qué plazo tiene espacio hoy.",
+              7.5, GRIS)
+
     # ---- plan de acción ----
     titulo("4. Plan de acción")
     acciones = []
