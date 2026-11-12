@@ -202,6 +202,9 @@ def _aplicar_sugerido():
     ss["sim_inv_ver"] = ss.get("sim_inv_ver", 0) + 1
     ss["sim_esc_nombre"] = "Plan sugerido"
     ss["sim_sugerido_razones"] = sug["razones"]
+    # Firma del plan sugerido: si después cambias compras o deudas, el "por qué"
+    # ya no corresponde y deja de mostrarse (y de salir en el PDF).
+    ss["sim_sugerido_firma"] = (round(sug["compras"]), tuple(sorted((str(k), round(v)) for k, v in sug["pagos"].items())))
     ss["sim_msg"] = "Plan sugerido cargado. Revísalo y ajústalo si quieres; luego guárdalo con un nombre."
 
 
@@ -215,6 +218,13 @@ if b3.button("Todo lo posible", width="stretch", help="Usa todo el crédito, emp
 b4.button("✨ Plan sugerido", width="stretch", type="primary", on_click=_aplicar_sugerido,
           help="Compras según tu stock, cancela las deudas más chicas completas mientras la caja no baje de "
                "S/ 10,000 en ningún mes. No cambia la venta, el crédito ni tus inversiones.")
+_firma_actual = (
+    round(float(st.session_state.get("sim_compras", 0) or 0)),
+    tuple(sorted((str(d["id"]), round(float(st.session_state.get(f"sim_pago_{d['id']}", 0) or 0)))
+                 for d in deudas if float(st.session_state.get(f"sim_pago_{d['id']}", 0) or 0))),
+)
+if st.session_state.get("sim_sugerido_razones") and st.session_state.get("sim_sugerido_firma") != _firma_actual:
+    st.session_state.pop("sim_sugerido_razones", None)  # el plan ya cambió: el "por qué" no aplica
 if st.session_state.get("sim_sugerido_razones"):
     st.info("**✨ Por qué este plan:**\n\n" + "\n".join(f"- {x}" for x in st.session_state["sim_sugerido_razones"]))
 
