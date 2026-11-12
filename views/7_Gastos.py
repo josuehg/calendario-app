@@ -522,15 +522,33 @@ elif _mng:
     def _manage_dialog():
         cat_line = mng["category"] + (f" · {mng['subcategory']}" if mng.get("subcategory") else "")
         st.write(f"{cat_line} · {mng.get('branch') or 'General'} · vence {utils.fmt_short(mng['due_date'])}")
-        new_amount = st.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f",
+
+        # ---- corregir (sin pagar) ----
+        st.markdown("**✏️ Corregir**")
+        cambios = {}
+        if mng["kind"] != "fijo":
+            # El nombre de una cuota fija viene de su plantilla: se cambia allá.
+            new_name = st.text_input("Nombre", value=mng["name"], key="gx_mng_name")
+            if new_name.strip() and new_name.strip() != mng["name"]:
+                cambios["name"] = new_name.strip()
+        e1, e2 = st.columns(2)
+        new_amount = e1.number_input("Monto (S/)", min_value=0.0, step=0.01, format="%.2f",
                                      value=float(mng["amount"]), key="gx_mng_amount")
+        new_due = e2.date_input("Vence", value=date.fromisoformat(mng["due_date"]), key="gx_mng_due")
         if abs(new_amount - float(mng["amount"])) > 0.001:
-            if st.button("Guardar nuevo monto"):
-                db.update_expense(mng["id"], {"amount": utils.round2(new_amount)})
-                st.session_state["_gx_manage"] = None
-                st.session_state["gx_msg"] = "Monto actualizado."
-                st.rerun()
+            cambios["amount"] = utils.round2(new_amount)
+        if new_due.isoformat() != mng["due_date"]:
+            cambios["due_date"] = new_due.isoformat()
+        if st.button("💾 Guardar cambios", width="stretch", disabled=not cambios,
+                     help="Guarda nombre, monto y fecha de vencimiento. No lo marca como pagado."):
+            db.update_expense(mng["id"], cambios)
+            st.session_state["_gx_manage"] = None
+            st.session_state["gx_msg"] = f"Gasto actualizado: {cambios.get('name', mng['name'])}."
+            st.rerun()
+
+        # ---- pagar ----
         st.divider()
+        st.markdown("**💸 Pagar**")
         pay_date = st.date_input("Fecha de pago", value=date.today(), key="gx_mng_paydate")
         b1, b2 = st.columns(2)
         if b1.button("✅ Marcar pagado", type="primary", width="stretch"):
