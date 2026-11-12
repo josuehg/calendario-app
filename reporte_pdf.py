@@ -26,6 +26,16 @@ def _mes(m):
     return f"{MESES[int(m[5:7]) - 1].capitalize()} {m[2:4]}"
 
 
+def _agrupar(canceladas):
+    """'SRA CHINA (10k)', 'SRA CHINA (30k)' -> 'SRA CHINA x2 (S/ 40,000)': entra en la celda."""
+    grupos = {}
+    for c in canceladas:
+        base = c["nombre"].split(" (")[0].strip()
+        n, t = grupos.get(base, (0, 0.0))
+        grupos[base] = (n + 1, t + c["saldo"])
+    return ", ".join(f"{b}{f' x{n}' if n > 1 else ''} ({_m(t)})" for b, (n, t) in grupos.items())
+
+
 class _PDF(FPDF):
     def footer(self):
         self.set_y(-12)
@@ -68,10 +78,14 @@ def pdf_simulador(d):
     # ---- 4 cifras ----
     pdf.ln(2)
     rojo = r["mes_rojo"]
+    rv0 = d.get("renovaciones") or {}
+    cancel_rv = sum(c["saldo"] for f in rv0.get("filas", []) for c in f["canceladas"])
+    ahorro_rv = rv0["filas"][-1]["interes_liberado"] if rv0.get("filas") else 0
     cifras = [
         ("Crédito", _m(d["credito"])),
-        ("Se cancela de deudas", _m(r["usado"])),
-        ("Ahorro en intereses", _m(r["ahorro_mensual"]) + " al mes"),
+        ("Deudas caras que se cancelan" if cancel_rv else "Se cancela de deudas", _m(r["usado"] + cancel_rv)),
+        ("Ahorro en intereses" + (f" (desde {_mes(rv0['filas'][-1]['mes'])})" if ahorro_rv else ""),
+         _m(r["ahorro_mensual"] + ahorro_rv) + " al mes"),
         ("Caja más baja", f"{_m(r['caja_minima'])} ({_mes(r['mes_minimo'])})" if r["mes_minimo"] else "-"),
     ]
     cw = W / 4
@@ -131,7 +145,8 @@ def pdf_simulador(d):
         pdf.cell(45, 5.5, _t(_m(monto)))
         pdf.cell(W - 125, 5.5, _t(_m(ahorro)), new_x="LMARGIN", new_y="NEXT")
     if not canceladas:
-        texto("No se cancela ninguna deuda en este plan.", 8.5, GRIS)
+        texto("Con el crédito no se cancela ninguna deuda: se cancelan con las renovaciones (ver punto 4)."
+              if (d.get("renovaciones") or {}).get("filas") else "No se cancela ninguna deuda en este plan.", 8.5, GRIS)
     inv = [i for i in d["inversiones"] if i.get("monto")]
     if inv:
         pdf.ln(1)
@@ -203,10 +218,41 @@ def pdf_simulador(d):
     pdf.set_y(y_top + alto + 6)
 
     # ---- supuestos y qué cuidar ----
+    # ---- renovaciones ----
+    rv = d.get("renovaciones")
+    n_sec = 4
+    if rv and rv.get("filas"):
+        titulo(f"{n_sec}. Plan para salir de las deudas caras (renovaciones)")
+        n_sec += 1
+        nombres = [p["nombre"] for p in d.get("prestamos") or []]
+        texto("Cada renovación devuelve el capital ya pagado de los préstamos de libre disponibilidad (la cuota no "
+              "cambia) y con eso se cancelan las deudas caras, de la más chica a la más grande. Sujeto a la "
+              "evaluación del banco en cada renovación.", 8.5)
+        anchos = [16] + [25] * len(nombres) + [W - 16 - 25 * len(nombres) - 50, 24, 26]
+        heads = ["Mes"] + nombres + ["Se cancela", "Guardado", "Interés que dejas/mes"]
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_fill_color(*CLARO)
+        for h, w in zip(heads, anchos):
+            pdf.cell(w, 6, _t(h[:24]), fill=True)
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 7.5)
+        for f in rv["filas"]:
+            vals = [_mes(f["mes"])] + [_m(f["por_prestamo"].get(n, 0)) for n in nombres] + [
+                _agrupar(f["canceladas"]) or "-", _m(f["guardado"]), _m(f["interes_liberado"])]
+            for v, w in zip(vals, anchos):
+                pdf.cell(w, 5.5, _t(str(v)[:60]))
+            pdf.ln()
+        if rv.get("libre_en"):
+            texto(f"Libre de estas deudas en {_mes(rv['libre_en'])}, sin subir las cuotas bancarias. Lo guardado entre "
+                  "renovaciones se reserva para la siguiente deuda, no para operar.", 8.5, VERDE, bold=True)
+        elif rv.get("faltan"):
+            texto("Con estas renovaciones todavía quedan: " + ", ".join(x["nombre"] for x in rv["faltan"]) + ".", 8.5, ROJO)
+
     # ---- inventario ----
     inv = d.get("inventario")
     if inv and inv.get("filas"):
-        titulo("4. Inventario: dónde está la plata")
+        titulo(f"{n_sec}. Inventario: dónde está la plata")
+        n_sec += 1
         fin = inv["filas"][-1]
         lento = float(d.get("inv_lento") or 0)
         balanceo = float(d.get("inv_balanceo") or 0)
@@ -238,7 +284,7 @@ def pdf_simulador(d):
         for x in lineas:
             texto("- " + x, 8.5)
 
-    titulo("5. Supuestos y qué cuidar" if inv and inv.get("filas") else "4. Supuestos y qué cuidar")
+    titulo(f"{n_sec}. Supuestos y qué cuidar")
     ajuste = d.get("ajuste") or {}
     puntos = [
         f"Venta promedio de {_m(d['venta_dia'])} por día (lo registrado este mes).",

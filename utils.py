@@ -932,6 +932,70 @@ def simulator_debts(debts, fixed_expenses):
     return sorted(out, key=lambda x: (-x["saldo"], x["nombre"]))
 
 
+def loan_monthly_rate(monto, cuotas, cuota):
+    """Tasa mensual implícita de un préstamo francés (monto, n° de cuotas, cuota)."""
+    lo, hi = 0.0, 0.2
+    for _ in range(100):
+        r = (lo + hi) / 2
+        q = monto * r / (1 - (1 + r) ** -cuotas) if r else monto / cuotas
+        lo, hi = (r, hi) if q < cuota else (lo, r)
+    return r
+
+
+def renewal_schedule(prestamos, deudas, primera, cada=3, renovaciones=6):
+    """Plan para cancelar deudas caras con renovaciones de préstamos de libre
+    disponibilidad. En cada renovación, cada préstamo entrega el capital que se
+    amortizó desde la renovación anterior (sistema francés: al principio la
+    cuota es más interés) y vuelve a su monto original, así que la cuota no
+    cambia. Con lo juntado se cancelan deudas COMPLETAS, de la más chica a la
+    más grande; lo que sobra se guarda para la siguiente.
+
+      prestamos: [{nombre, monto, cuotas, cuota, primera_cuota 'YYYY-MM'}]
+      primera:   mes de la primera renovación ('YYYY-MM'); luego cada `cada`.
+    Devuelve las filas (mes, por préstamo, disponible, canceladas, guardado),
+    {id_deuda: mes} y el mes en que ya no quedan deudas (o None)."""
+    estado = []
+    for p in prestamos:
+        if not (p.get("monto") and p.get("cuotas") and p.get("cuota") and p.get("primera_cuota")):
+            continue
+        estado.append({**p, "r": loan_monthly_rate(p["monto"], p["cuotas"], p["cuota"]),
+                       "saldo": float(p["monto"]), "ultimo": _sumar_meses(p["primera_cuota"], -1)})
+    pendientes = sorted(deudas, key=lambda d: d["saldo"])
+    guardado = 0.0
+    filas, cancel = [], {}
+    mes = primera
+    for _ in range(renovaciones):
+        por_prestamo = {}
+        for e in estado:
+            capital = 0.0
+            m = _sumar_meses(e["ultimo"], 1)
+            while m <= mes:
+                interes = e["saldo"] * e["r"]
+                amort = e["cuota"] - interes
+                e["saldo"] -= amort
+                capital += amort
+                m = _sumar_meses(m, 1)
+            e["ultimo"] = mes
+            por_prestamo[e["nombre"]] = round2(capital)
+            e["saldo"] = float(e["monto"])  # renovado: vuelve al monto original
+        disponible = dsum(list(por_prestamo.values()) + [guardado])
+        canceladas = []
+        while pendientes and pendientes[0]["saldo"] <= disponible:
+            d = pendientes.pop(0)
+            disponible = dsum([disponible, -d["saldo"]])
+            canceladas.append(d)
+            cancel[d["id"]] = mes
+        guardado = disponible
+        filas.append({"mes": mes, "por_prestamo": por_prestamo, "total": dsum(list(por_prestamo.values())),
+                      "canceladas": canceladas, "guardado": guardado,
+                      "interes_liberado": dsum(d["cuota"] for d in deudas if d["id"] in cancel)})
+        if not pendientes:
+            break
+        mes = _sumar_meses(mes, cada)
+    return {"filas": filas, "cancel_mes": cancel, "libre_en": filas[-1]["mes"] if not pendientes and filas else None,
+            "faltan": pendientes}
+
+
 def simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes,
                     today=None, n_meses=7, compras_nuevas=None):
     """Lo que entra y sale cada mes desde el mes en curso, SIN las cuotas de
@@ -995,7 +1059,7 @@ def default_new_purchases(base, compras_mes, today=None, plazo_minimo=60):
     }
 
 
-def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None):
+def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None, cancel_mes=None):
     """Caja a fin de cada mes si del `credito` se usan `pagos` ({id: monto})
     para cancelar capital de `deudas`. Cada deuda cobra su cuota sobre lo
     que queda: cancelar la mitad baja la cuota a la mitad (préstamos que se
@@ -1003,8 +1067,13 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None
 
     `inversiones`: [{monto, mes, recupera, mes_recupera}] — salen de la caja
     en `mes` y, si se espera recuperar algo (p. ej. mercadería de temporada
-    que se vende), eso vuelve en `mes_recupera`."""
+    que se vende), eso vuelve en `mes_recupera`.
+
+    `cancel_mes`: {id: 'YYYY-MM'} deudas que se cancelan más adelante con
+    plata de una renovación bancaria (no sale de la caja): su cuota se paga
+    ese mes y deja de cobrarse desde el mes siguiente."""
     inversiones = inversiones or []
+    cancel_mes = cancel_mes or {}
 
     def _inv_del_mes(mes):
         sale = dsum(float(i.get("monto") or 0) for i in inversiones if i.get("mes") == mes)
@@ -1020,7 +1089,10 @@ def simulate_credit(base, deudas, pagos, caja_inicial, credito, inversiones=None
     caja = dsum([caja_inicial, credito, -usado])
     serie = []
     for k, f in enumerate(base):
-        cuotas = 0.0 if k == 0 else cuota_despues
+        cuotas = 0.0 if k == 0 else dsum(
+            d["cuota"] * (d["saldo"] - min(pagos.get(d["id"], 0), d["saldo"])) / d["saldo"]
+            for d in deudas if not (cancel_mes.get(d["id"]) and cancel_mes[d["id"]] < f["mes"])
+        )
         inv = _inv_del_mes(f["mes"])
         caja = dsum([caja, f["ventas"], f["fijos"], -f["proveedores"], -f["otros"], -cuotas, inv])
         serie.append({**f, "cuotas_deudas": round2(cuotas), "inversiones": inv, "caja_fin": caja})

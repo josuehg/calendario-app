@@ -81,13 +81,20 @@ def _cargar_escenario(esc):
     """Pone en los campos lo guardado en el escenario (corre antes de dibujar)."""
     d = esc.get("data") or {}
     for k in ("sim_credito", "sim_caja", "sim_venta", "sim_compras", "sim_inv_hoy", "sim_costo_pct",
-              "sim_inv_lento", "sim_inv_balanceo"):
+              "sim_inv_lento", "sim_inv_balanceo", "sim_renov_cada"):
         if d.get(k) is not None:
-            st.session_state[k] = float(d[k])
+            # El campo de meses es entero: mezclar float con int rompe el number_input.
+            st.session_state[k] = int(d[k]) if k == "sim_renov_cada" else float(d[k])
     guardados = d.get("pagos") or {}
     for deuda in deudas:
         st.session_state[f"sim_pago_{deuda['id']}"] = float(min(guardados.get(str(deuda["id"]), 0), deuda["saldo"]))
     st.session_state["sim_inv_data"] = d.get("inversiones") or []
+    if d.get("prestamos"):
+        st.session_state["sim_prestamos_data"] = d["prestamos"]
+    if d.get("renov_primera"):
+        st.session_state["sim_renov_primera"] = d["renov_primera"]
+    if d.get("renov_incluir") is not None:
+        st.session_state["sim_renov_incluir"] = bool(d["renov_incluir"])
     st.session_state["sim_prov_data"] = d.get("prov_nuevas")
     st.session_state["sim_inv_ver"] = st.session_state.get("sim_inv_ver", 0) + 1
     st.session_state["sim_msg"] = f"Escenario cargado: {esc['name']}."
@@ -420,8 +427,78 @@ inversiones = [
     if pd.notna(row["Monto (S/)"]) and row["Monto (S/)"] and pd.notna(row["Mes"])
 ]
 
+# ---------- renovaciones de préstamos de libre disponibilidad ----------
+st.subheader("🔁 Renovaciones")
+st.caption(
+    "Préstamos que el banco te deja renovar: cada vez te devuelve el capital que ya pagaste (al principio la cuota "
+    "es más interés) y el préstamo vuelve a su monto, así que la cuota no cambia. Con esa plata se cancelan las "
+    "deudas caras, de la más chica a la más grande. Cada renovación está sujeta a la evaluación del banco."
+)
+PRESTAMOS_DEF = [
+    {"Préstamo": "Scotiabank (hipoteca)", "Monto": 700000.0, "Cuotas": 36, "Cuota": 23259.59, "Primera cuota": "2027-01"},
+    {"Préstamo": "Caja Arequipa", "Monto": 100000.0, "Cuotas": 24, "Cuota": 4877.20, "Primera cuota": "2026-12"},
+]
+_pres_df = st.data_editor(
+    pd.DataFrame(st.session_state.get("sim_prestamos_data") or PRESTAMOS_DEF),
+    key=f"sim_prestamos_{st.session_state.get('sim_inv_ver', 0)}", num_rows="dynamic", hide_index=True, width="stretch",
+    column_config={
+        "Monto": st.column_config.NumberColumn(min_value=0, step=1000, format="%.0f"),
+        "Cuotas": st.column_config.NumberColumn(min_value=1, max_value=360, step=1, format="%d"),
+        "Cuota": st.column_config.NumberColumn(min_value=0, step=10, format="%.2f"),
+        "Primera cuota": st.column_config.TextColumn(help="Mes de la primera cuota, como 2027-01."),
+    },
+)
+prestamos = [
+    {"nombre": str(row["Préstamo"]), "monto": float(row["Monto"] or 0), "cuotas": int(row["Cuotas"] or 0),
+     "cuota": float(row["Cuota"] or 0), "primera_cuota": str(row["Primera cuota"] or "")[:7]}
+    for _, row in _pres_df.iterrows()
+    if pd.notna(row["Préstamo"]) and pd.notna(row["Monto"]) and pd.notna(row["Cuotas"]) and pd.notna(row["Cuota"])
+]
+_meses_renov = [utils._sumar_meses(today[:7], k) for k in range(1, 13)]
+_def_primera = utils._sumar_meses(max((p_["primera_cuota"] for p_ in prestamos if p_["primera_cuota"]), default=today[:7]), 2)
+st.session_state.setdefault("sim_renov_primera", _def_primera if _def_primera in _meses_renov else _meses_renov[2])
+if st.session_state["sim_renov_primera"] not in _meses_renov:  # p. ej. de un escenario viejo
+    st.session_state["sim_renov_primera"] = _def_primera if _def_primera in _meses_renov else _meses_renov[2]
+st.session_state.setdefault("sim_renov_cada", 3)
+st.session_state.setdefault("sim_renov_incluir", True)
+r1, r2, r3 = st.columns([1.2, 1, 1.4])
+renov_primera = r1.selectbox("Primera renovación", _meses_renov, key="sim_renov_primera", format_func=_mes)
+renov_cada = r2.number_input("Cada cuántos meses", min_value=1, max_value=12, step=1, key="sim_renov_cada")
+r3.write("")
+renov_incluir = r3.toggle("Incluir en la proyección", key="sim_renov_incluir",
+                          help="Descuenta en la caja los intereses que dejas de pagar cuando cada deuda se cancela.")
+# Lo que queda de cada deuda después de lo que cancelas con el crédito.
+_restantes = [
+    {**d, "saldo": d["saldo"] - min(pagos.get(d["id"], 0), d["saldo"]),
+     "cuota": d["cuota"] * (d["saldo"] - min(pagos.get(d["id"], 0), d["saldo"])) / d["saldo"]}
+    for d in deudas if pagos.get(d["id"], 0) < d["saldo"]
+]
+renov = utils.renewal_schedule(prestamos, _restantes, renov_primera, int(renov_cada), renovaciones=8) if prestamos else None
+if renov and renov["filas"]:
+    _nombres = [p_["nombre"] for p_ in prestamos]
+    st.dataframe(
+        pd.DataFrame([
+            {"Renovación": _mes(f["mes"]),
+             **{n: utils.money(f["por_prestamo"].get(n, 0)) for n in _nombres},
+             "Cancelas": ", ".join(f"{d['nombre']} ({utils.money(d['saldo'])})" for d in f["canceladas"]) or "—",
+             "Queda guardado": utils.money(f["guardado"]),
+             "Interés que dejas de pagar / mes": utils.money(f["interes_liberado"])}
+            for f in renov["filas"]
+        ]),
+        hide_index=True, width="stretch",
+    )
+    if renov["libre_en"]:
+        st.success(f"Con este calendario quedas **libre de estas deudas en {_mes(renov['libre_en'])}**, sin subir tus cuotas bancarias.")
+    else:
+        st.warning("Con estas renovaciones todavía quedan: " + ", ".join(d["nombre"] for d in renov["faltan"]) + ".")
+    st.caption(
+        "Lo que queda guardado entre renovaciones no se usa para operar: es para la siguiente deuda (o para abonarle "
+        "si acepta pagos parciales)."
+    )
+cancel_mes = renov["cancel_mes"] if (renov and renov_incluir) else {}
+
 st.session_state["_sim_inv_last"] = inversiones  # para el plan sugerido
-r = utils.simulate_credit(base, deudas, pagos, caja_hoy, credito, inversiones)
+r = utils.simulate_credit(base, deudas, pagos, caja_hoy, credito, inversiones, cancel_mes=cancel_mes)
 base_guardar = utils.simulate_credit(base, deudas, {}, caja_hoy, credito, inversiones)
 
 # ---------- resultado ----------
@@ -593,6 +670,7 @@ _pdf = reporte_pdf.pdf_simulador({
     "r": r, "deudas": deudas, "pagos": pagos, "inversiones": inversiones, "ajuste": ajuste, "compras_promedio": compras_app,
     "inventario": inventario if inv_hoy else None,
     "inv_lento": inv_lento, "inv_balanceo": inv_balanceo, "razones": st.session_state.get("sim_sugerido_razones") or [],
+    "renovaciones": renov if (renov and renov["filas"]) else None, "prestamos": prestamos,
 })
 p1, p2 = st.columns([3, 1])
 p1.caption(
@@ -619,6 +697,9 @@ with st.form("sim_guardar", clear_on_submit=True, border=False):
                     "sim_credito": credito, "sim_caja": caja_hoy, "sim_venta": venta_dia, "sim_compras": compras_mes,
                     "sim_inv_hoy": inv_hoy, "sim_costo_pct": costo_pct,
                     "sim_inv_lento": inv_lento, "sim_inv_balanceo": inv_balanceo,
+                    "prestamos": [{"Préstamo": p_["nombre"], "Monto": p_["monto"], "Cuotas": p_["cuotas"],
+                                   "Cuota": p_["cuota"], "Primera cuota": p_["primera_cuota"]} for p_ in prestamos],
+                    "renov_primera": renov_primera, "sim_renov_cada": int(renov_cada), "renov_incluir": renov_incluir,
                     "pagos": {str(k): v for k, v in pagos.items() if v},
                     "inversiones": inversiones,
                     "prov_nuevas": compras_nuevas,

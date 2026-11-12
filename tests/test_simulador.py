@@ -436,3 +436,41 @@ def test_boton_plan_sugerido(run_view, db):
     assert not at.exception
     assert any("Por qué este plan" in i.value for i in at.info)
     assert any("Plan sugerido cargado" in s.value for s in at.success)
+
+
+PRESTAMOS = [{"nombre": "Scotiabank", "monto": 700000.0, "cuotas": 36, "cuota": 23259.59, "primera_cuota": "2027-01"},
+             {"nombre": "Caja Arequipa", "monto": 100000.0, "cuotas": 24, "cuota": 4877.20, "primera_cuota": "2026-12"}]
+
+
+def test_calendario_de_renovaciones(db):
+    import utils
+    deu = [{"id": n, "nombre": n, "saldo": s, "cuota": s / 10} for n, s in
+           [("a", 10000.0), ("b", 10000.0), ("c", 10000.0), ("d", 30000.0), ("e", 45000.0), ("f", 50000.0), ("g", 103000.0)]]
+    r = utils.renewal_schedule(PRESTAMOS, deu, "2027-03", 3, 8)
+    f = r["filas"]
+    # Marzo: 3 cuotas de Scotiabank y 4 de Caja Arequipa.
+    assert round(f[0]["por_prestamo"]["Scotiabank"]) == 49219 and round(f[0]["por_prestamo"]["Caja Arequipa"]) == 14590
+    assert [d["id"] for d in f[0]["canceladas"]] == ["a", "b", "c", "d"]
+    # Al renovar el préstamo vuelve a empezar: cada renovación siguiente entrega lo mismo.
+    assert round(f[1]["por_prestamo"]["Scotiabank"]) == 49219
+    assert [d["id"] for d in f[1]["canceladas"]] == ["e"] and r["cancel_mes"]["g"] == "2028-03"
+    assert r["libre_en"] == "2028-03" and f[-1]["interes_liberado"] == 25800.0
+
+
+def test_proyeccion_deja_de_cobrar_lo_cancelado_con_renovacion(db):
+    import utils
+    base = [{"mes": m, "ventas": 0.0, "fijos": 0.0, "proveedores": 0.0, "otros": 0.0}
+            for m in ("2027-02", "2027-03", "2027-04")]
+    r = utils.simulate_credit(base, DEUDAS, {}, 0.0, 0.0, cancel_mes={"a": "2027-03"})
+    # Feb y marzo pagan las dos cuotas (3k + 10k); desde abril solo la de Carmen.
+    assert [s["cuotas_deudas"] for s in r["serie"]] == [0.0, 13000.0, 10000.0]
+
+
+def test_pagina_renovaciones_y_pdf(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    tabla = next(d.value for d in at.dataframe if "Renovación" in d.value.columns)
+    assert "Cancelas" in tabla.columns
+    assert any("libre de estas deudas" in s.value for s in at.success)
