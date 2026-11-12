@@ -1292,6 +1292,104 @@ def suggest_plan(events, incomes, ingresos_esperados, deudas, venta_dia, credito
     return {"compras": float(compras), "plan": plan, "pagos": pagos, "r": r, "razones": razones}
 
 
+def _fijos_del_mes(fixed_expenses, mes, excluir_ids):
+    """Lo que suman los gastos fijos activos en un mes, desde sus plantillas
+    (para los meses que todavía no tienen cuotas generadas)."""
+    total = 0.0
+    for f in fixed_expenses:
+        if not f.get("active", True) or f.get("id") in excluir_ids:
+            continue
+        ini = (f.get("start_month") or "0000-01")[:7]
+        fin = (f.get("end_month") or "9999-12")[:7]
+        if ini <= mes <= fin:
+            total += float(f["amount"]) * occurrences_per_month(f)
+    return round2(total)
+
+
+def long_projection(events, fixed_expenses, ingresos_esperados, deudas, pagos, cancel_mes, caja_hoy, credito,
+                    inversiones, venta_dia, costo_pct, inv_hoy, compras_plan, today=None, n_meses=20,
+                    crec_anual=0.0, margen_pts=0.0, ahorro_mes=0.0, liquidacion_mes=0.0, inv_lento=0.0,
+                    recupero_liquidacion=0.7):
+    """Caja mes a mes hasta `n_meses`, más allá de lo que tiene cuotas
+    generadas (para eso usa las plantillas de gastos fijos, con su fecha de
+    fin: los préstamos que terminan dejan de sumar).
+
+      ventas      = venta_dia (creciendo crec_anual) * días; el mes en curso, lo que falta.
+      compras     = compras_plan mientras el inventario esté sobre 90 días;
+                    después, reponer lo que se vende (venta * costo). Se pagan
+                    ~2 meses después; antes, solo lo ya registrado.
+      deudas      = cuota de cada deuda hasta que se cancela (con el crédito
+                    al inicio, o con una renovación en `cancel_mes`).
+      mejoras     = margen_pts (ganancia extra sobre la venta, desde el 3er mes:
+                    se nota cuando se paga lo comprado más barato), ahorro_mes
+                    (reprogramación o gastos, desde el 3er mes) y liquidacion_mes
+                    (stock lento vendido o canjeado: se cobra `recupero_liquidacion`
+                    de su costo, hasta la mitad del stock lento y solo mientras el
+                    inventario esté sobre 90 días). El inventario
+                    se mide siempre con el costo actual (el stock ya comprado no
+                    se abarata).
+    """
+    today = today or today_str()
+    mes0 = today[:7]
+    meses = [_sumar_meses(mes0, k) for k in range(n_meses)]
+    corte = _sumar_meses(mes0, 6)  # hasta acá hay cuotas generadas
+    ids_deudas = {d.get("fixed_expense_id") for d in deudas if d.get("fixed_expense_id")}
+    costo = costo_pct
+    inversiones = inversiones or []
+    cancel_mes = cancel_mes or {}
+    caja = dsum([caja_hoy, credito, -sum(pagos.get(d["id"], 0) for d in deudas)])
+    inv = float(inv_hoy or 0)
+    lento_por_liquidar = inv_lento * 0.5
+    compras = {}
+    serie = []
+    for k, mes in enumerate(meses):
+        y, m = int(mes[:4]), int(mes[5:7])
+        dias_mes = _cal.monthrange(y, m)[1]
+        if k == 0:
+            dias = sum(1 for d in range(1, dias_mes + 1) if f"{mes}-{d:02d}" >= today)
+        else:
+            dias = dias_mes
+        vd = venta_dia * (1 + crec_anual) ** (k / 12)
+        ventas = vd * dias
+        consumo = ventas * costo
+        dias_inv = inv / (vd * costo) if vd and costo else 999
+        compra = (compras_plan if dias_inv > 90 else vd * costo * 30) * (dias / dias_mes if k == 0 else 1)
+        del_mes = [e for e in events if (e["date"][:7] <= mes if k == 0 else e["date"][:7] == mes)]
+        registrado = dsum(e["amount"] for e in del_mes if e["kind"] in ("invoice", "letra"))
+        pago_prov = dsum([registrado, compras.get(meses[k - 2], 0) if k >= 2 else 0])
+        if mes <= corte:
+            otros = dsum(e["amount"] for e in del_mes if e["kind"] not in ("invoice", "letra")
+                         and (k == 0 or e.get("fixed_expense_id") not in ids_deudas))
+        else:
+            variables = dsum(e["amount"] for e in del_mes if e["kind"] == "expense" and not e.get("fixed_expense_id"))
+            otros = dsum([_fijos_del_mes(fixed_expenses, mes, ids_deudas), variables])
+        intereses = 0.0 if k == 0 else dsum(
+            d["cuota"] * (d["saldo"] - min(pagos.get(d["id"], 0), d["saldo"])) / d["saldo"]
+            for d in deudas if not (cancel_mes.get(d["id"]) and cancel_mes[d["id"]] < mes)
+        )
+        fijos_in = dsum(i["amount"] for i in ingresos_esperados if i["date"][:7] == mes and i["date"] >= today)
+        inv_neta = dsum([dsum(float(i.get("recupera") or 0) for i in inversiones if i.get("mes_recupera") == mes),
+                         -dsum(float(i.get("monto") or 0) for i in inversiones if i.get("mes") == mes)])
+        # Se liquida solo mientras sobra stock: con el inventario ya normal, lo que
+        # queda es surtido y no se saca (si no, se terminaría en quiebre).
+        liq = min(liquidacion_mes, lento_por_liquidar) if (k >= 1 and dias_inv > 90) else 0.0
+        lento_por_liquidar -= liq
+        margen_extra = ventas * margen_pts / 100 if k >= 2 else 0.0
+        extra = dsum([ahorro_mes if k >= 2 else 0.0, liq * recupero_liquidacion, margen_extra])
+        caja = dsum([caja, ventas, fijos_in, -pago_prov, -otros, -intereses, inv_neta, extra])
+        inv = inv + compra - consumo - liq
+        compras[mes] = compra if k >= 1 else 0.0
+        serie.append({"mes": mes, "ventas": round2(ventas), "venta_dia": round2(vd), "compras_pagadas": pago_prov,
+                      "compra_mes": round2(compra), "otros": otros, "intereses": round2(intereses),
+                      "inversiones": inv_neta, "extra": extra, "liquidado": round2(liq), "caja": caja,
+                      "inventario": round2(inv),
+                      "dias_inv": round(inv / (vd * costo), 0) if vd and costo else 0})
+    minimo = min(serie, key=lambda s: s["caja"])
+    normaliza = next((s["mes"] for s in serie if s["dias_inv"] <= 90), None)
+    return {"serie": serie, "caja_minima": minimo["caja"], "mes_minimo": minimo["mes"],
+            "mes_rojo": next((s["mes"] for s in serie if s["caja"] < 0), None), "stock_normal_en": normaliza}
+
+
 def adjustment_to_stay_positive(serie):
     """Cuánto habría que ajustar cada mes para que la caja (`serie` de
     simulate_credit) nunca quede en rojo:

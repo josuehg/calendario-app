@@ -503,3 +503,60 @@ def test_por_que_desaparece_si_cambias_el_plan(run_view, db):
     campo = next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}")
     campo.set_value(0.0 if campo.value else 5000.0).run()
     assert not any("Por qué este plan" in i.value for i in at.info)
+
+
+def test_proyeccion_larga_usa_plantillas_y_respeta_fin_de_prestamos(db):
+    import utils
+    fx = [{"id": 1, "name": "Alquiler", "amount": 1000.0, "pay_day": 5, "active": True, "start_month": "2026-01-01",
+           "end_month": None},
+          {"id": 2, "name": "Banco", "amount": 500.0, "pay_day": 5, "active": True, "start_month": "2026-01-01",
+           "end_month": "2027-08-01"}]
+    r = utils.long_projection([], fx, [], [], {}, {}, caja_hoy=0.0, credito=0.0, inversiones=[], venta_dia=0.0,
+                              costo_pct=0.5, inv_hoy=0.0, compras_plan=0.0, today="2026-11-11", n_meses=12)
+    s = {x["mes"]: x for x in r["serie"]}
+    # Hasta mayo hay cuotas generadas (aquí no hay eventos: 0); después, desde plantillas.
+    assert s["2027-05"]["otros"] == 0.0
+    assert s["2027-06"]["otros"] == 1500.0 and s["2027-08"]["otros"] == 1500.0
+    assert s["2027-09"]["otros"] == 1000.0  # el banco ya terminó
+    assert len(r["serie"]) == 12
+
+
+def test_proyeccion_larga_mejoras_suben_la_caja_y_renovacion_baja_intereses(db):
+    import utils
+    deu = [{"id": "a", "nombre": "A", "saldo": 10000.0, "cuota": 1000.0, "fixed_expense_id": None}]
+    args = dict(events=[], fixed_expenses=[], ingresos_esperados=[], deudas=deu, pagos={},
+                cancel_mes={"a": "2027-03"}, caja_hoy=0.0, credito=0.0, inversiones=[], venta_dia=1000.0,
+                costo_pct=0.5, inv_hoy=60000.0, compras_plan=10000.0, today="2026-11-11", n_meses=8)
+    base = utils.long_projection(**args)
+    mej = utils.long_projection(**args, crec_anual=0.1, margen_pts=3, ahorro_mes=2000, liquidacion_mes=5000,
+                                inv_lento=20000)
+    s = {x["mes"]: x for x in base["serie"]}
+    assert s["2027-03"]["intereses"] == 1000.0 and s["2027-04"]["intereses"] == 0.0
+    assert mej["serie"][-1]["caja"] > base["serie"][-1]["caja"]
+    assert base["stock_normal_en"] is not None  # con 60 días de stock y compras bajas, llega a lo normal
+
+
+def test_pagina_informe_de_gestion(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    assert any("informe de gestión" in b.label for b in at.get("download_button"))
+    labels = {m.label for m in at.metric}
+    assert "Caja más baja si seguimos igual" in labels and "Caja más baja con mejoras" in labels
+
+
+def test_pdf_gestion(db):
+    import reporte_gestion
+    import utils
+    args = dict(events=[], fixed_expenses=[], ingresos_esperados=[], deudas=DEUDAS, pagos={}, cancel_mes={},
+                caja_hoy=10000.0, credito=0.0, inversiones=[], venta_dia=1000.0, costo_pct=0.5, inv_hoy=90000.0,
+                compras_plan=10000.0, today="2026-11-11", n_meses=14)
+    pdf = reporte_gestion.pdf_gestion({
+        "nombre": "Plan", "fecha": "hoy", "base": utils.long_projection(**args),
+        "mejoras": utils.long_projection(**args, crec_anual=0.05, margen_pts=3, ahorro_mes=8000),
+        "params": {"crec_anual": 0.05, "margen_pts": 3, "ahorro_mes": 8000, "liquidacion_mes": 15000},
+        "renov": None, "inv_hoy": 90000.0, "inv_lento": 40000.0, "inv_balanceo": 8000.0,
+        "compras_promedio": 20000.0, "venta_dia": 1000.0,
+    })
+    assert pdf[:4] == b"%PDF"
