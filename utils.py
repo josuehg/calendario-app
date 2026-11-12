@@ -1088,6 +1088,51 @@ def purchase_windows(events, invoices, serie, meta_mensual, today=None, plazos=(
     }
 
 
+INVENTARIO_DIAS_MIN = 60   # menos: riesgo de quedarse sin productos
+INVENTARIO_DIAS_MAX = 120  # más: sobra stock (plata parada en anaqueles)
+
+
+def inventory_projection(serie, inventario_hoy, costo_pct, venta_dia, desfase_meses=2):
+    """Inventario a costo a fin de cada mes, coherente con la misma `serie`
+    del simulador (ventas y pagos a proveedores):
+
+      sale    = costo de lo vendido = ventas del mes * costo_pct (si cambias la
+                venta por día, cambia también lo que sale del stock).
+      entra   = lo que se compra ese mes. Lo que se paga a proveedores en un
+                mes es lo que se compró ~`desfase_meses` antes (plazos de
+                60-90 días), así que se toma el pago de 2 meses después; para
+                los últimos meses, el último pago planeado.
+      El mes en curso cuenta solo la parte que falta (igual que las ventas).
+      dias    = inventario / costo de lo vendido por día (a la venta actual).
+    Devuelve las filas y el estado: 'bajo' (< INVENTARIO_DIAS_MIN en algún
+    mes), 'alto' (> INVENTARIO_DIAS_MAX al final) u 'ok'."""
+    if not serie or not inventario_hoy:
+        return {"filas": [], "estado": None, "dias_hoy": 0.0, "dias_min": 0.0}
+    consumo_dia = venta_dia * costo_pct
+    y, m = int(serie[0]["mes"][:4]), int(serie[0]["mes"][5:7])
+    frac0 = (serie[0]["ventas"] / (venta_dia * _cal.monthrange(y, m)[1])) if venta_dia else 1.0
+    stock = float(inventario_hoy)
+    filas = []
+    for k, s in enumerate(serie):
+        pago_futuro = serie[min(k + desfase_meses, len(serie) - 1)]["proveedores"]
+        entra = round2(pago_futuro * (frac0 if k == 0 else 1.0))
+        sale = round2(s["ventas"] * costo_pct)
+        stock = dsum([stock, entra, -sale])
+        filas.append({
+            "mes": s["mes"], "entra": entra, "sale": sale, "inventario": stock,
+            "dias": round(stock / consumo_dia, 0) if consumo_dia else 0.0,
+        })
+    dias_min = min(f["dias"] for f in filas)
+    estado = "bajo" if dias_min < INVENTARIO_DIAS_MIN else ("alto" if filas[-1]["dias"] > INVENTARIO_DIAS_MAX else "ok")
+    return {
+        "filas": filas,
+        "estado": estado,
+        "inventario_hoy": round2(inventario_hoy),
+        "dias_hoy": round(inventario_hoy / consumo_dia, 0) if consumo_dia else 0.0,
+        "dias_min": dias_min,
+    }
+
+
 def adjustment_to_stay_positive(serie):
     """Cuánto habría que ajustar cada mes para que la caja (`serie` de
     simulate_credit) nunca quede en rojo:

@@ -54,6 +54,9 @@ DEL_SISTEMA = {
     "sim_caja": float(utils.round2(caja_app)) if caja_app is not None else 0.0,
     "sim_venta": float(venta_dia_app),
     "sim_compras": float(compras_app),
+    # Costo de lo vendido como % de la venta: compras promedio / venta del mes.
+    "sim_costo_pct": float(min(max(round(compras_app / (venta_dia_app * 30) * 100, 1), 30.0), 90.0))
+    if venta_dia_app and compras_app else 60.0,
 }
 
 
@@ -77,7 +80,7 @@ escenarios = db.list_sim_scenarios()
 def _cargar_escenario(esc):
     """Pone en los campos lo guardado en el escenario (corre antes de dibujar)."""
     d = esc.get("data") or {}
-    for k in ("sim_credito", "sim_caja", "sim_venta", "sim_compras"):
+    for k in ("sim_credito", "sim_caja", "sim_venta", "sim_compras", "sim_inv_hoy", "sim_costo_pct"):
         if d.get(k) is not None:
             st.session_state[k] = float(d[k])
     guardados = d.get("pagos") or {}
@@ -265,6 +268,60 @@ base = utils.simulation_base(
     events, incomes, ingresos_esperados, deudas, venta_dia, compras_mes, today, compras_nuevas=compras_nuevas,
 )
 
+
+# ---------- inventario ----------
+st.subheader("📦 Inventario")
+st.session_state.setdefault("sim_inv_hoy", 0.0)
+i1, i2 = st.columns(2)
+inv_hoy = i1.number_input(
+    "Inventario a costo hoy (S/)", min_value=0.0, step=10000.0, format="%.0f", key="sim_inv_hoy",
+    help="El valor de tu stock a costo, entre todas las sucursales (sácalo de Odoo).",
+)
+costo_pct = i2.number_input(
+    "Costo de lo que vendes (% de la venta)", min_value=10.0, max_value=95.0, step=1.0, format="%.0f",
+    key="sim_costo_pct",
+    help="Cuánto te cuesta, en promedio, lo que vendes. Sale de tus compras promedio frente a tu venta; "
+         "si Odoo te da el costo de ventas real, ajústalo.",
+)
+i2.caption(f"≈ {utils.money(venta_dia * 30 * costo_pct / 100)} al mes con la venta de {utils.money(venta_dia)} por día")
+inventario = utils.inventory_projection(base, inv_hoy, costo_pct / 100, venta_dia)
+if not inv_hoy:
+    st.caption("Pon el valor de tu inventario para ver si tu plan de compras es compatible con el stock que tienes.")
+else:
+    _fin = inventario["filas"][-1]
+    _txt = (
+        f"Hoy tienes **{inventario['dias_hoy']:.0f} días** de inventario. Con tu plan de compras, a fin de "
+        f"{_mes(_fin['mes'])} quedarías en **{utils.money(_fin['inventario'])}** (**{_fin['dias']:.0f} días**)."
+    )
+    if inventario["estado"] == "bajo":
+        st.error(
+            _txt + f" 🔴 En algún mes bajas de {utils.INVENTARIO_DIAS_MIN} días "
+            f"(mínimo {inventario['dias_min']:.0f}): riesgo de quedarte sin productos. Compras muy poco para lo que vendes."
+        )
+    elif inventario["estado"] == "alto":
+        st.warning(
+            _txt + f" 🟠 Sigues sobre {utils.INVENTARIO_DIAS_MAX} días: todavía sobra stock, podrías comprar menos."
+        )
+    else:
+        st.success(_txt + f" 🟢 Nivel sano (entre {utils.INVENTARIO_DIAS_MIN} y {utils.INVENTARIO_DIAS_MAX} días).")
+    with st.expander("Ver inventario mes a mes"):
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "Mes": _mes(f["mes"]) + (" (lo que falta)" if k == 0 else ""),
+                    "Compras que entran": utils.money(f["entra"]),
+                    "Costo de lo vendido": utils.money(f["sale"]),
+                    "Inventario a fin de mes": utils.money(f["inventario"]),
+                    "Días": f"{f['dias']:.0f}",
+                }
+                for k, f in enumerate(inventario["filas"])
+            ]),
+            hide_index=True, width="stretch",
+        )
+        st.caption(
+            "Supone que lo que pagas a proveedores en un mes es lo que compraste unos 2 meses antes (plazos de "
+            "60-90 días). El costo de lo vendido sigue a la venta por día: si la cambias arriba, esto cambia."
+        )
 
 # ---------- inversiones ----------
 st.subheader("Inversiones")
@@ -491,6 +548,7 @@ _pdf = reporte_pdf.pdf_simulador({
     "fecha": utils.fmt_long(today),
     "credito": credito, "caja_hoy": caja_hoy, "venta_dia": venta_dia,
     "r": r, "deudas": deudas, "pagos": pagos, "inversiones": inversiones, "ajuste": ajuste, "compras_promedio": compras_app,
+    "inventario": inventario if inv_hoy else None,
 })
 p1, p2 = st.columns([3, 1])
 p1.caption(
@@ -515,6 +573,7 @@ with st.form("sim_guardar", clear_on_submit=True, border=False):
                 "name": nombre.strip(),
                 "data": {
                     "sim_credito": credito, "sim_caja": caja_hoy, "sim_venta": venta_dia, "sim_compras": compras_mes,
+                    "sim_inv_hoy": inv_hoy, "sim_costo_pct": costo_pct,
                     "pagos": {str(k): v for k, v in pagos.items() if v},
                     "inversiones": inversiones,
                     "prov_nuevas": compras_nuevas,

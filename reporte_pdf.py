@@ -208,13 +208,33 @@ def pdf_simulador(d):
         "Compras a proveedores: solo lo ya registrado.",
         "Lo que se cancela deja de cobrar interés desde el mes siguiente; este mes se paga como está.",
     ]
+    inv = d.get("inventario")
+    if inv and inv.get("filas"):
+        fin = inv["filas"][-1]
+        estado = {
+            "ok": "nivel sano",
+            "alto": "todavía sobra stock",
+            "bajo": f"ojo: en algún mes baja a {inv['dias_min']:.0f} días, riesgo de quedarse sin productos",
+        }[inv["estado"]]
+        puntos.append(
+            f"Inventario hoy {_m(inv['inventario_hoy'])} "
+            f"({inv['dias_hoy']:.0f} días). Con este plan de compras, a fin de {_mes(fin['mes'])} quedaría en "
+            f"{_m(fin['inventario'])} ({fin['dias']:.0f} días): {estado}."
+        )
     nuevas = [s["prov_nuevas"] for s in serie if s.get("prov_nuevas")]
     prom_hist = d.get("compras_promedio") or 0
     if nuevas and prom_hist and (sum(nuevas[1:] or nuevas) / len(nuevas[1:] or nuevas)) < prom_hist * 0.85:
-        puntos.append(
-            f"Ojo: el plan compra menos que el promedio de los últimos meses ({_m(prom_hist)} al mes). Funciona "
-            "consumiendo stock que sobra; si empiezan a faltar productos que rotan, la venta baja."
-        )
+        if inv and inv.get("estado") in ("ok", "alto"):
+            # El inventario respalda comprar menos: no es una alarma, es algo a vigilar.
+            puntos.append(
+                f"El plan compra menos que el promedio de los últimos meses ({_m(prom_hist)} al mes), respaldado por "
+                "el stock que sobra. Vigilar que no falten los productos que más rotan."
+            )
+        else:
+            puntos.append(
+                f"Ojo: el plan compra menos que el promedio de los últimos meses ({_m(prom_hist)} al mes). Funciona "
+                "solo si hay stock de sobra; si empiezan a faltar productos que rotan, la venta baja."
+            )
     if ajuste.get("compras_mes") or ajuste.get("venta_mes"):
         meta = []
         if ajuste.get("extra_inicio"):
