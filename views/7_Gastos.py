@@ -441,9 +441,13 @@ if _fx:
                                       value=int(ed["pay_day"]) if ed else 1, key="fx_day")
             pay_day_2 = None
         c5, c6 = st.columns(2)
-        start = c5.date_input("Aplica desde",
-                              value=date.fromisoformat(ed["start_month"]) if ed and ed.get("start_month") else date.today(),
-                              key="fx_start")
+        start = c5.date_input(
+            "Aplica desde (día exacto)",
+            value=date.fromisoformat(ed["start_month"][:10]) if ed and ed.get("start_month") else date.today(),
+            key="fx_start",
+            help="Las cuotas con fecha anterior a este día no se generan. Al editar, si mueves esta fecha más "
+                 "adelante, se quitan las cuotas pendientes que caigan antes (las ya vencidas no se tocan).",
+        )
         end_on = c6.checkbox(
             "El gasto termina en algún mes", value=bool(ed and ed.get("end_month")), key="fx_endon",
             help="Actívalo solo si el gasto se acaba: un préstamo a 24 cuotas, un alquiler con fin de contrato. "
@@ -477,7 +481,7 @@ if _fx:
                     "pay_day": int(pay_day),
                     "pay_day_2": int(pay_day_2) if pay_day_2 else None,
                     "active": bool(active),
-                    "start_month": start.replace(day=1).isoformat(),
+                    "start_month": start.isoformat(),
                     "end_month": end.replace(day=1).isoformat() if end else None,
                     "notes": notes.strip() or None,
                 }

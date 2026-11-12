@@ -286,6 +286,12 @@ class FakeDB:
                 new_period = f"{y:04d}-{mo:02d}"
 
             day = utils.due_day_for_month(y, mo, pay_day)
+            inicio = utils.fixed_start_date(fx)
+            if inicio and date(y, mo, day) < inicio:
+                if e["due_date"] >= date.today().isoformat():
+                    continue  # se elimina
+                keep.append(e)
+                continue
             e.update({"name": fx["name"], "category": fx["category"], "subcategory": fx.get("subcategory"),
                       "branch": fx.get("branch"), "amount": fx["amount"],
                       "due_date": date(y, mo, day).isoformat(), "period": new_period})

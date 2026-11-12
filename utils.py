@@ -401,6 +401,13 @@ def occurrences_per_month(fixed_expense):
     return 1
 
 
+def fixed_start_date(fixed_expense):
+    """Día exacto desde el que corre un gasto fijo (start_month guarda la
+    fecha completa; las plantillas viejas tienen el día 1)."""
+    s = fixed_expense.get("start_month")
+    return date.fromisoformat(s[:10]) if s else None
+
+
 def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_ahead=6):
     """Filas de 'expenses' que faltan para cada gasto fijo activo, desde el mes
     de 'today' hasta months_ahead meses adelante. Pura (sin BD) para poder
@@ -412,7 +419,11 @@ def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_
     }
     rows = []
     for f in active_fixed:
-        start = date.fromisoformat(f["start_month"]).replace(day=1) if f.get("start_month") else None
+        # El inicio es un día exacto: una cuota con fecha anterior no se genera
+        # (antes solo contaba el mes, y una plantilla creada el 11 con pago el
+        # 5 nacía con una cuota ya vencida).
+        start_exacto = fixed_start_date(f)
+        start = start_exacto.replace(day=1) if start_exacto else None
         end = date.fromisoformat(f["end_month"]).replace(day=1) if f.get("end_month") else None
         for k in range(months_ahead + 1):
             y = today.year + (today.month - 1 + k) // 12
@@ -433,6 +444,8 @@ def fixed_expense_rows_to_create(active_fixed, existing_expenses, today, months_
                 if (f["id"], period) in existing:
                     continue
                 day = due_day_for_month(y, mo, pd)
+                if start_exacto and date(y, mo, day) < start_exacto:
+                    continue
                 rows.append({
                     "kind": "fijo",
                     "fixed_expense_id": f["id"],

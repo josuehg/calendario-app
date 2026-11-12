@@ -110,6 +110,16 @@ def test_fixed_expense_respects_start_and_end_month(utils):
     assert [r["period"] for r in rows] == ["2026-10", "2026-11"]
 
 
+def test_fixed_expense_start_es_dia_exacto(utils):
+    # Creada el 11/11 con pago el 5: la primera cuota es la del 5 de diciembre,
+    # no una del 5 de noviembre ya vencida.
+    rows = utils.fixed_expense_rows_to_create([_fx(start_month="2026-11-11")], [], date(2026, 11, 11), months_ahead=2)
+    assert [r["due_date"] for r in rows] == ["2026-12-05", "2027-01-05"]
+    # Si el pago cae ese mismo día o después, sí entra noviembre.
+    rows = utils.fixed_expense_rows_to_create([_fx(start_month="2026-11-05")], [], date(2026, 11, 1), months_ahead=0)
+    assert [r["due_date"] for r in rows] == ["2026-11-05"]
+
+
 def test_fixed_expense_payday_31_clamps(utils):
     today = date(2026, 1, 5)
     rows = utils.fixed_expense_rows_to_create([_fx(pay_day=31)], [], today, months_ahead=2)

@@ -321,3 +321,18 @@ def test_rename_category_cascades(db):
     db.rename_expense_category(cat_id, "Arriendos")
     assert all(f["category"] != "Alquiler" for f in db.fixed_expenses)
     assert all(e["category"] == "Arriendos" for e in db.expenses)
+
+
+def test_editar_inicio_mas_adelante_quita_cuotas_futuras_anteriores(db):
+    from datetime import date, timedelta
+    hoy = date.today()
+    fx = db.create_fixed_expense({"name": "QF NUEVO", "category": "Planilla", "branch": None, "amount": 1000.0,
+                                  "pay_day": 28, "start_month": hoy.replace(day=1).isoformat(), "end_month": None})
+    db.ensure_expense_instances()
+    antes = sorted(e["due_date"] for e in db.expenses if e["fixed_expense_id"] == fx["id"])
+    assert antes
+    # Mueve el inicio a 40 días: las cuotas pendientes antes de esa fecha (que aún no vencen) se quitan.
+    nuevo_inicio = (hoy + timedelta(days=40)).isoformat()
+    db.update_fixed_expense(fx["id"], {"start_month": nuevo_inicio})
+    despues = sorted(e["due_date"] for e in db.expenses if e["fixed_expense_id"] == fx["id"])
+    assert despues and all(d >= nuevo_inicio or d < hoy.isoformat() for d in despues)
