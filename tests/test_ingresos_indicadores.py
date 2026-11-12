@@ -42,7 +42,10 @@ def test_periodos(db):
 
 
 def test_pagina_muestra_indicadores(run_view, db):
-    hoy = date.today().isoformat()
+    import utils
+    # La página mide el periodo con la fecha de Perú; date.today() en el
+    # servidor de CI (UTC) ya es "mañana" desde las 7 pm de Perú.
+    hoy = utils.today_lima().isoformat()
     db.create_income({"branch": "Sucursal 1", "date": hoy, "amount": 1500.0})
     db.create_income({"branch": "Sucursal 2", "date": hoy, "amount": 500.0})
     at = run_view(VIEW, role="admin")
