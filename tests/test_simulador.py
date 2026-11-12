@@ -474,3 +474,32 @@ def test_pagina_renovaciones_y_pdf(run_view, db):
     tabla = next(d.value for d in at.dataframe if "Renovación" in d.value.columns)
     assert "Cancelas" in tabla.columns
     assert any("libre de estas deudas" in s.value for s in at.success)
+
+
+def test_pdf_grafico_no_se_parte_en_paginas(db):
+    import re
+    import reporte_pdf
+    import utils
+    base = [{"mes": f"2027-{m:02d}", "ventas": 1000.0, "fijos": 0.0, "proveedores": 0.0, "prov_nuevas": 0.0,
+             "otros": 0.0} for m in range(1, 8)]
+    muchas = [{"id": f"x{i}", "nombre": f"Deuda con un nombre bastante largo número {i}", "saldo": 1000.0,
+               "cuota": 100.0} for i in range(40)]
+    r = utils.simulate_credit(base, muchas, {}, 0.0, 0.0)
+    pdf = reporte_pdf.pdf_simulador({
+        "nombre": "Largo", "fecha": "hoy", "credito": 0.0, "caja_hoy": 0.0, "venta_dia": 100.0, "r": r,
+        "deudas": muchas, "pagos": {}, "inversiones": [{"concepto": f"Inversión {i}", "monto": 10, "mes": "2027-01"}
+                                                       for i in range(12)], "ajuste": {},
+    })
+    paginas = len(re.findall(rb"/Type\s*/Page[^s]", pdf))
+    assert paginas <= 3
+
+
+def test_por_que_desaparece_si_cambias_el_plan(run_view, db):
+    d = db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 10000.0, "balance": 10000.0,
+                        "monthly_payment": 1000.0, "active": True})
+    at = run_view(VIEW, role="admin", sim_caja=50000.0)
+    at = click(at, "Plan sugerido")
+    assert any("Por qué este plan" in i.value for i in at.info)
+    campo = next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}")
+    campo.set_value(0.0 if campo.value else 5000.0).run()
+    assert not any("Por qué este plan" in i.value for i in at.info)

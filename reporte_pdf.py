@@ -192,9 +192,14 @@ def pdf_simulador(d):
         pdf.set_font("Helvetica", "", 8)
     texto("* Este mes: solo lo que falta, e incluye los pagos atrasados.", 7, GRIS)
 
-    # gráfico de barras de la caja a fin de mes
+    # gráfico de barras de la caja a fin de mes. Si no entra entero en lo que
+    # queda de la hoja, pasa a la siguiente (si no, fpdf partía cada barra en
+    # una página distinta).
     pdf.ln(2)
     alto = 34
+    if pdf.get_y() + alto + 12 > pdf.h - 15:
+        pdf.add_page()
+    pdf.set_auto_page_break(False)
     y_top = pdf.get_y()
     vals = [s["caja_fin"] for s in serie]
     vmax = max(max(vals), 0)
@@ -216,6 +221,7 @@ def pdf_simulador(d):
         pdf.cell(bw, 3.5, _t(_mes(s["mes"])), align="C")
     pdf.set_text_color(0, 0, 0)
     pdf.set_y(y_top + alto + 6)
+    pdf.set_auto_page_break(True, margin=15)
 
     # ---- supuestos y qué cuidar ----
     # ---- renovaciones ----
@@ -224,7 +230,8 @@ def pdf_simulador(d):
     if rv and rv.get("filas"):
         titulo(f"{n_sec}. Plan para salir de las deudas caras (renovaciones)")
         n_sec += 1
-        nombres = [p["nombre"] for p in d.get("prestamos") or []]
+        nombres = [p["nombre"].split(" (")[0] for p in d.get("prestamos") or []]
+        claves = [p["nombre"] for p in d.get("prestamos") or []]
         texto("Cada renovación devuelve el capital ya pagado de los préstamos de libre disponibilidad (la cuota no "
               "cambia) y con eso se cancelan las deudas caras, de la más chica a la más grande. Sujeto a la "
               "evaluación del banco en cada renovación.", 8.5)
@@ -237,7 +244,7 @@ def pdf_simulador(d):
         pdf.ln()
         pdf.set_font("Helvetica", "", 7.5)
         for f in rv["filas"]:
-            vals = [_mes(f["mes"])] + [_m(f["por_prestamo"].get(n, 0)) for n in nombres] + [
+            vals = [_mes(f["mes"])] + [_m(f["por_prestamo"].get(n, 0)) for n in claves] + [
                 _agrupar(f["canceladas"]) or "-", _m(f["guardado"]), _m(f["interes_liberado"])]
             for v, w in zip(vals, anchos):
                 pdf.cell(w, 5.5, _t(str(v)[:60]))
