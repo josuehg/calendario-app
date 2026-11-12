@@ -712,16 +712,28 @@ largo_mitad = utils.long_projection(**_args, crec_anual=g_crec / 200, margen_pts
                                     liquidacion_mes=g_liq / 2)
 largo_mej = utils.long_projection(**_args, crec_anual=g_crec / 100, margen_pts=g_margen, ahorro_mes=g_ahorro,
                                   liquidacion_mes=g_liq)
+desglose = utils.improvements_breakdown(_args, g_crec / 100, g_margen, g_ahorro, g_liq)
 lg1, lg2 = st.columns(2)
 lg1.metric("Caja más baja si seguimos igual", utils.money(largo_base["caja_minima"]), _mes(largo_base["mes_minimo"]),
            delta_arrow="off", delta_color="off")
 lg2.metric("Caja más baja con mejoras", utils.money(largo_mej["caja_minima"]), _mes(largo_mej["mes_minimo"]),
            delta_arrow="off", delta_color="off")
+if desglose["filas"]:
+    st.dataframe(
+        pd.DataFrame([
+            {"Mejora": f["palanca"], "Meta": f["meta"], "Aporte al mes": utils.money(f["mensual"]),
+             "Caja extra al final": utils.money(f["total"]), "Con la mitad, al mes": utils.money(f["mensual_mitad"])}
+            for f in desglose["filas"]
+        ] + [{"Mejora": "Todas juntas", "Meta": "", "Aporte al mes": utils.money(desglose["mensual"]),
+              "Caja extra al final": utils.money(desglose["total"]),
+              "Con la mitad, al mes": utils.money(desglose["mensual_mitad"])}]),
+        hide_index=True, width="stretch",
+    )
 if not inv_hoy:
     st.caption("Sin inventario cargado arriba, se supone uno de 4 meses de compras para saber cuándo vuelven a lo normal.")
 _pdf_g = reporte_gestion.pdf_gestion({
     "nombre": st.session_state.get("sim_esc_nombre") or "Escenario actual", "fecha": utils.fmt_long(today),
-    "base": largo_base, "mejoras": largo_mej, "mitad": largo_mitad,
+    "base": largo_base, "mejoras": largo_mej, "mitad": largo_mitad, "desglose": desglose,
     "params": {"crec_anual": g_crec / 100, "margen_pts": g_margen, "ahorro_mes": g_ahorro, "liquidacion_mes": g_liq},
     "renov": renov, "inv_hoy": inv_hoy, "inv_lento": inv_lento, "inv_balanceo": inv_balanceo,
     "compras_promedio": compras_app, "venta_dia": venta_dia, "mezcla": _mezcla,
