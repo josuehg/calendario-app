@@ -36,6 +36,19 @@ def secret(name, default=None):
     return os.environ.get(name, default)
 
 
+def _limpiar_pin(valor):
+    """Quita espacios al inicio/final y comillas alrededor: en Railway es fácil
+    guardar la variable como "Clave" o con un espacio, y en el celular el
+    teclado a veces agrega un espacio al final. Mayúsculas y minúsculas sí
+    cuentan."""
+    if valor is None:
+        return None
+    v = str(valor).strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1].strip()
+    return v
+
+
 def authenticate():
     """
     Pide un PIN de acceso y detiene la app hasta que sea válido.
@@ -49,8 +62,8 @@ def authenticate():
     if st.session_state.get("auth_role"):
         return {"role": st.session_state["auth_role"], "branch": st.session_state.get("auth_branch")}
 
-    admin_pin = secret("APP_PASSWORD")
-    validator_pin = secret("VALIDATOR_PASSWORD")
+    admin_pin = _limpiar_pin(secret("APP_PASSWORD"))
+    validator_pin = _limpiar_pin(secret("VALIDATOR_PASSWORD"))
 
     st.title("🗓️ Control Compras")
     st.caption("Ingresa tu PIN de acceso.")
@@ -59,6 +72,7 @@ def authenticate():
         submitted = st.form_submit_button("Entrar", type="primary")
 
     if submitted:
+        pin = _limpiar_pin(pin)
         if admin_pin and pin == admin_pin:
             st.session_state["auth_role"] = "admin"
             st.session_state["auth_branch"] = None
