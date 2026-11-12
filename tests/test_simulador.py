@@ -357,3 +357,35 @@ def test_pagina_ofrece_descargar_pdf(run_view, db):
     at = run_view(VIEW, role="admin")
     assert not at.exception
     assert any("Descargar PDF" in b.label for b in at.get("download_button"))
+
+
+def test_inventario_coherente_con_ventas_y_pagos(db):
+    import utils
+    serie = [
+        {"mes": "2026-11", "ventas": 20 * 6000.0, "proveedores": 90000.0},   # faltan 20 de 30 días
+        {"mes": "2026-12", "ventas": 31 * 6000.0, "proveedores": 120000.0},
+        {"mes": "2027-01", "ventas": 31 * 6000.0, "proveedores": 90000.0},
+        {"mes": "2027-02", "ventas": 28 * 6000.0, "proveedores": 60000.0},
+    ]
+    inv = utils.inventory_projection(serie, 540000.0, 0.5, 6000.0)
+    f = inv["filas"]
+    # Nov: entra 2/3 de lo que se paga en enero (90k * 20/30), sale 120k * 50%.
+    assert (f[0]["entra"], f[0]["sale"], f[0]["inventario"]) == (60000.0, 60000.0, 540000.0)
+    # Dic: entra lo que se paga en feb (60k), sale 93k.
+    assert (f[1]["entra"], f[1]["sale"], f[1]["inventario"]) == (60000.0, 93000.0, 507000.0)
+    # Últimos meses: el último pago planeado.
+    assert f[3]["entra"] == 60000.0
+    assert inv["dias_hoy"] == 180 and inv["estado"] == "alto"  # 540k / 3k por día
+    # Comprando casi nada, cae bajo 60 días.
+    poco = [dict(s, proveedores=1000.0) for s in serie]
+    assert utils.inventory_projection(poco, 200000.0, 0.5, 6000.0)["estado"] == "bajo"
+    assert utils.inventory_projection(serie, 0, 0.5, 6000.0)["filas"] == []
+
+
+def test_pagina_inventario_y_pdf(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin", sim_inv_hoy=593000.0, sim_venta=6764.0, sim_costo_pct=56.0)
+    assert not at.exception
+    textos = " ".join(x.value for x in list(at.success) + list(at.warning) + list(at.error))
+    assert "días** de inventario" in textos
