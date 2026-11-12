@@ -4,6 +4,55 @@ de acción y señales de alerta. Reusa el formato del PDF del simulador."""
 from reporte_pdf import CLARO, GRIS, ROJO, VERDE, _PDF, _agrupar, _m, _mes, _t
 
 
+AMBAR = (201, 135, 0)
+
+
+def _grafico_lineas(pdf, x0, W, series, alto=48):
+    """Caja a fin de mes de varios escenarios como líneas: [(nombre, color, [valores])]."""
+    if pdf.get_y() + alto + 16 > pdf.h - 15:
+        pdf.add_page()
+    pdf.set_auto_page_break(False)
+    y0 = pdf.get_y() + 6
+    todos = [v for _, _, vals in series for v in vals] + [0]
+    vmax, vmin = max(todos), min(todos)
+    rango = (vmax - vmin) or 1
+    n = max(len(vals) for _, _, vals in series)
+    paso = W / max(n - 1, 1)
+
+    def y_de(v):
+        return y0 + alto * (vmax - v) / rango
+
+    # leyenda
+    pdf.set_font("Helvetica", "", 7)
+    lx = x0
+    for nombre, color, _ in series:
+        pdf.set_draw_color(*color)
+        pdf.set_line_width(0.8)
+        pdf.line(lx, y0 - 3.5, lx + 6, y0 - 3.5)
+        pdf.set_xy(lx + 7, y0 - 5.5)
+        pdf.set_text_color(*GRIS)
+        pdf.cell(55, 4, _t(nombre))
+        lx += 62
+    # línea de cero
+    pdf.set_draw_color(*GRIS)
+    pdf.set_line_width(0.2)
+    pdf.line(x0, y_de(0), x0 + W, y_de(0))
+    pdf.set_xy(x0 - 1, y_de(0) - 2)
+    pdf.set_font("Helvetica", "", 6)
+    pdf.cell(8, 3, "0")
+    for nombre, color, vals in series:
+        pdf.set_draw_color(*color)
+        pdf.set_line_width(0.7)
+        for i in range(1, len(vals)):
+            pdf.line(x0 + (i - 1) * paso, y_de(vals[i - 1]), x0 + i * paso, y_de(vals[i]))
+        # valor final al costado
+        pdf.set_font("Helvetica", "B", 6.5)
+        pdf.set_text_color(*color)
+        pdf.set_xy(x0 + W - 22, y_de(vals[-1]) - 4)
+        pdf.cell(22, 3.5, _t(_m(vals[-1])), align="R")
+    return y0, alto, n, paso
+
+
 def pdf_gestion(d):
     """`d`: nombre, fecha, base y mejoras (utils.long_projection), params
     (crec_anual, margen_pts, ahorro_mes, liquidacion_mes), renov
@@ -18,6 +67,8 @@ def pdf_gestion(d):
     W = pdf.w - 24
 
     def titulo(txt):
+        if pdf.get_y() > pdf.h - 40:  # que el título no quede solo al pie de la hoja
+            pdf.add_page()
         pdf.ln(2)
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(*VERDE)
@@ -82,25 +133,64 @@ def pdf_gestion(d):
     for x in puntos:
         texto("- " + x)
 
+    # ---- gráfico y lo que se logra ----
+    mitad = d.get("mitad")
+    titulo("Caja a fin de mes: seguir igual vs mejorar")
+    series = [("Si seguimos igual", ROJO, [s_["caja"] for s_ in base["serie"]])]
+    if mitad:
+        series.append(("Con la mitad de las mejoras", AMBAR, [s_["caja"] for s_ in mitad["serie"]]))
+    series.append(("Con todas las mejoras", VERDE, [s_["caja"] for s_ in mej["serie"]]))
+    y0g, altog, ng, pasog = _grafico_lineas(pdf, 14, W - 4, series)
+    pdf.set_font("Helvetica", "", 6)
+    pdf.set_text_color(*GRIS)
+    for i, s_ in enumerate(base["serie"]):
+        if i % 3 == 0:
+            pdf.set_xy(14 + i * pasog - 6, y0g + altog + 1)
+            pdf.cell(12, 3, _t(_mes(s_["mes"])), align="C")
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_y(y0g + altog + 6)
+    pdf.set_auto_page_break(True, margin=15)
+
+    titulo("Lo que se logra si mejoramos")
+    logros = []
+    if mitad:
+        logros.append(
+            f"Con solo la mitad de las mejoras, la caja {'no entra en rojo' if mitad['caja_minima'] >= 0 else 'baja menos'}: "
+            f"lo más bajo es {_m(mitad['caja_minima'])} ({_mes(mitad['mes_minimo'])}) y al final queda en "
+            f"{_m(mitad['serie'][-1]['caja'])}, en vez de {_m(base['serie'][-1]['caja'])}.")
+    logros.append(
+        f"Con todas las mejoras, la caja se mantiene sobre {_m(mej['caja_minima'])} y termina en "
+        f"{_m(mej['serie'][-1]['caja'])}: plata para operar tranquilos, invertir en los locales o adelantar deudas.")
+    if libre:
+        logros.append(f"Desde {_mes(libre)} ya no hay prestamistas: son {_m(rv['filas'][-1]['interes_liberado'])} al mes "
+                      "que se quedan en el negocio, para siempre.")
+    logros.append(f"El inventario baja de {base['serie'][0]['dias_inv']:.0f} a unos {mej['serie'][-1]['dias_inv']:.0f} días: "
+                  "menos plata parada en anaqueles y menos productos por vencer.")
+    logros.append("Ninguna mejora es extrema: vender un poco más, comprar mejor, mover el stock que sobra y bajar alguna "
+                  "cuota. Lo importante es empezar ya y medirlo cada mes.")
+    for x in logros:
+        texto("- " + x, 8.5, VERDE if x.startswith("Con") else (0, 0, 0))
+
     # ---- caja mes a mes ----
     titulo("2. Caja mes a mes: seguir igual vs con mejoras")
     meses_renov = {f["mes"]: f for f in rv.get("filas", [])}
-    heads = [("Mes", 15), ("Venta/día", 18), ("Compras pagadas", 24), ("Gastos y bancos", 24),
-             ("Prestamistas", 21), ("Renovación", 34), ("Caja igual", 22), ("Caja mejoras", W - 158)]
+    heads = [("Mes", 14), ("Venta/día", 16), ("Compras pagadas", 22), ("Gastos y bancos", 22),
+             ("Prestamistas", 19), ("Renovación", 31), ("Caja igual", 20), ("Caja mitad", 20), ("Caja mejoras", W - 164)]
+    mitad_serie = (d.get("mitad") or mej)["serie"]
     pdf.set_font("Helvetica", "B", 7)
     pdf.set_fill_color(*CLARO)
     for h, w in heads:
         pdf.cell(w, 5.5, _t(h), fill=True, align="L" if h in ("Mes", "Renovación") else "R")
     pdf.ln()
-    for s, sm in zip(base["serie"], mej["serie"]):
+    for s, smi, sm in zip(base["serie"], mitad_serie, mej["serie"]):
         f = meses_renov.get(s["mes"])
         renov = _agrupar(f["canceladas"]) if f and f["canceladas"] else ("se junta" if f else "")
         vals = [_mes(s["mes"]), _m(s["venta_dia"]), _m(s["compras_pagadas"]), _m(s["otros"]),
-                _m(s["intereses"]) if s["intereses"] else "-", renov[:26]]
+                _m(s["intereses"]) if s["intereses"] else "-", renov[:24]]
         pdf.set_font("Helvetica", "", 7)
         for (h, w), v in zip(heads[:6], vals):
             pdf.cell(w, 4.6, _t(v), align="L" if h in ("Mes", "Renovación") else "R")
-        for c, w in ((s["caja"], heads[6][1]), (sm["caja"], heads[7][1])):
+        for c, w in ((s["caja"], heads[6][1]), (smi["caja"], heads[7][1]), (sm["caja"], heads[8][1])):
             pdf.set_font("Helvetica", "B", 7)
             pdf.set_text_color(*(ROJO if c < 0 else (0, 0, 0)))
             pdf.cell(w, 4.6, _t(_m(c)), align="R")
@@ -207,7 +297,9 @@ def pdf_gestion(d):
     texto(f"- Venta de partida: {_m(d['venta_dia'])} por día. Compras promedio de los últimos meses: "
           f"{_m(d.get('compras_promedio') or 0)}.")
     texto("- Mientras el inventario esté sobre 90 días se compra según el plan; después, se repone lo que se vende. "
-          "Lo comprado se paga ~2 meses después.")
+          "Hasta donde llega el plan de proveedores del simulador se usan esos pagos; después, cada compra se paga "
+          "según su plazo (sección 3b).")
+    texto("- Mitad de las mejoras: la mitad de cada una de las de abajo (escenario realista si no se logra todo).")
     texto("- Los gastos fijos de los meses sin cuotas generadas salen de sus plantillas (los préstamos que terminan dejan "
           "de sumar). Las renovaciones dependen de la evaluación del banco.")
     texto(f"- Con mejoras: venta +{p.get('crec_anual', 0) * 100:.0f}% al año, margen +{p.get('margen_pts', 0):.0f} puntos, "

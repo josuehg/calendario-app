@@ -708,6 +708,8 @@ _args = dict(
     today=today, n_meses=_n_largo, inv_lento=inv_lento, mezcla=_mezcla, pagos_plan=compras_nuevas,
 )
 largo_base = utils.long_projection(**_args)
+largo_mitad = utils.long_projection(**_args, crec_anual=g_crec / 200, margen_pts=g_margen / 2, ahorro_mes=g_ahorro / 2,
+                                    liquidacion_mes=g_liq / 2)
 largo_mej = utils.long_projection(**_args, crec_anual=g_crec / 100, margen_pts=g_margen, ahorro_mes=g_ahorro,
                                   liquidacion_mes=g_liq)
 lg1, lg2 = st.columns(2)
@@ -719,7 +721,7 @@ if not inv_hoy:
     st.caption("Sin inventario cargado arriba, se supone uno de 4 meses de compras para saber cuándo vuelven a lo normal.")
 _pdf_g = reporte_gestion.pdf_gestion({
     "nombre": st.session_state.get("sim_esc_nombre") or "Escenario actual", "fecha": utils.fmt_long(today),
-    "base": largo_base, "mejoras": largo_mej,
+    "base": largo_base, "mejoras": largo_mej, "mitad": largo_mitad,
     "params": {"crec_anual": g_crec / 100, "margen_pts": g_margen, "ahorro_mes": g_ahorro, "liquidacion_mes": g_liq},
     "renov": renov, "inv_hoy": inv_hoy, "inv_lento": inv_lento, "inv_balanceo": inv_balanceo,
     "compras_promedio": compras_app, "venta_dia": venta_dia, "mezcla": _mezcla,
