@@ -333,3 +333,27 @@ def test_estado_de_deuda_hoy(db):
     gastos[1]["status"] = "pagado"
     e = utils.debt_status_today(d, gastos, "2026-11-11")
     assert (e["vencidas_n"], e["cancelar_hoy"]) == (0, 30500.0)
+
+
+def test_pdf_del_simulador(db):
+    import reporte_pdf
+    import utils
+    base = [{"mes": "2026-11", "ventas": 1000.0, "fijos": 0.0, "proveedores": 0.0, "prov_nuevas": 0.0, "otros": 0.0},
+            {"mes": "2026-12", "ventas": 1000.0, "fijos": 0.0, "proveedores": 5000.0, "prov_nuevas": 5000.0,
+             "otros": 0.0}]
+    r = utils.simulate_credit(base, DEUDAS, {"a": 30000.0}, -1000.0, 50000.0,
+                              [{"concepto": "Odoo", "monto": 100, "mes": "2026-11"}])
+    pdf = reporte_pdf.pdf_simulador({
+        "nombre": "Plan Ñandú – prueba", "fecha": "12 de noviembre de 2026", "credito": 50000.0, "caja_hoy": -1000.0,
+        "venta_dia": 6764.0, "r": r, "deudas": DEUDAS, "pagos": {"a": 30000.0}, "inversiones": [], "ajuste": {},
+        "compras_promedio": 113000.0,
+    })
+    assert pdf[:4] == b"%PDF" and len(pdf) > 1000
+
+
+def test_pagina_ofrece_descargar_pdf(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    assert any("Descargar PDF" in b.label for b in at.get("download_button"))

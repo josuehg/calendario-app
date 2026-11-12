@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import db
+import reporte_pdf
 import utils
 
 st.title("🧮 Simulador de crédito")
@@ -86,6 +87,7 @@ def _cargar_escenario(esc):
     st.session_state["sim_prov_data"] = d.get("prov_nuevas")
     st.session_state["sim_inv_ver"] = st.session_state.get("sim_inv_ver", 0) + 1
     st.session_state["sim_msg"] = f"Escenario cargado: {esc['name']}."
+    st.session_state["sim_esc_nombre"] = esc["name"]
 
 
 def _eliminar_escenario(esc):
@@ -375,15 +377,19 @@ if ajuste["compras_mes"] or ajuste["venta_mes"] or ajuste["extra_inicio"]:
             f"- Primero, conseguir **{utils.money(ajuste['extra_inicio'])} ya** (más crédito, cobrar antes o "
             "postergar algún pago): los primeros meses quedan en rojo antes de que comprar menos llegue a notarse."
         )
-    if ajuste["compras_mes"] and ajuste["compras_mes"] > compras_mes:
+    # Contra lo que de verdad planeaste comprar (la tabla de proveedores), no
+    # contra la meta de la casilla: pueden ser distintos.
+    _plan_vals = [v for v in compras_nuevas.values() if v]
+    _plan_prom = sum(_plan_vals) / len(_plan_vals) if _plan_vals else 0.0
+    if ajuste["compras_mes"] and ajuste["compras_mes"] > _plan_prom:
         _lineas.append(
             f"- Solo con comprar menos **no alcanza**: harían falta {utils.money(ajuste['compras_mes'])} menos al mes "
-            f"y compras {utils.money(compras_mes)}."
+            f"y tu plan de compras nuevas es de unos {utils.money(_plan_prom)} al mes."
         )
     elif ajuste["compras_mes"]:
         _lineas.append(
-            f"- **Comprar {utils.money(ajuste['compras_mes'])} menos cada mes** (de "
-            f"{utils.money(compras_mes)} a {utils.money(max(compras_mes - ajuste['compras_mes'], 0))}). "
+            f"- **Comprar {utils.money(ajuste['compras_mes'])} menos cada mes** de lo que tienes planeado en "
+            f"Pagos a proveedores (unos {utils.money(_plan_prom)} → {utils.money(max(_plan_prom - ajuste['compras_mes'], 0))}). "
             f"Se nota en caja desde {_mes2}, cuando vence lo que compres desde hoy."
         )
     if ajuste["venta_mes"]:
@@ -477,6 +483,25 @@ st.caption(
     f"te quedan **{utils.money(ventanas['queda_este_mes'])}** de tu meta para este mes."
 )
 
+# ---------- PDF para presentar ----------
+st.divider()
+_nombre_pdf = st.session_state.get("sim_esc_nombre") or "Escenario actual"
+_pdf = reporte_pdf.pdf_simulador({
+    "nombre": _nombre_pdf,
+    "fecha": utils.fmt_long(today),
+    "credito": credito, "caja_hoy": caja_hoy, "venta_dia": venta_dia,
+    "r": r, "deudas": deudas, "pagos": pagos, "inversiones": inversiones, "ajuste": ajuste, "compras_promedio": compras_app,
+})
+p1, p2 = st.columns([3, 1])
+p1.caption(
+    f"Resumen de una página de **{_nombre_pdf}** para presentarlo a los socios: punto de partida, uso del crédito, "
+    "caja mes a mes y qué cuidar. Sale con lo que tengas en pantalla ahora."
+)
+p2.download_button(
+    "📄 Descargar PDF", data=_pdf, width="stretch", mime="application/pdf",
+    file_name=f"plan_{_nombre_pdf.replace(' ', '_')}_{today}.pdf",
+)
+
 # ---------- guardar este escenario ----------
 st.divider()
 with st.form("sim_guardar", clear_on_submit=True, border=False):
@@ -496,4 +521,5 @@ with st.form("sim_guardar", clear_on_submit=True, border=False):
                 },
             })
             st.session_state["sim_msg"] = f"Escenario guardado: {nombre.strip()}. Lo encuentras arriba, en Escenarios guardados."
+            st.session_state["sim_esc_nombre"] = nombre.strip()
             st.rerun()
