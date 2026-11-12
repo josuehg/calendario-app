@@ -336,3 +336,18 @@ def test_editar_inicio_mas_adelante_quita_cuotas_futuras_anteriores(db):
     db.update_fixed_expense(fx["id"], {"start_month": nuevo_inicio})
     despues = sorted(e["due_date"] for e in db.expenses if e["fixed_expense_id"] == fx["id"])
     assert despues and all(d >= nuevo_inicio or d < hoy.isoformat() for d in despues)
+
+
+def test_gestionar_corrige_fecha_nombre_y_monto_sin_pagar(run_view, db):
+    from datetime import date
+    exp = db.create_expense({"kind": "variable", "name": "1/2 cts mayo", "category": "Planilla", "branch": None,
+                             "amount": 922.5, "due_date": "2026-05-15", "status": "pendiente"})
+    at = run_view(VIEW, role="admin", _gx_manage=dict(exp))
+    assert not at.exception
+    next(t for t in at.text_input if t.key == "gx_mng_name").set_value("1/2 CTS mayo 2027")
+    next(d for d in at.date_input if d.key == "gx_mng_due").set_value(date(2027, 5, 15))
+    at = at.run()  # el botón se habilita recién cuando hay cambios
+    at = next(b for b in at.button if b.label == "💾 Guardar cambios").click().run()
+    assert not at.exception
+    e = next(x for x in db.expenses if x["id"] == exp["id"])
+    assert (e["name"], e["due_date"], e["status"]) == ("1/2 CTS mayo 2027", "2027-05-15", "pendiente")
