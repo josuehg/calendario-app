@@ -1133,6 +1133,79 @@ def inventory_projection(serie, inventario_hoy, costo_pct, venta_dia, desfase_me
     }
 
 
+def suggest_plan(events, incomes, ingresos_esperados, deudas, venta_dia, credito, caja_hoy, inversiones,
+                 costo_pct, inv_hoy=0.0, inv_lento=0.0, today=None, colchon=10000.0):
+    """El plan que sugiere el simulador, con reglas simples y explicables:
+
+    1. Compras: lo que se consume (venta * costo%) menos lo que se puede
+       liberar del stock lento (la mitad, repartida en 6 meses). Sin dato de
+       stock lento, 15% menos. Nunca menos de la mitad del consumo, y si con eso
+       el inventario baja de INVENTARIO_DIAS_MIN días, se sube hasta no bajar.
+    2. Deudas: se cancelan COMPLETAS, de la más chica a la más grande (todas
+       cobran parecido), mientras la caja de ningún mes baje del `colchon`.
+    No toca la venta (usa lo registrado), ni el crédito, ni las inversiones."""
+    today = today or today_str()
+    consumo = venta_dia * 30 * costo_pct
+    libera = (inv_lento * 0.5 / 6) if inv_lento else consumo * 0.15
+    compras = max(consumo - libera, consumo * 0.5)
+
+    def _base(c):
+        b0 = simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, c, today, compras_nuevas={})
+        plan = default_new_purchases(b0, c, today)
+        return simulation_base(events, incomes, ingresos_esperados, deudas, venta_dia, c, today,
+                               compras_nuevas=plan), plan
+
+    compras = round(compras / 1000) * 1000
+    base, plan = _base(compras)
+    if inv_hoy:
+        while compras < consumo and inventory_projection(base, inv_hoy, costo_pct, venta_dia)["dias_min"] < INVENTARIO_DIAS_MIN:
+            compras += 2000
+            base, plan = _base(compras)
+
+    pagos = {}
+    for d in sorted(deudas, key=lambda x: x["saldo"]):
+        prueba = {**pagos, d["id"]: d["saldo"]}
+        if sum(prueba.values()) > credito:
+            continue
+        if simulate_credit(base, deudas, prueba, caja_hoy, credito, inversiones)["caja_minima"] >= colchon:
+            pagos = prueba
+    r = simulate_credit(base, deudas, pagos, caja_hoy, credito, inversiones)
+    canceladas = [d["nombre"] for d in deudas if d["id"] in pagos]
+    quedan = [d["nombre"] for d in deudas if d["id"] not in pagos]
+    razones = [
+        f"Compras de {money(compras)} al mes: lo que consumes ({money(consumo)}) menos "
+        + (f"lo que se libera del stock lento ({money(libera)} al mes)." if inv_lento else "un 15% (con el balanceo y comprando por rotación).")
+    ]
+    if canceladas:
+        razones.append(
+            f"Cancela completas {', '.join(canceladas)} ({money(r['usado'])}): las más chicas primero, todas cobran "
+            f"parecido. Ahorras {money(r['ahorro_mensual'])} al mes."
+        )
+    else:
+        razones.append("Por ahora no alcanza para cancelar ninguna deuda sin que la caja baje del colchón.")
+    if quedan:
+        razones.append(f"Deja para después: {', '.join(quedan)}, cuando la caja lo permita.")
+        # Siguiente paso: cuánto más al mes haría falta para cancelar la próxima.
+        sig = min((d for d in deudas if d["id"] not in pagos), key=lambda x: x["saldo"])
+        if sum(pagos.values()) + sig["saldo"] <= credito:
+            r_sig = simulate_credit(base, deudas, {**pagos, sig["id"]: sig["saldo"]}, caja_hoy, credito, inversiones)
+            falta = colchon - r_sig["caja_minima"]
+            k_min = next((i for i, s_ in enumerate(r_sig["serie"]) if s_["mes"] == r_sig["mes_minimo"]), 1) or 1
+            if falta > 0:
+                razones.append(
+                    f"Para cancelar también {sig['nombre']} ({money(sig['saldo'])}) harían falta unos "
+                    f"{money(falta / k_min)} más al mes (reprogramando un préstamo, comprando un poco menos o "
+                    "vendiendo más)."
+                )
+    razones.append(
+        f"La caja no baja de {money(colchon)} en ningún mes (lo más bajo: {money(r['caja_minima'])})."
+        if r["caja_minima"] >= colchon else
+        f"Ojo: aun sin cancelar nada, la caja baja a {money(r['caja_minima'])}: hay que reprogramar o vender más."
+    )
+    razones.append("No cambia la venta (usa lo registrado), el crédito ni tus inversiones.")
+    return {"compras": float(compras), "plan": plan, "pagos": pagos, "r": r, "razones": razones}
+
+
 def adjustment_to_stay_positive(serie):
     """Cuánto habría que ajustar cada mes para que la caja (`serie` de
     simulate_credit) nunca quede en rojo:

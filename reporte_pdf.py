@@ -102,6 +102,11 @@ def pdf_simulador(d):
     else:
         texto("Con este plan, la caja alcanza en todos los meses proyectados.", 9.5, VERDE, bold=True)
 
+    if d.get("razones"):
+        titulo("Por qué este plan")
+        for x in d["razones"]:
+            texto("- " + x, 8.5)
+
     # ---- de dónde se parte ----
     titulo("1. Punto de partida")
     texto(f"Caja de hoy {_m(d['caja_hoy'])} + crédito {_m(d['credito'])} - deudas que se cancelan {_m(r['usado'])} "
@@ -198,7 +203,42 @@ def pdf_simulador(d):
     pdf.set_y(y_top + alto + 6)
 
     # ---- supuestos y qué cuidar ----
-    titulo("4. Supuestos y qué cuidar")
+    # ---- inventario ----
+    inv = d.get("inventario")
+    if inv and inv.get("filas"):
+        titulo("4. Inventario: dónde está la plata")
+        fin = inv["filas"][-1]
+        lento = float(d.get("inv_lento") or 0)
+        balanceo = float(d.get("inv_balanceo") or 0)
+        total = inv["inventario_hoy"]
+        lineas = [f"Inventario a costo hoy: {_m(total)}, unos {inv['dias_hoy']:.0f} días de venta (lo sano es 60-120)."]
+        if lento:
+            lineas.append(
+                f"Stock lento (sin venta reciente o con más de 6 meses de stock): {_m(lento)}, el "
+                f"{lento / total * 100:.0f}% del inventario. Es plata parada en los anaqueles."
+            )
+        if balanceo:
+            lineas.append(f"Se pueden mover {_m(balanceo)} de un local o almacén a donde sí se vende, sin comprar nada.")
+        estado = {
+            "ok": "nivel sano",
+            "alto": "todavía sobra stock",
+            "bajo": f"ojo: en algún mes baja a {inv['dias_min']:.0f} días, riesgo de quedarse sin productos",
+        }[inv["estado"]]
+        lineas.append(
+            f"Con este plan de compras, a fin de {_mes(fin['mes'])} el inventario quedaría en {_m(fin['inventario'])} "
+            f"({fin['dias']:.0f} días): {estado}."
+        )
+        nuevas_m = [s["prov_nuevas"] for s in serie if s.get("prov_nuevas")]
+        if nuevas_m and d.get("compras_promedio"):
+            plan_m = sum(nuevas_m[1:] or nuevas_m) / len(nuevas_m[1:] or nuevas_m)
+            lineas.append(
+                f"Por eso el plan compra unos {_m(plan_m)} al mes en vez de {_m(d['compras_promedio'])}: "
+                "usa parte del stock que sobra en lugar de comprarlo de nuevo."
+            )
+        for x in lineas:
+            texto("- " + x, 8.5)
+
+    titulo("5. Supuestos y qué cuidar" if inv and inv.get("filas") else "4. Supuestos y qué cuidar")
     ajuste = d.get("ajuste") or {}
     puntos = [
         f"Venta promedio de {_m(d['venta_dia'])} por día (lo registrado este mes).",
@@ -208,19 +248,6 @@ def pdf_simulador(d):
         "Compras a proveedores: solo lo ya registrado.",
         "Lo que se cancela deja de cobrar interés desde el mes siguiente; este mes se paga como está.",
     ]
-    inv = d.get("inventario")
-    if inv and inv.get("filas"):
-        fin = inv["filas"][-1]
-        estado = {
-            "ok": "nivel sano",
-            "alto": "todavía sobra stock",
-            "bajo": f"ojo: en algún mes baja a {inv['dias_min']:.0f} días, riesgo de quedarse sin productos",
-        }[inv["estado"]]
-        puntos.append(
-            f"Inventario hoy {_m(inv['inventario_hoy'])} "
-            f"({inv['dias_hoy']:.0f} días). Con este plan de compras, a fin de {_mes(fin['mes'])} quedaría en "
-            f"{_m(fin['inventario'])} ({fin['dias']:.0f} días): {estado}."
-        )
     nuevas = [s["prov_nuevas"] for s in serie if s.get("prov_nuevas")]
     prom_hist = d.get("compras_promedio") or 0
     if nuevas and prom_hist and (sum(nuevas[1:] or nuevas) / len(nuevas[1:] or nuevas)) < prom_hist * 0.85:
