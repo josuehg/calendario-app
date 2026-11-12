@@ -3,6 +3,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import db
+import reporte_gestion
 import reporte_pdf
 import utils
 
@@ -669,6 +670,61 @@ st.caption(
     f"después del 10. · En {_m_actual} ya colocaste {utils.money(ventanas['comprado_este_mes'])} en facturas: "
     f"te quedan **{utils.money(ventanas['queda_este_mes'])}** de tu meta para este mes."
 )
+
+# ---------- informe de gestión (proyección larga, uso interno) ----------
+st.divider()
+st.subheader("📊 Informe de gestión: hasta salir de las deudas")
+st.caption(
+    "Para la gerencia: proyecta la caja hasta que se cancelan las deudas caras (con las renovaciones) y unos meses "
+    "más, compara seguir igual contra aplicar mejoras, y arma metas mes a mes, plan de acción y alertas."
+)
+g1, g2, g3, g4 = st.columns(4)
+st.session_state.setdefault("sim_g_crec", 5.0)
+st.session_state.setdefault("sim_g_margen", 3.0)
+st.session_state.setdefault("sim_g_ahorro", 8000.0)
+st.session_state.setdefault("sim_g_liq", 10000.0)
+g_crec = g1.number_input("Vender más (% al año)", min_value=0.0, max_value=50.0, step=1.0, format="%.0f", key="sim_g_crec")
+g_margen = g2.number_input("Comprar mejor (+ puntos de margen)", min_value=0.0, max_value=15.0, step=0.5,
+                           format="%.1f", key="sim_g_margen")
+g_ahorro = g3.number_input("Reprogramar + gastos (S/ al mes)", min_value=0.0, step=1000.0, format="%.0f",
+                           key="sim_g_ahorro")
+g_liq = g4.number_input("Liquidar stock lento (S/ al mes)", min_value=0.0, step=1000.0, format="%.0f", key="sim_g_liq",
+                        help="Stock lento vendido con ofertas, packs o devuelto/canjeado; se recupera ~70% de su costo.")
+_plan_vals = [v for v in compras_nuevas.values() if v]
+_compras_plan = (sum(_plan_vals[1:] or _plan_vals) / len(_plan_vals[1:] or _plan_vals)) if _plan_vals else compras_mes
+_libre = (renov or {}).get("libre_en")
+_n_largo = 12
+if _libre:
+    _k = 0
+    while utils._sumar_meses(today[:7], _k) < _libre and _k < 30:
+        _k += 1
+    _n_largo = min(max(_k + 7, 12), 24)
+_ing_largo = utils.fixed_income_expected(db.list_fixed_incomes(), fixed_receipts, months_ahead=_n_largo + 1)
+_args = dict(
+    events=events, fixed_expenses=fixed_expenses, ingresos_esperados=_ing_largo, deudas=deudas, pagos=pagos,
+    cancel_mes=(renov or {}).get("cancel_mes", {}), caja_hoy=caja_hoy, credito=credito, inversiones=inversiones,
+    venta_dia=venta_dia, costo_pct=costo_pct / 100, inv_hoy=inv_hoy or (compras_mes * 4), compras_plan=_compras_plan,
+    today=today, n_meses=_n_largo, inv_lento=inv_lento,
+)
+largo_base = utils.long_projection(**_args)
+largo_mej = utils.long_projection(**_args, crec_anual=g_crec / 100, margen_pts=g_margen, ahorro_mes=g_ahorro,
+                                  liquidacion_mes=g_liq)
+lg1, lg2 = st.columns(2)
+lg1.metric("Caja más baja si seguimos igual", utils.money(largo_base["caja_minima"]), _mes(largo_base["mes_minimo"]),
+           delta_arrow="off", delta_color="off")
+lg2.metric("Caja más baja con mejoras", utils.money(largo_mej["caja_minima"]), _mes(largo_mej["mes_minimo"]),
+           delta_arrow="off", delta_color="off")
+if not inv_hoy:
+    st.caption("Sin inventario cargado arriba, se supone uno de 4 meses de compras para saber cuándo vuelven a lo normal.")
+_pdf_g = reporte_gestion.pdf_gestion({
+    "nombre": st.session_state.get("sim_esc_nombre") or "Escenario actual", "fecha": utils.fmt_long(today),
+    "base": largo_base, "mejoras": largo_mej,
+    "params": {"crec_anual": g_crec / 100, "margen_pts": g_margen, "ahorro_mes": g_ahorro, "liquidacion_mes": g_liq},
+    "renov": renov, "inv_hoy": inv_hoy, "inv_lento": inv_lento, "inv_balanceo": inv_balanceo,
+    "compras_promedio": compras_app, "venta_dia": venta_dia,
+})
+st.download_button("📊 Descargar informe de gestión", data=_pdf_g, mime="application/pdf",
+                   file_name=f"gestion_{(st.session_state.get('sim_esc_nombre') or 'escenario').replace(' ', '_')}_{today}.pdf")
 
 # ---------- PDF para presentar ----------
 st.divider()
