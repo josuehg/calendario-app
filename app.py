@@ -1,5 +1,17 @@
-import streamlit as st
-import utils
+import os
+import time
+
+# Hora de Perú para TODA la app: el servidor (Railway) corre en UTC, y desde las
+# 7 pm de Perú date.today() ya daba el día siguiente (pagos marcados con fecha
+# de mañana, el formulario de ventas abriendo en mañana, etc.). "<-05>5" es
+# UTC-5 fijo, sin horario de verano; no depende de que el servidor tenga la
+# base de zonas horarias instalada.
+os.environ["TZ"] = "<-05>5"
+if hasattr(time, "tzset"):  # no existe en Windows (solo para correr la app local)
+    time.tzset()
+
+import streamlit as st  # noqa: E402
+import utils  # noqa: E402
 
 st.set_page_config(page_title="Control Compras", page_icon="🗓️", layout="wide")
 
