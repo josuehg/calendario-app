@@ -1439,6 +1439,39 @@ def long_projection(events, fixed_expenses, ingresos_esperados, deudas, pagos, c
             "mes_rojo": next((s["mes"] for s in serie if s["caja"] < 0), None), "stock_normal_en": normaliza}
 
 
+def improvements_breakdown(args, crec_anual, margen_pts, ahorro_mes, liquidacion_mes):
+    """Cuánto aporta cada mejora por separado (y a la mitad): la proyección con
+    esa sola mejora contra seguir igual, en caja al final del periodo y en
+    promedio por mes. La suma no da exacto el total porque las mejoras se
+    cruzan un poco (p. ej. liquidar hace que el stock llegue antes a lo normal)."""
+    def fin(**extra):
+        return long_projection(**args, **extra)["serie"][-1]["caja"]
+
+    base_fin = fin()
+    n = max(int(args.get("n_meses", 20)) - 1, 1)
+    palancas = [
+        ("Vender más", "crec_anual", crec_anual, lambda v: f"+{v * 100:.1f}% de venta al año"),
+        ("Comprar mejor", "margen_pts", margen_pts, lambda v: f"+{v:.1f} puntos de margen"),
+        ("Reprogramar y gastos", "ahorro_mes", ahorro_mes, lambda v: f"{money(v)} al mes"),
+        ("Liquidar stock lento", "liquidacion_mes", liquidacion_mes, lambda v: f"{money(v)} al mes (mientras sobre)"),
+    ]
+    filas = []
+    for nombre, clave, valor, desc in palancas:
+        if not valor:
+            continue
+        total = dsum([fin(**{clave: valor}), -base_fin])
+        total_mitad = dsum([fin(**{clave: valor / 2}), -base_fin])
+        filas.append({"palanca": nombre, "meta": desc(valor), "meta_mitad": desc(valor / 2),
+                      "total": total, "total_mitad": total_mitad,
+                      "mensual": round2(total / n), "mensual_mitad": round2(total_mitad / n)})
+    todo = dsum([fin(crec_anual=crec_anual, margen_pts=margen_pts, ahorro_mes=ahorro_mes,
+                     liquidacion_mes=liquidacion_mes), -base_fin])
+    mitad = dsum([fin(crec_anual=crec_anual / 2, margen_pts=margen_pts / 2, ahorro_mes=ahorro_mes / 2,
+                      liquidacion_mes=liquidacion_mes / 2), -base_fin])
+    return {"filas": sorted(filas, key=lambda f: -f["total"]), "total": todo, "total_mitad": mitad,
+            "mensual": round2(todo / n), "mensual_mitad": round2(mitad / n), "meses": n}
+
+
 def adjustment_to_stay_positive(serie):
     """Cuánto habría que ajustar cada mes para que la caja (`serie` de
     simulate_credit) nunca quede en rojo:

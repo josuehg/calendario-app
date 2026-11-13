@@ -588,3 +588,18 @@ def test_proyeccion_larga_respeta_el_plan_de_pagos_del_simulador(db):
     assert s["2027-01"]["compras_pagadas"] == 5000.0 and s["2027-02"]["compras_pagadas"] == 7000.0
     # Después del plan, se paga a 90 días lo comprado 3 meses antes (20k al mes).
     assert s["2027-03"]["compras_pagadas"] == 20000.0
+
+
+def test_desglose_de_mejoras(db):
+    import utils
+    args = dict(events=[], fixed_expenses=[], ingresos_esperados=[], deudas=[], pagos={}, cancel_mes={},
+                caja_hoy=0.0, credito=0.0, inversiones=[], venta_dia=1000.0, costo_pct=0.5, inv_hoy=90000.0,
+                compras_plan=15000.0, today="2026-11-11", n_meses=10, inv_lento=20000.0)
+    dg = utils.improvements_breakdown(args, 0.05, 3.0, 2000.0, 0.0)
+    nombres = [f["palanca"] for f in dg["filas"]]
+    assert "Liquidar stock lento" not in nombres  # en 0: no se muestra
+    reprog = next(f for f in dg["filas"] if f["palanca"] == "Reprogramar y gastos")
+    # 2,000 al mes desde el 3er mes de 10: 8 meses = 16,000; la mitad, 8,000.
+    assert reprog["total"] == 16000.0 and reprog["total_mitad"] == 8000.0
+    assert dg["total"] >= max(f["total"] for f in dg["filas"])
+    assert dg["filas"] == sorted(dg["filas"], key=lambda f: -f["total"])

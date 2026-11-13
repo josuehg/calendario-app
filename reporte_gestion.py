@@ -171,6 +171,32 @@ def pdf_gestion(d):
     for x in logros:
         texto("- " + x, 8.5, VERDE if x.startswith("Con") else (0, 0, 0))
 
+    # ---- desglose: cuánto aporta cada mejora ----
+    dg = d.get("desglose")
+    if dg and dg.get("filas"):
+        titulo("Desglose: cuánto aporta cada mejora")
+        heads = [("Mejora", 34), ("Meta (todas)", 44), ("Aporte al mes", 22), ("Al final", 22),
+                 ("Meta (mitad)", 40), ("Aporte al mes", W - 162)]
+        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_fill_color(*CLARO)
+        for h, w in heads:
+            pdf.cell(w, 5.5, _t(h), fill=True, align="L" if h.startswith(("Mejora", "Meta")) else "R")
+        pdf.ln()
+        pdf.set_font("Helvetica", "", 7)
+        for f in dg["filas"]:
+            vals = [f["palanca"], f["meta"], _m(f["mensual"]), _m(f["total"]), f["meta_mitad"], _m(f["mensual_mitad"])]
+            for (h, w), v in zip(heads, vals):
+                pdf.cell(w, 4.8, _t(v), align="L" if h.startswith(("Mejora", "Meta")) else "R")
+            pdf.ln()
+        pdf.set_font("Helvetica", "B", 7)
+        tot = ["Todas juntas", "", _m(dg["mensual"]), _m(dg["total"]), "", _m(dg["mensual_mitad"])]
+        for (h, w), v in zip(heads, tot):
+            pdf.cell(w, 5, _t(v), align="L" if h.startswith(("Mejora", "Meta")) else "R")
+        pdf.ln()
+        texto(f"Aporte al mes = cuánta caja más deja esa mejora, en promedio, frente a seguir igual ({dg['meses']} meses). "
+              "Al final = caja extra acumulada al terminar el periodo. Las mejoras se cruzan un poco, por eso la suma no da "
+              "exacto el total. Empiecen por las de arriba: son las que más aportan.", 7, GRIS)
+
     # ---- caja mes a mes ----
     titulo("2. Caja mes a mes: seguir igual vs con mejoras")
     meses_renov = {f["mes"]: f for f in rv.get("filas", [])}
