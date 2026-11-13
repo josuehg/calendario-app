@@ -719,7 +719,25 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
   lines.push(mejor.espacio > 0
     ? `👉 Hoy conviene pedir a ${mejor.plazo} días.`
     : "👉 Ningún plazo tiene espacio: mejor esperar o cubrir con balanceo entre locales.");
-  if (filas.some((f) => f.dia10)) lines.push("⚠️ = vence entre el 1 y el 10 (planilla, alquileres y bancos).");
+
+  // Solo para emergencias de stock: con letra, el pago se puede correr hasta
+  // los días de gracia (el banco cobra un recargo). No es lo recomendable.
+  const gracia = (await loadSettings(supabase)).letra_dias_gracia_max;
+  if (gracia > 0) {
+    lines.push("", `🚨 Solo si es urgente (letra pagada hasta ${gracia} días después, con recargo del banco):`);
+    for (const plazo of [60, 75, 90]) {
+      const vence = addDays(today, plazo + gracia);
+      const mes = vence.slice(0, 7);
+      const ya = evs
+        .filter((e) => (e.kind === "invoice" || e.kind === "letra") && e.date.slice(0, 7) === mes)
+        .reduce((a, e) => a + e.amount, 0);
+      const espacio = Math.max(0, meta - ya);
+      const dia10 = Number(vence.slice(8, 10)) <= 10;
+      lines.push(`${espacio > 0 ? "🟡" : "🔴"} ${plazo}+${gracia} días → ${fmtLong(vence)}${dia10 ? " ⚠️" : ""} · `
+        + (espacio > 0 ? `espacio ${money(espacio)}` : "ese mes ya está lleno") + ` (${money(ya)} por pagar ese mes)`);
+    }
+  }
+  lines.push("⚠️ = cae entre el 1 y el 10 (planilla, alquileres y bancos).");
   return lines;
 }
 

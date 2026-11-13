@@ -23,3 +23,11 @@ def test_pagina_toma_la_meta_del_plan_guardado(run_view, db):
     metricas = {m.label: m.value for m in at.metric}
     assert metricas["Meta del mes"] == "S/ 81,000.00"
     assert any("Hoy conviene pedir" in s.value for s in at.success)
+
+
+def test_ventana_de_emergencia_con_dias_de_gracia(run_view, db):
+    db.save_settings({"letra_dias_gracia_max": 8})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    tabla = next(d.value for d in at.dataframe if "Se pagaría" in d.value.columns)
+    assert list(tabla["Plazo"]) == ["60 + 8 días", "75 + 8 días", "90 + 8 días"]
