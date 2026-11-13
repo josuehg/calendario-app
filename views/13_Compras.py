@@ -88,6 +88,29 @@ else:
     st.warning("Ningún plazo tiene espacio con esta meta: mejor esperar o cubrir con balanceo entre locales.")
 st.caption("⚠️ Vence entre el 1 y el 10 del mes, cuando se juntan planilla, alquileres y cuotas bancarias.")
 
+# ---------- solo para emergencias: letra pagada dentro de los días de gracia ----------
+gracia = int(settings.get("letra_dias_gracia_max") or 0)
+if gracia:
+    with st.expander(f"🚨 Solo si es urgente: letra pagada hasta {gracia} días después (con recargo del banco)"):
+        st.caption(
+            "No es lo recomendable: el banco cobra un recargo por pagar la letra después de su vencimiento. Sirve para "
+            "saber si, ante una urgencia de stock, algún plazo tiene espacio corriendo el pago dentro de los días de gracia."
+        )
+        filas_emerg = []
+        for plazo in (60, 75, 90):
+            vence = utils.add_days(today, plazo + gracia)
+            mes = vence[:7]
+            ya = utils.dsum(e["amount"] for e in events if e["kind"] in ("invoice", "letra") and e["date"][:7] == mes)
+            espacio = max(0.0, utils.dsum([meta, -ya]))
+            filas_emerg.append({
+                "Plazo": f"{plazo} + {gracia} días",
+                "Se pagaría": utils.fmt_long(vence) + (" ⚠️" if int(vence[8:10]) <= 10 else ""),
+                "Ya por pagar a proveedores ese mes": utils.money(ya),
+                "Espacio": utils.money(espacio),
+                "Estado": "🟡 Hay espacio (con recargo)" if espacio > 0 else "🔴 Ese mes ya está lleno",
+            })
+        st.dataframe(pd.DataFrame(filas_emerg), hide_index=True, width="stretch")
+
 # ---------- próximos meses ----------
 st.subheader("Pagos a proveedores de los próximos meses")
 _filas = []
