@@ -671,6 +671,62 @@ async function sucursalesSinIngreso(supabase: any, fecha: string): Promise<strin
   return names.filter((n) => !registradas.has(n));
 }
 
+/** Compras del día (igual que la página "Compras del día" de la app): cuánto
+ * queda de la meta de compras del mes y, si se pide hoy a 30/60/75/90 días,
+ * en qué mes vencería y si ese mes tiene espacio. La meta sale del escenario
+ * guardado del Simulador (el que diga "FINAL"; si no, el último con meta) o,
+ * sin escenarios, del promedio de compras de los últimos 3 meses. */
+async function comprasDelDia(supabase: any, today: string, events?: Evento[]): Promise<string[]> {
+  const evs = events ?? await buildEvents(supabase, today);
+  const { data: escenarios } = await supabase
+    .from("sim_scenarios").select("name,data,created_at").order("created_at", { ascending: false });
+  const conMeta = (escenarios ?? []).filter((e: any) => Number(e?.data?.sim_compras) > 0);
+  const elegido = conMeta.find((e: any) => /final/i.test(e.name)) ?? conMeta[0];
+  const mes0 = today.slice(0, 7);
+  const [y0, m0] = mes0.split("-").map(Number);
+  const hace3 = toISO(new Date(Date.UTC(y0, m0 - 4, 1)));
+  const { data: facturas } = await supabase.from("invoices").select("amount,issue_date").gte("issue_date", hace3);
+  let meta = elegido ? Number(elegido.data.sim_compras) : 0;
+  const origen = elegido ? `del ${elegido.name}` : "promedio de los últimos 3 meses";
+  if (!meta) {
+    const previas = (facturas ?? []).filter((f: any) => String(f.issue_date).slice(0, 7) < mes0);
+    meta = Math.round(previas.reduce((a: number, f: any) => a + Number(f.amount), 0) / 3);
+  }
+  const pedido = (facturas ?? [])
+    .filter((f: any) => String(f.issue_date).slice(0, 7) === mes0)
+    .reduce((a: number, f: any) => a + Number(f.amount), 0);
+
+  const lines = [negrita("🛒 Compras de hoy") + ` (meta ${money(meta)} al mes, ${origen})`];
+  const queda = meta - pedido;
+  lines.push(queda >= 0
+    ? `Este mes ya se pidió ${money(pedido)}: quedan ${money(queda)} para pedir.`
+    : `⚠️ Este mes ya se pidió ${money(pedido)}: te pasaste de la meta por ${money(-queda)}. Mejor balancear antes de pedir.`);
+  const filas = [30, 60, 75, 90].map((plazo) => {
+    const vence = addDays(today, plazo);
+    const mes = vence.slice(0, 7);
+    const ya = evs
+      .filter((e) => (e.kind === "invoice" || e.kind === "letra") && e.date.slice(0, 7) === mes)
+      .reduce((a, e) => a + e.amount, 0);
+    return { plazo, vence, ya, espacio: Math.max(0, meta - ya), dia10: Number(vence.slice(8, 10)) <= 10 };
+  });
+  for (const f of filas) {
+    // Entre paréntesis, lo que ya hay por pagar a proveedores ese mes.
+    lines.push(`${f.espacio > 0 ? "🟢" : "🔴"} ${f.plazo} días → vence ${fmtLong(f.vence)}${f.dia10 ? " ⚠️" : ""} · `
+      + (f.espacio > 0 ? `espacio ${money(f.espacio)}` : "ese mes ya está lleno")
+      + ` (${money(f.ya)} por pagar ese mes)`);
+  }
+  const mejor = [...filas].sort((a, b) => b.espacio - a.espacio || b.plazo - a.plazo)[0];
+  lines.push(mejor.espacio > 0
+    ? `👉 Hoy conviene pedir a ${mejor.plazo} días.`
+    : "👉 Ningún plazo tiene espacio: mejor esperar o cubrir con balanceo entre locales.");
+  if (filas.some((f) => f.dia10)) lines.push("⚠️ = vence entre el 1 y el 10 (planilla, alquileres y bancos).");
+  return lines;
+}
+
+async function handleCompras(supabase: any): Promise<string> {
+  return (await comprasDelDia(supabase, todayLima())).join("\n");
+}
+
 /** El mismo reporte que antes mandaba scripts/telegram_daily_report.py vía
  * GitHub Actions — ahora lo dispara un cron de Supabase (pg_cron) en vez
  * del scheduler gratuito de GitHub Actions, que no garantiza la hora
@@ -726,6 +782,12 @@ async function buildDailyReportMessage(supabase: any): Promise<{ text: string; i
   if (faltantes.length) {
     lines.push("", `⚠️ Falta registrar el ingreso de ayer (${fmtLong(ayer)}) en: ${faltantes.join(", ")}`);
     lines.push("Usa /ingreso <sucursal> <monto> en el bot para ponerlo al día.");
+  }
+
+  try {
+    lines.push("", ...(await comprasDelDia(supabase, today, events)));
+  } catch (err) {
+    console.error("Error armando compras del día:", err); // el reporte sale igual
   }
 
   return { text: lines.join("\n"), items };
@@ -1186,6 +1248,7 @@ const AYUDA = [
   `/pagar <N> [fecha] — marca pagado el ítem N (o varios: 1 3 5, 1-3) de la última lista (${LISTAS_PAGABLES})`,
   "/deshacer — revierte el último /pagar (hasta 30 minutos después)",
   "/saldo — saldo de caja real y cuánto queda disponible para comprometer",
+  "/compras — cuánto queda para comprar este mes y qué plazo (30/60/75/90 días) tiene espacio hoy",
   "/simular <plazo_dias> [monto] — ¿cuánto me alcanza (o me alcanza X) con un proveedor a ese plazo?",
 ].join("\n");
 
@@ -1206,6 +1269,7 @@ const MENU_COMANDOS = [
   ["pagados", "Lo pagado esta semana (o /pagados 1)"],
   ["meses", "Pagos por semana, este mes y el próximo"],
   ["saldo", "Saldo de caja y disponible"],
+  ["compras", "Cuánto comprar hoy y a qué plazo"],
   ["simular", "¿Cuánto me alcanza a N días? (ej. /simular 60)"],
   ["ayuda", "Todos los comandos con su explicación"],
 ].map(([command, description]) => ({ command, description }));
@@ -1269,6 +1333,7 @@ async function responderComando(
       return await handleBuscar(supabase, chatId, argsText);
     }
     case "/saldo": return await handleSaldo(supabase);
+    case "/compras": return await handleCompras(supabase);
     case "/simular": {
       const argsText = trimmed.split(/\s+/).slice(1).join(" ");
       return await handleSimular(supabase, argsText);
