@@ -6,7 +6,7 @@ VIEW = "views/5_Presupuesto.py"
 def test_sin_saldo_inicial_configurado_muestra_aviso(run_view, db):
     at = run_view(VIEW, role="admin")
     assert not at.exception
-    assert any("Configura el saldo inicial" in str(i.value) for i in at.info)
+    assert any("Corregir caja" in str(i.value) for i in at.info)
     assert not any(m.label == "💰 Disponible para comprometer" for m in at.metric)
 
 

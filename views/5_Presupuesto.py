@@ -33,7 +33,7 @@ today = utils.today_str()
 # ---------- saldo de caja / disponible para comprometer ----------
 if not settings.get("caja_saldo_inicial_fecha"):
     st.info(
-        "Configura el saldo inicial de caja en **Configuración** para ver aquí "
+        "Pon tu caja de hoy en **Simulador → ✏️ Corregir caja** para ver aquí "
         "cuánto tienes disponible para comprometer en un pedido nuevo, y el "
         "simulador por plazo de proveedor de más abajo."
     )

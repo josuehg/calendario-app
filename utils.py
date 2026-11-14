@@ -624,7 +624,7 @@ def compute_cash_balance(invoices, letras, expenses, incomes, saldo_inicial=0.0,
                          fixed_receipts=None):
     """Saldo de caja real y cuánto queda libre para comprometer en un pedido
     nuevo, a partir de un saldo inicial que se configura una sola vez
-    (Configuración → Saldo inicial de caja):
+    (Simulador → ✏️ Corregir caja):
 
       saldo_actual = saldo_inicial + ingresos registrados DESPUÉS de esa
                      fecha (ventas y lo recibido de ingresos fijos, como

@@ -9,7 +9,7 @@ import ventas
 st.title("💵 Ingresos")
 st.caption(
     "Ventas/cobros registrados por sucursal, un monto por día (como un cierre "
-    "de caja). Junto con el saldo inicial de Configuración, esto calcula el "
+    "de caja). Junto con la caja que corriges en el Simulador, esto calcula el "
     "saldo de caja real y cuánto queda disponible para comprometer en un "
     "pedido nuevo (ver Presupuesto). También se puede registrar desde el bot "
     "de Telegram con /ingreso."
