@@ -308,14 +308,14 @@ if vista == "📅 Mes":
                         f"<div style='font-size:11px;color:#5d6b74'>{info['count']} pago(s)</div>"
                         f"{marcas_html}{paid_html}"
                         f"</div>", unsafe_allow_html=True)
-                    if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
+                    if st.button("👁", key=f"day_{ds}"):
                         st.session_state["_cal_day"] = ds
                         st.rerun()
                 elif paid_info:
                     st.markdown(
                         f"<div style='background:#fff;border:{border};border-radius:8px;padding:6px;min-height:70px'>"
                         f"<div style='font-size:12px;color:#5d6b74'>{day}</div>{marcas_html}{paid_html}</div>", unsafe_allow_html=True)
-                    if st.button("👁", key=f"day_{ds}", help="Ver pagos de este día"):
+                    if st.button("👁", key=f"day_{ds}"):
                         st.session_state["_cal_day"] = ds
                         st.rerun()
                 else:
