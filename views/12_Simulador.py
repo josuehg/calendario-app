@@ -61,9 +61,14 @@ DEL_SISTEMA = {
 }
 
 
+# Lo que cambia solo con el día a día (caja, venta, costo). La meta de compras
+# NO: es una decisión del plan, y el botón no debe pisarla con el promedio.
+AL_DIA = ("sim_caja", "sim_venta", "sim_costo_pct")
+
+
 def _cargar_del_sistema():
-    for k, v in DEL_SISTEMA.items():
-        st.session_state[k] = v
+    for k in AL_DIA:
+        st.session_state[k] = DEL_SISTEMA[k]
 
 
 # Valores iniciales una sola vez; después mandan lo que escribas (o el botón).
@@ -98,8 +103,15 @@ def _cargar_escenario(esc):
         st.session_state["sim_renov_incluir"] = bool(d["renov_incluir"])
     st.session_state["sim_prov_data"] = d.get("prov_nuevas")
     st.session_state["sim_inv_ver"] = st.session_state.get("sim_inv_ver", 0) + 1
-    st.session_state["sim_msg"] = f"Escenario cargado: {esc['name']}."
     st.session_state["sim_esc_nombre"] = esc["name"]
+    # Las decisiones del plan se mantienen; la caja y la venta se traen de hoy
+    # (si no, un plan guardado días atrás se vería mejor de lo real: los pagos
+    # hechos desde entonces ya no están pendientes, pero la caja seguía igual).
+    for k in ("sim_caja", "sim_venta"):
+        st.session_state[k] = DEL_SISTEMA[k]
+    st.session_state["sim_msg"] = (
+        f"Escenario cargado: {esc['name']}. Caja y venta por día actualizadas con lo registrado hoy."
+    )
 
 
 def _eliminar_escenario(esc):
@@ -117,8 +129,8 @@ if escenarios:
 
 h1, h2 = st.columns([3, 1])
 h1.caption(
-    "Caja, venta por día y compras salen de lo registrado en la app. Puedes cambiarlos para probar; "
-    "el botón los vuelve a cargar con lo último registrado."
+    "Caja y venta por día salen de lo registrado en la app (al cargar un escenario se traen las de hoy). "
+    "Puedes cambiarlas para probar; el botón las vuelve a cargar. La meta de compras es tuya: el botón no la cambia."
 )
 h2.button("🔄 Cargar datos del sistema", width="stretch", on_click=_cargar_del_sistema,
           help="Recalcula caja, venta promedio y compras promedio con lo registrado hasta este momento.")
