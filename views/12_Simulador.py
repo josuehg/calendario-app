@@ -1,3 +1,5 @@
+from datetime import date
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -76,6 +78,10 @@ st.session_state.setdefault("sim_credito", 220000.0)
 for _k, _v in DEL_SISTEMA.items():
     st.session_state.setdefault(_k, _v)
 
+# Recién corregida la caja: el campo toma el nuevo cálculo de la app.
+if st.session_state.pop("sim_caja_corregida", False):
+    st.session_state["sim_caja"] = DEL_SISTEMA["sim_caja"]
+
 _msg = st.session_state.pop("sim_msg", None)
 if _msg:
     st.success(_msg)
@@ -153,8 +159,36 @@ compras_mes = s4.number_input(
 )
 s2.caption(
     f"Según la app: {utils.money(caja_app)}" + (" · faltan ventas u otros ingresos por registrar" if caja_app < 0 else "")
-    if caja_app is not None else "Configura el saldo inicial de caja en Configuración."
+    if caja_app is not None else "Falta el punto de partida: usa ✏️ Corregir caja, aquí abajo."
 )
+_fecha_saldo = settings.get("caja_saldo_inicial_fecha")
+with s2.expander("✏️ Corregir caja"):
+    st.caption(
+        "Pon lo que de verdad tenías al cierre de un día (lo normal: ayer). Desde ahí la app suma las ventas y resta "
+        "los pagos que registres, sola, día a día. Corrígela solo si se desfasa (por ejemplo, al cuadrar con el banco)."
+        + (f" Último punto de partida: {utils.money(settings.get('caja_saldo_inicial') or 0)} al cierre del "
+           f"{utils.fmt_long(_fecha_saldo)}." if _fecha_saldo else "")
+    )
+    with st.form("sim_corregir_caja", border=False):
+        _cc_fecha = st.date_input("Al cierre del día", value=date.fromisoformat(utils.add_days(today, -1)),
+                                  max_value=date.fromisoformat(today), key="sim_cc_fecha")
+        _cc_banco = st.number_input("Efectivo + bancos (S/)", min_value=0.0, step=1000.0, format="%.2f",
+                                    key="sim_cc_banco")
+        _cc_bcp = st.number_input("Deuda con agentes BCP (S/)", min_value=0.0, step=1000.0, format="%.2f",
+                                  key="sim_cc_bcp", help="Lo que debes a los agentes BCP ese día: no es plata tuya.")
+        _cc_cred = st.checkbox(
+            f"El crédito ({utils.money(credito)}) ya está en el banco", value=True, key="sim_cc_cred",
+            help="Si ya entró, se descuenta: el simulador lo suma aparte como 'Monto del crédito' para pagar deudas.",
+        )
+        if st.form_submit_button("Guardar caja", type="primary", width="stretch"):
+            _saldo = utils.round2(_cc_banco - _cc_bcp - (credito if _cc_cred else 0.0))
+            db.save_settings({"caja_saldo_inicial": _saldo, "caja_saldo_inicial_fecha": _cc_fecha.isoformat()})
+            st.session_state["sim_caja_corregida"] = True
+            st.session_state["sim_msg"] = (
+                f"Caja corregida: {utils.money(_saldo)} al cierre del {utils.fmt_long(_cc_fecha.isoformat())}. "
+                "Desde ahí se actualiza sola con lo que registres."
+            )
+            st.rerun()
 s3.caption(
     f"Según la app: {utils.money(venta_dia_app)} · "
     + (f"promedio de {utils.MONTHS_ES[int(today[5:7]) - 1]} ({_dias_venta} días registrados)" if _base_venta == "mes"
