@@ -133,9 +133,12 @@ def test_boton_carga_datos_del_sistema(run_view, db):
     assert venta.value == 6500.0
     venta.set_value(9000.0).run()
     assert next(n for n in at.number_input if n.key == "sim_venta").value == 9000.0
+    next(n for n in at.number_input if n.key == "sim_compras").set_value(81000.0).run()
     at = click(at, "Cargar datos del sistema")
     assert not at.exception
     assert next(n for n in at.number_input if n.key == "sim_venta").value == 6500.0
+    # La meta de compras es del plan: el botón no la pisa con el promedio.
+    assert next(n for n in at.number_input if n.key == "sim_compras").value == 81000.0
 
 
 def test_inversiones_salen_en_su_mes_y_recuperan_despues(db):
@@ -198,6 +201,7 @@ def test_guardar_y_cargar_escenario(run_view, db):
     at = run_view(VIEW, role="admin")
     next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").set_value(30000.0)
     next(n for n in at.number_input if n.key == "sim_venta").set_value(7000.0)
+    next(n for n in at.number_input if n.key == "sim_compras").set_value(81000.0)
     next(t for t in at.text_input if t.label == "Nombre del escenario").set_value("Plan B")
     at = click(at, "Guardar escenario")
     assert not at.exception
@@ -212,8 +216,10 @@ def test_guardar_y_cargar_escenario(run_view, db):
     at = next(b for b in at.button if b.label == "Cargar").click().run()
     assert not at.exception
     assert next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").value == 30000.0
-    assert next(n for n in at.number_input if n.key == "sim_venta").value == 7000.0
-    assert any("Escenario cargado: Plan B" in s.value for s in at.success)
+    # Las decisiones se mantienen (meta 81k); la venta por día se trae de hoy, no la guardada.
+    assert next(n for n in at.number_input if n.key == "sim_compras").value == 81000.0
+    assert next(n for n in at.number_input if n.key == "sim_venta").value != 7000.0
+    assert any("Escenario cargado: Plan B" in s.value and "actualizadas" in s.value for s in at.success)
 
     at = next(b for b in at.button if b.label == "Eliminar").click().run()
     assert db.sim_scenarios == []
