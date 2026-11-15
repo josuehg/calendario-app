@@ -29,6 +29,7 @@ ingresos_esperados = utils.fixed_income_expected(db.list_fixed_incomes(), db.lis
 
 _eventos_plan = events  # se reemplaza abajo si la meta sale de un escenario
 _credito = 0.0          # el crédito del plan, si la meta sale de un escenario
+_cred_incluido = float(settings.get("caja_credito_incluido") or 0)  # crédito que ya está en la caja real
 _caja = None
 if settings.get("caja_saldo_inicial_fecha"):
     _caja = utils.compute_cash_balance(
@@ -45,8 +46,22 @@ def _sobra(mes):
     if mes not in _disponible:
         _meses = [utils._sumar_meses(today[:7], k) for k in range(0, 8)]
         _disponible.update(utils.cash_available_by_month(
-            _eventos_plan, incomes, ingresos_esperados, meta, (_caja or 0.0) + _credito, _meses, today))
-    return _disponible.get(mes, 0.0)
+            _eventos_plan, incomes, ingresos_esperados, meta, _caja_partida(), _meses, today,
+            descontar_plan=segun_plan))
+    # El colchón no se toca: se descuenta de lo disponible.
+    return utils.dsum([_disponible.get(mes, 0.0), -colchon])
+
+
+def _caja_partida():
+    """Día a día: la caja real. Según el plan: la caja real + lo del crédito que aún no está en ella."""
+    return (_caja or 0.0) + (max(0.0, _credito - _cred_incluido) if segun_plan else 0.0)
+
+
+def _guardar_colchon():
+    try:
+        db.save_settings({"compras_colchon": float(st.session_state["cd_colchon"])})
+    except Exception:  # falta correr la migración: se usa igual, pero no queda guardado
+        st.session_state["cd_colchon_error"] = True
 
 
 def _estado(espacio, puedes):
@@ -77,12 +92,29 @@ _def = next((i for i, n in enumerate(opciones) if "FINAL" in n.upper()), 0)
 c1, c2 = st.columns([2, 1])
 origen = c1.selectbox("Meta de compras del mes, según", opciones, index=_def, key="cd_origen",
                       help="Toma la meta de compras de un escenario guardado del Simulador, o escríbela.")
-if origen == "Escribirla a mano" or not _metas:
+_con_plan = not (origen == "Escribirla a mano" or not _metas)
+t1, t2 = st.columns([2, 1])
+segun_plan = t1.toggle(
+    "Ver según el plan", value=True, key="cd_segun_plan", disabled=not _con_plan,
+    help="Encendido: la caja de cada mes se calcula como en el plan (cuenta el crédito, descuenta las compras del plan "
+         "de los meses anteriores y deja de contar las deudas cuando el plan las cancela). Apagado: solo el día a día, "
+         "con tu caja real y lo que ya está registrado, sin suponer nada.",
+) and _con_plan
+colchon = t2.number_input(
+    "Colchón de caja que no se toca (S/)", min_value=0.0, step=1000.0, format="%.0f",
+    value=float(settings.get("compras_colchon") or 0), key="cd_colchon", on_change=_guardar_colchon,
+    help="Plata que quieres dejar siempre en caja. Se resta de la caja disponible de cada mes antes de decirte cuánto "
+         "puedes pedir. Queda guardado y también lo usa el bot.",
+)
+if st.session_state.pop("cd_colchon_error", False):
+    st.warning("El colchón se usa ahora, pero no quedó guardado: falta correr la migración de caja en Supabase.")
+if not _con_plan:
     meta = c2.number_input("Meta de compras por mes (S/)", min_value=0.0, step=1000.0, format="%.0f",
                            value=float(round(promedio, -3)), key="cd_meta")
 else:
     meta = _metas[origen]
     c2.metric("Meta de compras por mes", utils.money(meta))
+if segun_plan:
     # La caja se ve como queda CON el plan: las deudas que el plan cancela
     # (con el crédito o con renovaciones) dejan de cobrar su cuota.
     _deudas = utils.simulator_debts(db.list_debts(active_only=True), db.list_fixed_expenses())
@@ -103,10 +135,15 @@ else:
             + ". El Calendario sigue mostrando lo registrado hoy."
         )
 st.caption(f"Tu promedio de compras de los últimos meses es {utils.money(promedio)}.")
+_falta_cred = max(0.0, _credito - _cred_incluido) if segun_plan else 0.0
 st.caption(
-    f"Caja de partida: {utils.money(_caja) if _caja is not None else 'sin configurar (Simulador → ✏️ Corregir caja)'}"
-    + (f" + crédito del plan {utils.money(_credito)}" if _credito else "")
-    + ". Mes a mes se le suma lo que sobra y se le restan las compras del plan de los meses anteriores."
+    ("**Según el plan.** " if segun_plan else "**Día a día** (sin suponer nada del plan). ")
+    + f"Caja real de hoy: {utils.money(_caja) if _caja is not None else 'sin configurar (Simulador → ✏️ Corregir caja)'}"
+    + (f", que ya incluye el crédito ({utils.money(_cred_incluido)})" if segun_plan and _cred_incluido else "")
+    + (f" + crédito del plan que aún no entra {utils.money(_falta_cred)}" if _falta_cred else "")
+    + (f" − colchón {utils.money(colchon)}" if colchon else "")
+    + ". Mes a mes se le suma lo que sobra"
+    + (" y se le restan las compras del plan de los meses anteriores." if segun_plan else "; no se descuentan compras futuras.")
 )
 
 # ---------- presupuesto del mes ----------
@@ -152,9 +189,10 @@ if _mejor["puedes"] > 0:
 else:
     st.warning("Ningún plazo tiene espacio con esta meta y esta caja: mejor esperar o cubrir con balanceo entre locales.")
 st.caption(
-    "Caja disponible ese mes = caja de partida (+ crédito del plan) + lo que sobra cada mes hasta ese (venta esperada "
-    "+ ingresos fijos − todos los pagos, como el Neto proyectado del Calendario) − las compras del plan de los meses "
-    "anteriores. Puedes pedir = el menor entre la meta y esa caja. ⚠️ Vence entre el 1 y el 10 del mes, cuando se "
+    "Caja disponible ese mes = caja de partida + lo que sobra cada mes hasta ese (venta esperada + ingresos fijos − "
+    "todos los pagos, como el Neto proyectado del Calendario) − el colchón"
+    + (" − las compras del plan de los meses anteriores" if segun_plan else "")
+    + ". Puedes pedir = el menor entre la meta y esa caja. ⚠️ Vence entre el 1 y el 10 del mes, cuando se "
     "juntan planilla, alquileres y cuotas bancarias."
 )
 

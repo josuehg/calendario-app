@@ -106,3 +106,39 @@ def test_caja_disponible_arrastra_el_credito_y_las_compras_del_plan(db):
     assert disp["2027-01"] == 30000.0                # 80k - 30k compras de dic - 20k gastos
     assert disp["2027-02"] == -20000.0               # 30k - 30k compras de ene - 20k gastos
     assert utils.with_cash_limit(30000.0, disp["2027-02"]) == 0.0
+
+
+def _plan_con_caja(db, incluido):
+    ayer = (date.today() - timedelta(days=1)).isoformat()
+    db.save_settings({"caja_saldo_inicial": 300000.0, "caja_saldo_inicial_fecha": ayer,
+                      "caja_credito_incluido": incluido})
+    db.create_sim_scenario({"name": "PLAN FINAL", "data": {"sim_compras": 81000.0, "sim_credito": 237000.0}})
+
+
+def test_credito_ya_depositado_no_se_cuenta_dos_veces(run_view, db):
+    _plan_con_caja(db, 237000.0)
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    assert any("ya incluye el crédito" in c.value and "aún no entra" not in c.value for c in at.caption)
+
+
+def test_credito_que_aun_no_entra_se_suma_en_la_vista_del_plan(run_view, db):
+    _plan_con_caja(db, 0.0)
+    at = run_view(VIEW, role="admin")
+    assert any("crédito del plan que aún no entra S/ 237,000.00" in c.value for c in at.caption)
+    # Día a día: solo la caja real, sin el crédito ni nada del plan.
+    next(t for t in at.toggle if t.key == "cd_segun_plan").set_value(False).run()
+    assert not at.exception
+    assert any("Día a día" in c.value and "aún no entra" not in c.value for c in at.caption)
+
+
+def test_colchon_se_resta_y_queda_guardado(run_view, db):
+    _plan_con_caja(db, 237000.0)
+    at = run_view(VIEW, role="admin")
+    antes = next(d.value for d in at.dataframe if "Caja disponible ese mes" in d.value.columns)
+    next(n for n in at.number_input if n.key == "cd_colchon").set_value(50000.0).run()
+    assert not at.exception
+    assert db.settings["compras_colchon"] == 50000.0
+    despues = next(d.value for d in at.dataframe if "Caja disponible ese mes" in d.value.columns)
+    assert list(antes["Caja disponible ese mes"]) != list(despues["Caja disponible ese mes"])
+    assert any("colchón S/ 50,000.00" in c.value for c in at.caption)

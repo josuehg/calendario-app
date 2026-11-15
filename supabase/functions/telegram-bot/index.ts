@@ -100,6 +100,10 @@ interface Settings {
   letra_dias_pago_tipico: number;
   letra_dias_gracia_max: number;
   caja_saldo_inicial: number;
+  /** Cuánto del crédito del plan ya está dentro de la caja real. */
+  caja_credito_incluido: number;
+  /** Caja que no se toca al calcular cuánto se puede pedir (Compras del día). */
+  compras_colchon: number;
   caja_saldo_inicial_fecha: string | null;
 }
 
@@ -113,6 +117,8 @@ async function loadSettings(supabase: any): Promise<Settings> {
     letra_dias_pago_tipico: tipico,
     letra_dias_gracia_max: settingsRow?.letra_dias_gracia_max ?? tipico,
     caja_saldo_inicial: Number(settingsRow?.caja_saldo_inicial ?? 0),
+    caja_credito_incluido: Number(settingsRow?.caja_credito_incluido ?? 0),
+    compras_colchon: Number(settingsRow?.compras_colchon ?? 0),
     caja_saldo_inicial_fecha: settingsRow?.caja_saldo_inicial_fecha ?? null,
   };
 }
@@ -777,8 +783,12 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
   // Caja disponible por mes (ver utils.cash_available_by_month): caja de hoy +
   // crédito del plan, + lo que sobra cada mes − las compras del plan de los
   // meses anteriores.
+  // cajaHoy es la caja REAL; del crédito del plan solo se suma lo que aún no está en ella.
   const cajaHoy = (await computeCaja(supabase, today))?.saldoActual ?? 0;
-  const credito = elegido ? Number(elegido.data?.sim_credito ?? 0) : 0;
+  const ajustes = await loadSettings(supabase);
+  const colchon = ajustes.compras_colchon;
+  const credito = elegido
+    ? Math.max(0, Number(elegido.data?.sim_credito ?? 0) - ajustes.caja_credito_incluido) : 0;
   const disponible: Record<string, number> = {};
   {
     let acum = cajaHoy + credito;
@@ -796,8 +806,10 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
       acum = disp;
     }
   }
-  const sobra = (mes: string) => disponible[mes] ?? 0;
-  lines.push(`Caja de partida ${money(cajaHoy)}` + (credito ? ` + crédito del plan ${money(credito)}` : "") + ".");
+  const sobra = (mes: string) => (disponible[mes] ?? 0) - colchon;
+  lines.push(`Caja real de hoy ${money(cajaHoy)}`
+    + (credito ? ` + crédito del plan que aún no entra ${money(credito)}` : "")
+    + (colchon ? ` − colchón ${money(colchon)}` : "") + ".");
   // Lo que se puede pedir: el menor entre el espacio de la meta y la caja que sobra ese mes.
   const fila = (plazo: number) => {
     const vence = addDays(today, plazo);
@@ -830,7 +842,7 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
 
   // Solo para emergencias de stock: con letra, el pago se puede correr hasta
   // los días de gracia (el banco cobra un recargo). No es lo recomendable.
-  const gracia = (await loadSettings(supabase)).letra_dias_gracia_max;
+  const gracia = ajustes.letra_dias_gracia_max;
   if (gracia > 0) {
     lines.push("", `🚨 Solo si es urgente (letra pagada hasta ${gracia} días después, con recargo del banco):`);
     for (const plazo of [60, 75, 90]) {

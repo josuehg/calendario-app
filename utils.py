@@ -921,7 +921,8 @@ def month_cash_room(events, incomes, ingresos_esperados, month_prefix, today=Non
     return dsum([entradas["total"], -pagos])
 
 
-def cash_available_by_month(events, incomes, ingresos_esperados, meta, caja_inicio, months, today=None):
+def cash_available_by_month(events, incomes, ingresos_esperados, meta, caja_inicio, months, today=None,
+                            descontar_plan=True):
     """Caja disponible para compras nuevas que se paguen en cada mes de
     `months` (en orden, desde el mes en curso), arrastrando la caja:
 
@@ -931,14 +932,15 @@ def cash_available_by_month(events, incomes, ingresos_esperados, meta, caja_inic
                         ese mes (meta - lo ya comprometido; lo que alcance).
     El mes en curso no descuenta compras del plan: un pedido de hoy a 30 días
     o más ya no vence este mes. `caja_inicio` = caja de hoy (+ el crédito,
-    si el plan lo cuenta)."""
+    si el plan lo cuenta). Con `descontar_plan=False` (vista del día a día)
+    no se restan compras futuras: solo cuenta lo ya registrado."""
     today = today or today_str()
     acum = float(caja_inicio or 0)
     out = {}
     for mes in months:
         disponible = dsum([acum, month_cash_room(events, incomes, ingresos_esperados, mes, today)])
         out[mes] = disponible
-        if mes > today[:7]:
+        if descontar_plan and mes > today[:7]:
             ya = dsum(e["amount"] for e in events if e["kind"] in ("invoice", "letra") and e["date"][:7] == mes)
             compra_plan = min(max(0.0, dsum([meta, -ya])), max(0.0, disponible))
             disponible = dsum([disponible, -compra_plan])

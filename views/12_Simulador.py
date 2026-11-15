@@ -50,6 +50,13 @@ if settings.get("caja_saldo_inicial_fecha"):
         saldo_inicial_fecha=settings.get("caja_saldo_inicial_fecha"),
         fixed_receipts=fixed_receipts,
     )["saldo_actual"]
+# La caja guardada es la REAL (efectivo + bancos − agentes BCP). Si el crédito
+# ya está depositado ahí, para el plan se resta: el Simulador lo suma aparte
+# en "Monto del crédito".
+caja_real = caja_app
+_cred_incluido = float(settings.get("caja_credito_incluido") or 0)
+if caja_app is not None:
+    caja_app = utils.dsum([caja_app, -_cred_incluido])
 venta_dia_app, _dias_venta, _base_venta = utils.current_month_daily_sales(incomes, today)
 compras_app = utils.average_monthly_purchases(invoices, today)
 
@@ -144,8 +151,9 @@ h2.button("🔄 Cargar datos del sistema", width="stretch", on_click=_cargar_del
 s1, s2, s3, s4 = st.columns(4)
 credito = s1.number_input("Monto del crédito (S/)", min_value=0.0, step=5000.0, format="%.0f", key="sim_credito")
 caja_hoy = s2.number_input(
-    "Caja real hoy (S/)", step=1000.0, format="%.0f", key="sim_caja",
-    help="Efectivo + bancos de hoy. Sale con lo que calcula la app; cámbialo si tu caja real es otra.",
+    "Caja del plan hoy (S/)", step=1000.0, format="%.0f", key="sim_caja",
+    help="Tu caja real de hoy SIN el crédito (el crédito se suma aparte, en Monto del crédito). "
+         "Sale con lo que calcula la app; cámbiala si quieres probar otro número.",
 )
 venta_dia = s3.number_input(
     "Venta por día (S/)", min_value=0.0, step=100.0, format="%.0f", key="sim_venta",
@@ -158,7 +166,9 @@ compras_mes = s4.number_input(
          "mes (más abajo), que luego puedes ajustar mes por mes.",
 )
 s2.caption(
-    f"Según la app: {utils.money(caja_app)}" + (" · faltan ventas u otros ingresos por registrar" if caja_app < 0 else "")
+    (f"Caja real: {utils.money(caja_real)} − crédito ya depositado {utils.money(_cred_incluido)} = "
+     f"{utils.money(caja_app)}" if _cred_incluido else f"Según la app: {utils.money(caja_app)}")
+    + (" · faltan ventas u otros ingresos por registrar" if caja_app < 0 and not _cred_incluido else "")
     if caja_app is not None else "Falta el punto de partida: usa ✏️ Corregir caja, aquí abajo."
 )
 _fecha_saldo = settings.get("caja_saldo_inicial_fecha")
@@ -166,7 +176,7 @@ with s2.expander("✏️ Corregir caja"):
     st.caption(
         "Pon lo que de verdad tenías al cierre de un día (lo normal: ayer). Desde ahí la app suma las ventas y resta "
         "los pagos que registres, sola, día a día. Corrígela solo si se desfasa (por ejemplo, al cuadrar con el banco)."
-        + (f" Último punto de partida: {utils.money(settings.get('caja_saldo_inicial') or 0)} al cierre del "
+        + (f" Último punto de partida (caja real): {utils.money(settings.get('caja_saldo_inicial') or 0)} al cierre del "
            f"{utils.fmt_long(_fecha_saldo)}." if _fecha_saldo else "")
     )
     with st.form("sim_corregir_caja", border=False):
@@ -178,14 +188,21 @@ with s2.expander("✏️ Corregir caja"):
                                   key="sim_cc_bcp", help="Lo que debes a los agentes BCP ese día: no es plata tuya.")
         _cc_cred = st.checkbox(
             f"El crédito ({utils.money(credito)}) ya está en el banco", value=True, key="sim_cc_cred",
-            help="Si ya entró, se descuenta: el simulador lo suma aparte como 'Monto del crédito' para pagar deudas.",
+            help="Se guarda tu caja REAL completa (la que ves en Presupuesto y en el día a día). Si el crédito ya "
+                 "entró, el plan lo descuenta solo, porque lo suma aparte en 'Monto del crédito'.",
         )
         if st.form_submit_button("Guardar caja", type="primary", width="stretch"):
-            _saldo = utils.round2(_cc_banco - _cc_bcp - (credito if _cc_cred else 0.0))
-            db.save_settings({"caja_saldo_inicial": _saldo, "caja_saldo_inicial_fecha": _cc_fecha.isoformat()})
+            _saldo = utils.round2(_cc_banco - _cc_bcp)
+            try:
+                db.save_settings({"caja_saldo_inicial": _saldo, "caja_saldo_inicial_fecha": _cc_fecha.isoformat(),
+                                  "caja_credito_incluido": utils.round2(credito) if _cc_cred else 0.0})
+            except Exception:
+                # Sin la migración de caja real/plan: se guarda como antes (ya sin el crédito).
+                _saldo = utils.round2(_saldo - (credito if _cc_cred else 0.0))
+                db.save_settings({"caja_saldo_inicial": _saldo, "caja_saldo_inicial_fecha": _cc_fecha.isoformat()})
             st.session_state["sim_caja_corregida"] = True
             st.session_state["sim_msg"] = (
-                f"Caja corregida: {utils.money(_saldo)} al cierre del {utils.fmt_long(_cc_fecha.isoformat())}. "
+                f"Caja real corregida: {utils.money(_saldo)} al cierre del {utils.fmt_long(_cc_fecha.isoformat())}. "
                 "Desde ahí se actualiza sola con lo que registres."
             )
             st.rerun()
