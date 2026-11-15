@@ -81,7 +81,10 @@ def _cargar_del_sistema():
 
 
 # Valores iniciales una sola vez; después mandan lo que escribas (o el botón).
-st.session_state.setdefault("sim_credito", 220000.0)
+escenarios = db.list_sim_scenarios()
+_ultimo_credito = next((float(e["data"]["sim_credito"]) for e in escenarios
+                        if (e.get("data") or {}).get("sim_credito") is not None), 220000.0)
+st.session_state.setdefault("sim_credito", _ultimo_credito)
 for _k, _v in DEL_SISTEMA.items():
     st.session_state.setdefault(_k, _v)
 
@@ -93,14 +96,12 @@ _msg = st.session_state.pop("sim_msg", None)
 if _msg:
     st.success(_msg)
 
-escenarios = db.list_sim_scenarios()
-
-
 def _cargar_escenario(esc):
     """Pone en los campos lo guardado en el escenario (corre antes de dibujar)."""
     d = esc.get("data") or {}
     for k in ("sim_credito", "sim_caja", "sim_venta", "sim_compras", "sim_inv_hoy", "sim_costo_pct",
-              "sim_inv_lento", "sim_inv_balanceo", "sim_renov_cada"):
+              "sim_inv_lento", "sim_inv_balanceo", "sim_renov_cada",
+              "sim_g_crec", "sim_g_margen", "sim_g_ahorro", "sim_g_liq"):
         if d.get(k) is not None:
             # El campo de meses es entero: mezclar float con int rompe el number_input.
             st.session_state[k] = int(d[k]) if k == "sim_renov_cada" else float(d[k])
@@ -120,11 +121,17 @@ def _cargar_escenario(esc):
     # Las decisiones del plan se mantienen; la caja y la venta se traen de hoy
     # (si no, un plan guardado días atrás se vería mejor de lo real: los pagos
     # hechos desde entonces ya no están pendientes, pero la caja seguía igual).
-    for k in ("sim_caja", "sim_venta"):
-        st.session_state[k] = DEL_SISTEMA[k]
-    st.session_state["sim_msg"] = (
-        f"Escenario cargado: {esc['name']}. Caja y venta por día actualizadas con lo registrado hoy."
-    )
+    # Con el check apagado se carga TODO tal como se guardó, también caja y venta.
+    if st.session_state.get("sim_esc_hoy", True):
+        for k in ("sim_caja", "sim_venta"):
+            st.session_state[k] = DEL_SISTEMA[k]
+        st.session_state["sim_msg"] = (
+            f"Escenario cargado: {esc['name']}. Caja y venta por día actualizadas con lo registrado hoy."
+        )
+    else:
+        st.session_state["sim_msg"] = (
+            f"Escenario cargado: {esc['name']}, tal como se guardó (también su caja y su venta por día)."
+        )
 
 
 def _eliminar_escenario(esc):
@@ -139,6 +146,11 @@ if escenarios:
         _elegido = _por_nombre[e1.selectbox("Escenario", list(_por_nombre), label_visibility="collapsed", key="sim_esc_sel")]
         e2.button("Cargar", width="stretch", type="primary", on_click=_cargar_escenario, args=(_elegido,))
         e3.button("Eliminar", width="stretch", on_click=_eliminar_escenario, args=(_elegido,))
+        st.checkbox(
+            "Al cargar, usar la caja y la venta por día de hoy", value=True, key="sim_esc_hoy",
+            help="Marcado: se carga todo el escenario, pero la caja y la venta por día se traen de lo registrado hoy "
+                 "(el plan al día). Desmarcado: se carga exactamente como lo guardaste, con la caja y la venta de ese día.",
+        )
 
 h1, h2 = st.columns([3, 1])
 h1.caption(
@@ -841,6 +853,8 @@ with st.form("sim_guardar", clear_on_submit=True, border=False):
                     "sim_credito": credito, "sim_caja": caja_hoy, "sim_venta": venta_dia, "sim_compras": compras_mes,
                     "sim_inv_hoy": inv_hoy, "sim_costo_pct": costo_pct,
                     "sim_inv_lento": inv_lento, "sim_inv_balanceo": inv_balanceo,
+                    # Mejoras del informe de gestión.
+                    "sim_g_crec": g_crec, "sim_g_margen": g_margen, "sim_g_ahorro": g_ahorro, "sim_g_liq": g_liq,
                     "prestamos": [{"Préstamo": p_["nombre"], "Monto": p_["monto"], "Cuotas": p_["cuotas"],
                                    "Cuota": p_["cuota"], "Primera cuota": p_["primera_cuota"]} for p_ in prestamos],
                     "renov_primera": renov_primera, "sim_renov_cada": int(renov_cada), "renov_incluir": renov_incluir,
