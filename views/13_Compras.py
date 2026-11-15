@@ -9,7 +9,8 @@ import utils
 st.title("🛒 Compras del día")
 st.caption(
     "Antes de pedir: cuánto te queda de la meta de compras de este mes y, según el plazo del proveedor, en qué "
-    "mes vencería el pago y si ese mes tiene espacio. Se actualiza con cada factura y letra que registres."
+    "mes vencería el pago y si ese mes tiene espacio en la meta **y** en la caja. Se actualiza con cada factura, "
+    "letra, gasto y venta que registres."
 )
 
 invoices = db.list_invoices()
@@ -21,6 +22,23 @@ events = utils.get_payment_events(
     letra_dias_gracia_max=settings.get("letra_dias_gracia_max", 10),
 )
 today = utils.today_str()
+incomes = db.list_incomes()
+ingresos_esperados = utils.fixed_income_expected(db.list_fixed_incomes(), db.list_fixed_income_receipts(),
+                                                 months_ahead=8)
+
+
+def _sobra(mes):
+    return utils.month_cash_room(events, incomes, ingresos_esperados, mes, today)
+
+
+def _estado(espacio, puedes):
+    if espacio <= 0:
+        return "🔴 Meta llena"
+    if puedes <= 0:
+        return "🔴 La caja no alcanza"
+    if puedes < espacio:
+        return "🟠 Limita la caja"
+    return "🟢 Hay espacio"
 
 
 def _mes(m):
@@ -63,30 +81,38 @@ if meta and v["comprado_este_mes"] > meta:
 
 # ---------- según el plazo ----------
 st.subheader("Si pido hoy, ¿cuándo se paga?")
-_ESTADO = {"ok": "🟢 Hay espacio", "caja": "🟠 Hay espacio, caja justa", "lleno": "🔴 Ese mes ya está lleno"}
+for f in v["filas"]:
+    f["sobra"] = _sobra(f["mes"])
+    f["puedes"] = utils.with_cash_limit(f["espacio"], f["sobra"])
 st.dataframe(
     pd.DataFrame([
         {
             "Plazo del proveedor": f"{f['plazo']} días",
             "Vence": utils.fmt_long(f["vence"]) + (" ⚠️" if f["dias_1_10"] else ""),
             "Ya por pagar a proveedores ese mes": utils.money(f["ya_por_pagar"]),
-            "Espacio (meta - ya comprometido)": utils.money(f["espacio"]),
-            "Estado": _ESTADO[f["estado"]],
+            "Espacio en la meta": utils.money(f["espacio"]),
+            "Caja que sobra ese mes": utils.money(f["sobra"]),
+            "Puedes pedir": utils.money(f["puedes"]),
+            "Estado": _estado(f["espacio"], f["puedes"]),
         }
         for f in v["filas"]
     ]),
     hide_index=True, width="stretch",
 )
-_mejor = max(v["filas"], key=lambda f: (f["espacio"], f["plazo"]))
-if _mejor["espacio"] > 0:
+_mejor = max(v["filas"], key=lambda f: (f["puedes"], f["plazo"]))
+if _mejor["puedes"] > 0:
     st.success(
-        f"Hoy conviene pedir a **{_mejor['plazo']} días**: vence el {utils.fmt_long(_mejor['vence'])} y ese mes tiene "
-        f"**{utils.money(_mejor['espacio'])}** de espacio."
+        f"Hoy conviene pedir a **{_mejor['plazo']} días**: vence el {utils.fmt_long(_mejor['vence'])} y ese mes "
+        f"puedes pedir hasta **{utils.money(_mejor['puedes'])}**."
         + (" Ojo: cae entre el 1 y el 10, cuando se pagan planilla, alquileres y bancos." if _mejor["dias_1_10"] else "")
     )
 else:
-    st.warning("Ningún plazo tiene espacio con esta meta: mejor esperar o cubrir con balanceo entre locales.")
-st.caption("⚠️ Vence entre el 1 y el 10 del mes, cuando se juntan planilla, alquileres y cuotas bancarias.")
+    st.warning("Ningún plazo tiene espacio con esta meta y esta caja: mejor esperar o cubrir con balanceo entre locales.")
+st.caption(
+    "Caja que sobra ese mes = venta esperada + ingresos fijos − todo lo pendiente de ese mes (proveedores, planilla, "
+    "alquileres, préstamos…), igual que el Neto proyectado del Calendario. Puedes pedir = el menor entre la meta y la "
+    "caja. ⚠️ Vence entre el 1 y el 10 del mes, cuando se juntan planilla, alquileres y cuotas bancarias."
+)
 
 # ---------- solo para emergencias: letra pagada dentro de los días de gracia ----------
 gracia = int(settings.get("letra_dias_gracia_max") or 0)
@@ -102,12 +128,14 @@ if gracia:
             mes = vence[:7]
             ya = utils.dsum(e["amount"] for e in events if e["kind"] in ("invoice", "letra") and e["date"][:7] == mes)
             espacio = max(0.0, utils.dsum([meta, -ya]))
+            puedes = utils.with_cash_limit(espacio, _sobra(mes))
             filas_emerg.append({
                 "Plazo": f"{plazo} + {gracia} días",
                 "Se pagaría": utils.fmt_long(vence) + (" ⚠️" if int(vence[8:10]) <= 10 else ""),
                 "Ya por pagar a proveedores ese mes": utils.money(ya),
-                "Espacio": utils.money(espacio),
-                "Estado": "🟡 Hay espacio (con recargo)" if espacio > 0 else "🔴 Ese mes ya está lleno",
+                "Espacio en la meta": utils.money(espacio),
+                "Puedes pedir": utils.money(puedes),
+                "Estado": "🟡 Hay espacio (con recargo)" if puedes > 0 else _estado(espacio, puedes),
             })
         st.dataframe(pd.DataFrame(filas_emerg), hide_index=True, width="stretch")
 
@@ -118,8 +146,15 @@ for k in range(1, 5):
     mes = utils._sumar_meses(today[:7], k)
     ya = utils.dsum(e["amount"] for e in events if e["kind"] in ("invoice", "letra") and e["date"][:7] == mes)
     espacio = max(0.0, utils.dsum([meta, -ya]))
+    sobra = _sobra(mes)
+    puedes = utils.with_cash_limit(espacio, sobra)
     _filas.append({"Mes": _mes(mes), "Ya comprometido": utils.money(ya), "Meta": utils.money(meta),
-                   "Espacio": utils.money(espacio),
-                   "Estado": "🔴 Lleno" if espacio <= 0 else ("🟠 Poco espacio" if espacio < meta * 0.2 else "🟢 Con espacio")})
+                   "Espacio en la meta": utils.money(espacio), "Caja que sobra": utils.money(sobra),
+                   "Puedes pedir": utils.money(puedes),
+                   "Estado": _estado(espacio, puedes) if puedes < espacio or espacio <= 0
+                   else ("🟠 Poco espacio" if espacio < meta * 0.2 else "🟢 Con espacio")})
 st.dataframe(pd.DataFrame(_filas), hide_index=True, width="stretch")
-st.caption("Ya comprometido = facturas y letras pendientes que vencen ese mes. Espacio = meta de compras menos eso.")
+st.caption(
+    "Ya comprometido = facturas y letras pendientes que vencen ese mes. Espacio en la meta = meta menos eso. "
+    "Caja que sobra = lo que queda ese mes después de TODOS los pagos (sin compras nuevas). Puedes pedir = el menor."
+)

@@ -847,6 +847,23 @@ def month_expected_inflows(incomes, ingresos_esperados, month_prefix, today=None
     }
 
 
+def month_cash_room(events, incomes, ingresos_esperados, month_prefix, today=None):
+    """Lo que te sobra de caja en el mes `month_prefix` SIN compras nuevas:
+    lo que todavía puede entrar (venta esperada + ingresos fijos) menos todo
+    lo pendiente de pagar ese mes (proveedores, gastos fijos, préstamos...).
+    Es el "Neto proyectado" del Calendario con el signo al revés: positivo =
+    sobra, negativo = falta. Una compra nueva que se pague ese mes sale de aquí."""
+    entradas = month_expected_inflows(incomes, ingresos_esperados, month_prefix, today)
+    pagos = dsum(e["amount"] for e in events if e["date"].startswith(month_prefix))
+    return dsum([entradas["total"], -pagos])
+
+
+def with_cash_limit(espacio, sobra):
+    """Lo que de verdad se puede pedir para un mes: el menor entre el espacio
+    de la meta de compras y lo que sobra de caja ese mes (nunca negativo)."""
+    return round2(max(0.0, min(espacio, sobra)))
+
+
 # ---------- simulador: usar un crédito para cancelar deudas ----------
 
 def debt_status_today(deuda, expenses, today=None):
