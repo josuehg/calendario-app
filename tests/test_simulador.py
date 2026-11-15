@@ -202,17 +202,22 @@ def test_guardar_y_cargar_escenario(run_view, db):
     next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").set_value(30000.0)
     next(n for n in at.number_input if n.key == "sim_venta").set_value(7000.0)
     next(n for n in at.number_input if n.key == "sim_compras").set_value(81000.0)
+    next(n for n in at.number_input if n.key == "sim_credito").set_value(237000.0)
+    next(n for n in at.number_input if n.key == "sim_g_ahorro").set_value(12000.0)
     next(t for t in at.text_input if t.label == "Nombre del escenario").set_value("Plan B")
     at = click(at, "Guardar escenario")
     assert not at.exception
     [esc] = db.sim_scenarios
     assert esc["name"] == "Plan B"
+    assert esc["data"]["sim_g_ahorro"] == 12000.0
     assert esc["data"]["pagos"] == {str(d["id"]): 30000.0} and esc["data"]["sim_venta"] == 7000.0
     assert len(esc["data"]["inversiones"]) == 2
 
     # Otra sesión: arranca de cero y carga el escenario guardado.
     at = run_view(VIEW, role="admin")
     assert next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").value == 0.0
+    # El crédito ya arranca con el del último escenario guardado, no con el número fijo.
+    assert next(n for n in at.number_input if n.key == "sim_credito").value == 237000.0
     at = next(b for b in at.button if b.label == "Cargar").click().run()
     assert not at.exception
     assert next(n for n in at.number_input if n.key == f"sim_pago_{d['id']}").value == 30000.0
@@ -220,6 +225,14 @@ def test_guardar_y_cargar_escenario(run_view, db):
     assert next(n for n in at.number_input if n.key == "sim_compras").value == 81000.0
     assert next(n for n in at.number_input if n.key == "sim_venta").value != 7000.0
     assert any("Escenario cargado: Plan B" in s.value and "actualizadas" in s.value for s in at.success)
+    assert next(n for n in at.number_input if n.key == "sim_g_ahorro").value == 12000.0
+
+    # Con el check apagado se carga tal como se guardó, también la venta por día.
+    next(c for c in at.checkbox if c.key == "sim_esc_hoy").uncheck().run()
+    at = next(b for b in at.button if b.label == "Cargar").click().run()
+    assert not at.exception
+    assert next(n for n in at.number_input if n.key == "sim_venta").value == 7000.0
+    assert any("tal como se guardó" in s.value for s in at.success)
 
     at = next(b for b in at.button if b.label == "Eliminar").click().run()
     assert db.sim_scenarios == []
