@@ -27,8 +27,26 @@ ingresos_esperados = utils.fixed_income_expected(db.list_fixed_incomes(), db.lis
                                                  months_ahead=8)
 
 
+_eventos_plan = events  # se reemplaza abajo si la meta sale de un escenario
+_credito = 0.0          # el crédito del plan, si la meta sale de un escenario
+_caja = None
+if settings.get("caja_saldo_inicial_fecha"):
+    _caja = utils.compute_cash_balance(
+        invoices, letras, db.list_expenses(), incomes,
+        saldo_inicial=settings.get("caja_saldo_inicial") or 0.0,
+        saldo_inicial_fecha=settings.get("caja_saldo_inicial_fecha"),
+        fixed_receipts=db.list_fixed_income_receipts(),
+    )["saldo_actual"]
+_disponible = {}
+
+
 def _sobra(mes):
-    return utils.month_cash_room(events, incomes, ingresos_esperados, mes, today)
+    """Caja disponible para compras nuevas que se paguen ese mes (con arrastre)."""
+    if mes not in _disponible:
+        _meses = [utils._sumar_meses(today[:7], k) for k in range(0, 8)]
+        _disponible.update(utils.cash_available_by_month(
+            _eventos_plan, incomes, ingresos_esperados, meta, (_caja or 0.0) + _credito, _meses, today))
+    return _disponible.get(mes, 0.0)
 
 
 def _estado(espacio, puedes):
@@ -47,11 +65,12 @@ def _mes(m):
 
 # ---------- meta de compras: del plan guardado o a mano ----------
 escenarios = db.list_sim_scenarios()
-_metas = {}
+_metas, _datos = {}, {}
 for e in escenarios:
     d = e.get("data") or {}
     if d.get("sim_compras"):
         _metas[e["name"]] = float(d["sim_compras"])
+        _datos[e["name"]] = d
 promedio = utils.average_monthly_purchases(invoices, today)
 opciones = list(_metas) + ["Escribirla a mano"]
 _def = next((i for i, n in enumerate(opciones) if "FINAL" in n.upper()), 0)
@@ -64,7 +83,31 @@ if origen == "Escribirla a mano" or not _metas:
 else:
     meta = _metas[origen]
     c2.metric("Meta de compras por mes", utils.money(meta))
+    # La caja se ve como queda CON el plan: las deudas que el plan cancela
+    # (con el crédito o con renovaciones) dejan de cobrar su cuota.
+    _deudas = utils.simulator_debts(db.list_debts(active_only=True), db.list_fixed_expenses())
+    _cuotas_plan = utils.plan_debt_cuotas(_datos[origen], _deudas)
+    _eventos_plan = utils.apply_plan_cuotas(events, _cuotas_plan, today)
+    _credito = float(_datos[origen].get("sim_credito") or 0)
+    _nombres = {str(d["fixed_expense_id"]): d["nombre"] for d in _deudas if d.get("fixed_expense_id")}
+    _canc = [_nombres.get(k, "?") for k, v in _cuotas_plan.items() if float(v.get("factor", 1)) == 0]
+    _renov = [f"{_nombres.get(k, '?')} ({_mes(v['cancel_mes'])})" for k, v in _cuotas_plan.items()
+              if v.get("cancel_mes") and float(v.get("factor", 1)) > 0]
+    if _canc or _renov:
+        st.caption(
+            f"La caja de cada mes se calcula **según {origen}**: "
+            + (f"desde el próximo mes ya no se cuentan las cuotas de {', '.join(_canc)} (las cancela el crédito)"
+               if _canc else "")
+            + ("; " if _canc and _renov else "")
+            + (f"con renovaciones se cancelan {', '.join(_renov)}" if _renov else "")
+            + ". El Calendario sigue mostrando lo registrado hoy."
+        )
 st.caption(f"Tu promedio de compras de los últimos meses es {utils.money(promedio)}.")
+st.caption(
+    f"Caja de partida: {utils.money(_caja) if _caja is not None else 'sin configurar (Simulador → ✏️ Corregir caja)'}"
+    + (f" + crédito del plan {utils.money(_credito)}" if _credito else "")
+    + ". Mes a mes se le suma lo que sobra y se le restan las compras del plan de los meses anteriores."
+)
 
 # ---------- presupuesto del mes ----------
 plazos = (30, 60, 75, 90)
@@ -91,7 +134,7 @@ st.dataframe(
             "Vence": utils.fmt_long(f["vence"]) + (" ⚠️" if f["dias_1_10"] else ""),
             "Ya por pagar a proveedores ese mes": utils.money(f["ya_por_pagar"]),
             "Espacio en la meta": utils.money(f["espacio"]),
-            "Caja que sobra ese mes": utils.money(f["sobra"]),
+            "Caja disponible ese mes": utils.money(f["sobra"]),
             "Puedes pedir": utils.money(f["puedes"]),
             "Estado": _estado(f["espacio"], f["puedes"]),
         }
@@ -109,9 +152,10 @@ if _mejor["puedes"] > 0:
 else:
     st.warning("Ningún plazo tiene espacio con esta meta y esta caja: mejor esperar o cubrir con balanceo entre locales.")
 st.caption(
-    "Caja que sobra ese mes = venta esperada + ingresos fijos − todo lo pendiente de ese mes (proveedores, planilla, "
-    "alquileres, préstamos…), igual que el Neto proyectado del Calendario. Puedes pedir = el menor entre la meta y la "
-    "caja. ⚠️ Vence entre el 1 y el 10 del mes, cuando se juntan planilla, alquileres y cuotas bancarias."
+    "Caja disponible ese mes = caja de partida (+ crédito del plan) + lo que sobra cada mes hasta ese (venta esperada "
+    "+ ingresos fijos − todos los pagos, como el Neto proyectado del Calendario) − las compras del plan de los meses "
+    "anteriores. Puedes pedir = el menor entre la meta y esa caja. ⚠️ Vence entre el 1 y el 10 del mes, cuando se "
+    "juntan planilla, alquileres y cuotas bancarias."
 )
 
 # ---------- solo para emergencias: letra pagada dentro de los días de gracia ----------
@@ -149,12 +193,13 @@ for k in range(1, 5):
     sobra = _sobra(mes)
     puedes = utils.with_cash_limit(espacio, sobra)
     _filas.append({"Mes": _mes(mes), "Ya comprometido": utils.money(ya), "Meta": utils.money(meta),
-                   "Espacio en la meta": utils.money(espacio), "Caja que sobra": utils.money(sobra),
+                   "Espacio en la meta": utils.money(espacio), "Caja disponible": utils.money(sobra),
                    "Puedes pedir": utils.money(puedes),
                    "Estado": _estado(espacio, puedes) if puedes < espacio or espacio <= 0
                    else ("🟠 Poco espacio" if espacio < meta * 0.2 else "🟢 Con espacio")})
 st.dataframe(pd.DataFrame(_filas), hide_index=True, width="stretch")
 st.caption(
     "Ya comprometido = facturas y letras pendientes que vencen ese mes. Espacio en la meta = meta menos eso. "
-    "Caja que sobra = lo que queda ese mes después de TODOS los pagos (sin compras nuevas). Puedes pedir = el menor."
+    "Caja disponible = con lo que llegas a ese mes más lo que sobra en él después de TODOS los pagos. "
+    "Puedes pedir = el menor entre eso y el espacio en la meta."
 )

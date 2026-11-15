@@ -847,15 +847,103 @@ def month_expected_inflows(incomes, ingresos_esperados, month_prefix, today=None
     }
 
 
+def plan_debt_cuotas(data, deudas):
+    """Cómo quedan las cuotas de las deudas informales según un escenario
+    guardado del Simulador, por gasto fijo vinculado:
+    {fixed_expense_id: {"factor": f, "cancel_mes": 'YYYY-MM' | None}}.
+
+      factor     = lo que queda de la cuota después de lo que el plan cancela
+                   con el crédito (cancelar todo = 0; la mitad = 0.5).
+      cancel_mes = si el plan la cancela después con una renovación: su cuota
+                   se paga ese mes y deja de cobrarse desde el siguiente.
+    Si el escenario ya trae `cuotas_plan` (se guarda desde el Simulador), se
+    usa tal cual."""
+    data = data or {}
+    if data.get("cuotas_plan"):
+        return {str(k): v for k, v in data["cuotas_plan"].items()}
+    pagos = {str(k): float(v or 0) for k, v in (data.get("pagos") or {}).items()}
+    out, restantes = {}, []
+    for d in deudas:
+        if not d.get("fixed_expense_id") or not d["saldo"]:
+            continue
+        pago = min(pagos.get(str(d["id"]), 0.0), d["saldo"])
+        factor = round((d["saldo"] - pago) / d["saldo"], 6)
+        out[str(d["fixed_expense_id"])] = {"factor": factor, "cancel_mes": None}
+        if factor > 0:
+            restantes.append({**d, "saldo": d["saldo"] - pago, "cuota": d["cuota"] * factor})
+    prestamos = [
+        {"nombre": str(p.get("Préstamo")), "monto": float(p.get("Monto") or 0), "cuotas": int(p.get("Cuotas") or 0),
+         "cuota": float(p.get("Cuota") or 0), "primera_cuota": str(p.get("Primera cuota") or "")[:7]}
+        for p in (data.get("prestamos") or []) if p.get("Préstamo") and p.get("Monto") and p.get("Cuotas")
+    ]
+    if prestamos and restantes and data.get("renov_incluir") and data.get("renov_primera"):
+        renov = renewal_schedule(prestamos, restantes, data["renov_primera"], int(data.get("sim_renov_cada") or 3),
+                                 renovaciones=8)
+        por_id = {d["id"]: d for d in restantes}
+        for did, mes in (renov.get("cancel_mes") or {}).items():
+            if did in por_id:
+                out[str(por_id[did]["fixed_expense_id"])]["cancel_mes"] = mes
+    return out
+
+
+def apply_plan_cuotas(events, cuotas_plan, today=None):
+    """Los pagos pendientes como quedarían con el plan: las cuotas de las
+    deudas que el plan cancela bajan (o desaparecen) desde el mes siguiente
+    al actual; las que cancela con una renovación, desde el mes siguiente a
+    esa renovación. El mes en curso no cambia (igual que el Simulador)."""
+    if not cuotas_plan:
+        return events
+    mes_hoy = (today or today_str())[:7]
+    out = []
+    for e in events:
+        aj = cuotas_plan.get(str(e.get("fixed_expense_id"))) if e.get("kind") == "expense" else None
+        mes = e["date"][:7]
+        if aj is None or mes <= mes_hoy:
+            out.append(e)
+            continue
+        if aj.get("cancel_mes") and aj["cancel_mes"] < mes:
+            continue
+        factor = float(aj.get("factor", 1))
+        if factor > 0:
+            out.append({**e, "amount": round2(e["amount"] * factor)})
+    return out
+
+
 def month_cash_room(events, incomes, ingresos_esperados, month_prefix, today=None):
     """Lo que te sobra de caja en el mes `month_prefix` SIN compras nuevas:
     lo que todavía puede entrar (venta esperada + ingresos fijos) menos todo
     lo pendiente de pagar ese mes (proveedores, gastos fijos, préstamos...).
     Es el "Neto proyectado" del Calendario con el signo al revés: positivo =
-    sobra, negativo = falta. Una compra nueva que se pague ese mes sale de aquí."""
+    sobra, negativo = falta. Una compra nueva que se pague ese mes sale de aquí.
+    Para verlo según un plan, pasa los eventos por apply_plan_cuotas."""
     entradas = month_expected_inflows(incomes, ingresos_esperados, month_prefix, today)
     pagos = dsum(e["amount"] for e in events if e["date"].startswith(month_prefix))
     return dsum([entradas["total"], -pagos])
+
+
+def cash_available_by_month(events, incomes, ingresos_esperados, meta, caja_inicio, months, today=None):
+    """Caja disponible para compras nuevas que se paguen en cada mes de
+    `months` (en orden, desde el mes en curso), arrastrando la caja:
+
+      disponible(mes) = caja con la que llegas a ese mes + lo que sobra ese
+                        mes sin compras nuevas (month_cash_room).
+      caja al mes siguiente = disponible - lo que el plan compra para pagar
+                        ese mes (meta - lo ya comprometido; lo que alcance).
+    El mes en curso no descuenta compras del plan: un pedido de hoy a 30 días
+    o más ya no vence este mes. `caja_inicio` = caja de hoy (+ el crédito,
+    si el plan lo cuenta)."""
+    today = today or today_str()
+    acum = float(caja_inicio or 0)
+    out = {}
+    for mes in months:
+        disponible = dsum([acum, month_cash_room(events, incomes, ingresos_esperados, mes, today)])
+        out[mes] = disponible
+        if mes > today[:7]:
+            ya = dsum(e["amount"] for e in events if e["kind"] in ("invoice", "letra") and e["date"][:7] == mes)
+            compra_plan = min(max(0.0, dsum([meta, -ya])), max(0.0, disponible))
+            disponible = dsum([disponible, -compra_plan])
+        acum = disponible
+    return out
 
 
 def with_cash_limit(espacio, sobra):

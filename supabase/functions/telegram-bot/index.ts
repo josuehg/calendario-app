@@ -91,6 +91,8 @@ interface Evento {
   refId: string;
   /** Para agrupar las listas de pagos: categoría del gasto, "Letras", "Contado"... */
   tipo?: string;
+  /** Gasto que sale de una plantilla de gasto fijo (p. ej. la cuota de una deuda). */
+  fixedExpenseId?: string;
 }
 
 interface Settings {
@@ -181,7 +183,7 @@ async function buildEvents(supabase: any, today: string, settings?: Settings): P
 
   const { data: expenses } = await supabase
     .from("expenses")
-    .select("id,kind,name,category,branch,amount,due_date,status")
+    .select("id,kind,name,category,branch,amount,due_date,status,fixed_expense_id")
     .eq("status", "pendiente");
 
   const events: Evento[] = [];
@@ -245,6 +247,7 @@ async function buildEvents(supabase: any, today: string, settings?: Settings): P
       kind: "expense",
       refId: x.id,
       tipo: x.category || "Gastos",
+      fixedExpenseId: x.fixed_expense_id ? String(x.fixed_expense_id) : undefined,
     });
   }
 
@@ -709,6 +712,39 @@ async function cajaQueSobra(supabase: any, today: string, evs: Evento[]): Promis
   };
 }
 
+/** Cómo quedan las cuotas de las deudas según el escenario (ver
+ * utils.plan_debt_cuotas): lo guardado en `cuotas_plan` o, si el escenario es
+ * anterior, solo lo que cancela el crédito. */
+async function cuotasDelPlan(supabase: any, data: any): Promise<Record<string, { factor: number; cancel_mes?: string | null }>> {
+  if (data?.cuotas_plan) return data.cuotas_plan;
+  const pagos = data?.pagos ?? {};
+  if (!Object.keys(pagos).length) return {};
+  const { data: deudas } = await supabase.from("debts").select("id,balance,fixed_expense_id,debt_type,active");
+  const out: Record<string, { factor: number; cancel_mes?: string | null }> = {};
+  for (const d of deudas ?? []) {
+    const saldo = Number(d.balance);
+    if (d.debt_type !== "informal" || d.active === false || !d.fixed_expense_id || !(saldo > 0)) continue;
+    const pago = Math.min(Number(pagos[String(d.id)] ?? 0), saldo);
+    out[String(d.fixed_expense_id)] = { factor: (saldo - pago) / saldo, cancel_mes: null };
+  }
+  return out;
+}
+
+/** Los pagos como quedarían con el plan (ver utils.apply_plan_cuotas). */
+function conPlan(evs: Evento[], plan: Record<string, { factor: number; cancel_mes?: string | null }>, today: string): Evento[] {
+  const mesHoy = today.slice(0, 7);
+  const out: Evento[] = [];
+  for (const e of evs) {
+    const aj = e.kind === "expense" && e.fixedExpenseId ? plan[e.fixedExpenseId] : undefined;
+    const mes = e.date.slice(0, 7);
+    if (!aj || mes <= mesHoy) { out.push(e); continue; }
+    if (aj.cancel_mes && aj.cancel_mes < mes) continue;
+    const factor = Number(aj.factor ?? 1);
+    if (factor > 0) out.push({ ...e, amount: Math.round(e.amount * factor * 100) / 100 });
+  }
+  return out;
+}
+
 async function comprasDelDia(supabase: any, today: string, events?: Evento[]): Promise<string[]> {
   const evs = events ?? await buildEvents(supabase, today);
   const { data: escenarios } = await supabase
@@ -734,7 +770,34 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
   lines.push(queda >= 0
     ? `Este mes ya se pidió ${money(pedido)}: quedan ${money(queda)} para pedir.`
     : `⚠️ Este mes ya se pidió ${money(pedido)}: te pasaste de la meta por ${money(-queda)}. Mejor balancear antes de pedir.`);
-  const sobra = await cajaQueSobra(supabase, today, evs);
+  // La caja se ve como queda con el plan: las deudas que cancela dejan de cobrar su cuota.
+  const plan = elegido ? await cuotasDelPlan(supabase, elegido.data) : {};
+  const evsPlan = conPlan(evs, plan, today);
+  const sobraMes = await cajaQueSobra(supabase, today, evsPlan);
+  // Caja disponible por mes (ver utils.cash_available_by_month): caja de hoy +
+  // crédito del plan, + lo que sobra cada mes − las compras del plan de los
+  // meses anteriores.
+  const cajaHoy = (await computeCaja(supabase, today))?.saldoActual ?? 0;
+  const credito = elegido ? Number(elegido.data?.sim_credito ?? 0) : 0;
+  const disponible: Record<string, number> = {};
+  {
+    let acum = cajaHoy + credito;
+    const [yy, mm] = today.slice(0, 7).split("-").map(Number);
+    for (let k = 0; k < 8; k++) {
+      const mes = toISO(new Date(Date.UTC(yy, mm - 1 + k, 1))).slice(0, 7);
+      let disp = acum + sobraMes(mes);
+      disponible[mes] = Math.round(disp * 100) / 100;
+      if (k > 0) {
+        const ya = evsPlan
+          .filter((e) => (e.kind === "invoice" || e.kind === "letra") && e.date.slice(0, 7) === mes)
+          .reduce((a, e) => a + e.amount, 0);
+        disp -= Math.min(Math.max(0, meta - ya), Math.max(0, disp));
+      }
+      acum = disp;
+    }
+  }
+  const sobra = (mes: string) => disponible[mes] ?? 0;
+  lines.push(`Caja de partida ${money(cajaHoy)}` + (credito ? ` + crédito del plan ${money(credito)}` : "") + ".");
   // Lo que se puede pedir: el menor entre el espacio de la meta y la caja que sobra ese mes.
   const fila = (plazo: number) => {
     const vence = addDays(today, plazo);
@@ -749,7 +812,7 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
   };
   const detalle = (f: ReturnType<typeof fila>) =>
     f.espacio <= 0 ? "la meta de ese mes ya está llena"
-    : f.puedes <= 0 ? `la caja no alcanza (ese mes faltan ${money(-f.caja)})`
+    : f.puedes <= 0 ? `la caja no alcanza (ese mes faltarían ${money(-f.caja)})`
     : f.puedes < f.espacio ? `puedes pedir ${money(f.puedes)} (lo limita la caja; la meta daría ${money(f.espacio)})`
     : `puedes pedir ${money(f.puedes)}`;
   const icono = (f: ReturnType<typeof fila>, ok: string) =>
@@ -777,7 +840,9 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
     }
   }
   lines.push("⚠️ = cae entre el 1 y el 10 (planilla, alquileres y bancos).");
-  lines.push("La caja de cada mes = venta esperada + ingresos fijos − todos los pagos de ese mes (como el Neto proyectado del Calendario).");
+  lines.push("La caja de cada mes = con la que llegas + venta esperada + ingresos fijos − todos los pagos − las compras"
+    + " del plan de los meses anteriores"
+    + (Object.keys(plan).length ? `; sin las cuotas de las deudas desde que ${elegido.name} las cancela.` : "."));
   return lines;
 }
 

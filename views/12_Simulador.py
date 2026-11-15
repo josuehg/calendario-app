@@ -828,6 +828,15 @@ with st.form("sim_guardar", clear_on_submit=True, border=False):
                                    "Cuota": p_["cuota"], "Primera cuota": p_["primera_cuota"]} for p_ in prestamos],
                     "renov_primera": renov_primera, "sim_renov_cada": int(renov_cada), "renov_incluir": renov_incluir,
                     "pagos": {str(k): v for k, v in pagos.items() if v},
+                    # Cómo quedan las cuotas de cada deuda con este plan (lo lee
+                    # Compras del día y el bot para la caja de cada mes).
+                    "cuotas_plan": {
+                        str(d["fixed_expense_id"]): {
+                            "factor": round((d["saldo"] - min(pagos.get(d["id"], 0), d["saldo"])) / d["saldo"], 6),
+                            "cancel_mes": cancel_mes.get(d["id"]),
+                        }
+                        for d in deudas if d.get("fixed_expense_id") and d["saldo"]
+                    },
                     "inversiones": inversiones,
                     "prov_nuevas": compras_nuevas,
                 },

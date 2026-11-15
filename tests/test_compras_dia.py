@@ -61,3 +61,48 @@ def test_caja_que_sobra_es_el_neto_proyectado_al_reves(db):
     assert utils.with_cash_limit(66000.0, sobra) == 0.0
     assert utils.with_cash_limit(66000.0, 22946.55) == 22946.55
     assert utils.with_cash_limit(10000.0, 22946.55) == 10000.0
+
+
+def test_plan_quita_cuotas_de_deudas_canceladas(db):
+    import utils
+    deudas = [{"id": 1, "nombre": "Carmen", "saldo": 100000.0, "cuota": 10000.0, "fixed_expense_id": "fx1"},
+              {"id": 2, "nombre": "China", "saldo": 30000.0, "cuota": 3000.0, "fixed_expense_id": "fx2"}]
+    plan = utils.plan_debt_cuotas({"pagos": {"1": 100000.0, "2": 15000.0}}, deudas)
+    assert plan == {"fx1": {"factor": 0.0, "cancel_mes": None}, "fx2": {"factor": 0.5, "cancel_mes": None}}
+    events = [
+        {"date": "2026-11-20", "amount": 10000.0, "kind": "expense", "fixed_expense_id": "fx1"},  # mes en curso: igual
+        {"date": "2027-02-05", "amount": 10000.0, "kind": "expense", "fixed_expense_id": "fx1"},  # cancelada: sale
+        {"date": "2027-02-05", "amount": 3000.0, "kind": "expense", "fixed_expense_id": "fx2"},   # mitad
+        {"date": "2027-02-05", "amount": 8000.0, "kind": "letra"},
+    ]
+    out = utils.apply_plan_cuotas(events, plan, today="2026-11-14")
+    assert [e["amount"] for e in out] == [10000.0, 1500.0, 8000.0]
+    # Con renovación: se paga ese mes y deja de cobrarse desde el siguiente.
+    out = utils.apply_plan_cuotas(
+        [{"date": m, "amount": 3000.0, "kind": "expense", "fixed_expense_id": "fx2"} for m in ("2027-02-05", "2027-03-05")],
+        {"fx2": {"factor": 1.0, "cancel_mes": "2027-02"}}, today="2026-11-14")
+    assert [e["date"] for e in out] == ["2027-02-05"]
+
+
+def test_pagina_usa_el_plan_para_la_caja(run_view, db):
+    fx = db.create_fixed_expense({"name": "Sra Carmen", "category": "Prestamos Usu", "amount": 10300.0, "day": 5,
+                                  "active": True, "start_date": date.today().isoformat()})
+    d = db.create_debt({"creditor": "Sra Carmen", "debt_type": "informal", "principal": 103000.0, "balance": 103000.0,
+                        "monthly_payment": 10300.0, "active": True, "fixed_expense_id": fx["id"]})
+    db.create_sim_scenario({"name": "PLAN ALFIN", "data": {"sim_compras": 81000.0, "pagos": {str(d["id"]): 103000.0}}})
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    assert any("según PLAN ALFIN" in c.value and "Sra Carmen" in c.value for c in at.caption)
+
+
+def test_caja_disponible_arrastra_el_credito_y_las_compras_del_plan(db):
+    import utils
+    # Sin ventas: cada mes futuro falta 20k (gastos); el crédito da 100k de colchón.
+    events = [{"date": m, "amount": 20000.0, "kind": "expense"} for m in ("2026-12-05", "2027-01-05", "2027-02-05")]
+    disp = utils.cash_available_by_month(events, [], [], 30000.0, 100000.0,
+                                         ["2026-11", "2026-12", "2027-01", "2027-02"], today="2026-11-14")
+    assert disp["2026-11"] == 100000.0               # mes en curso: sin compras del plan
+    assert disp["2026-12"] == 80000.0                # 100k - 20k gastos
+    assert disp["2027-01"] == 30000.0                # 80k - 30k compras de dic - 20k gastos
+    assert disp["2027-02"] == -20000.0               # 30k - 30k compras de ene - 20k gastos
+    assert utils.with_cash_limit(30000.0, disp["2027-02"]) == 0.0
