@@ -27,10 +27,12 @@ def test_corregir_caja_desde_el_simulador(run_view, db):
     next(n for n in at.number_input if n.key == "sim_cc_bcp").set_value(20000.0)
     at = click(at, "Guardar caja")
     assert not at.exception
-    assert db.settings["caja_saldo_inicial"] == 43000.0  # 300k - 20k BCP - 237k del crédito
+    # Se guarda la caja REAL; el crédito ya depositado se anota aparte y el plan lo resta.
+    assert db.settings["caja_saldo_inicial"] == 280000.0
+    assert db.settings["caja_credito_incluido"] == 237000.0
     assert db.settings["caja_saldo_inicial_fecha"] == ayer
     assert next(n for n in at.number_input if n.key == "sim_caja").value == 43000.0
-    assert any("Caja corregida" in s.value for s in at.success)
+    assert any("Caja real corregida" in s.value for s in at.success)
 
     # Al día siguiente: lo vendido hoy se suma solo.
     db.create_income({"branch": "Sucursal 1", "date": date.today().isoformat(), "amount": 5000.0})
@@ -45,3 +47,4 @@ def test_corregir_caja_sin_credito_en_banco(run_view, db):
     next(c for c in at.checkbox if c.key == "sim_cc_cred").uncheck()
     at = click(at, "Guardar caja")
     assert db.settings["caja_saldo_inicial"] == 50000.0
+    assert db.settings["caja_credito_incluido"] == 0.0
