@@ -847,6 +847,18 @@ def month_expected_inflows(incomes, ingresos_esperados, month_prefix, today=None
     }
 
 
+def active_scenario(escenarios, settings):
+    """El plan que usan Compras del día y el bot: el marcado como activo en el
+    Simulador (⭐). Si no hay ninguno marcado (o se eliminó), el primero cuyo
+    nombre diga FINAL y, si no, el último guardado. Solo escenarios con meta
+    de compras. `escenarios` viene del más nuevo al más viejo."""
+    con_meta = [e for e in escenarios if float((e.get("data") or {}).get("sim_compras") or 0) > 0]
+    activo = (settings or {}).get("plan_activo_id")
+    return (next((e for e in con_meta if str(e["id"]) == str(activo)), None) if activo else None) \
+        or next((e for e in con_meta if "FINAL" in e["name"].upper()), None) \
+        or (con_meta[0] if con_meta else None)
+
+
 def plan_debt_cuotas(data, deudas):
     """Cómo quedan las cuotas de las deudas informales según un escenario
     guardado del Simulador, por gasto fijo vinculado:

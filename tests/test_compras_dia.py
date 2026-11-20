@@ -142,3 +142,34 @@ def test_colchon_se_resta_y_queda_guardado(run_view, db):
     despues = next(d.value for d in at.dataframe if "Caja disponible ese mes" in d.value.columns)
     assert list(antes["Caja disponible ese mes"]) != list(despues["Caja disponible ese mes"])
     assert any("colchón S/ 50,000.00" in c.value for c in at.caption)
+
+
+def test_plan_activo_manda_sobre_final_y_el_ultimo(db):
+    import utils
+    escs = [{"id": "c", "name": "prueba nueva", "data": {"sim_compras": 90000.0}},
+            {"id": "b", "name": "PLAN FINAL", "data": {"sim_compras": 81000.0}},
+            {"id": "a", "name": "VF 2.0", "data": {"sim_compras": 75000.0}},
+            {"id": "z", "name": "sin meta", "data": {}}]
+    assert utils.active_scenario(escs, {"plan_activo_id": "a"})["name"] == "VF 2.0"
+    assert utils.active_scenario(escs, {"plan_activo_id": "borrado"})["name"] == "PLAN FINAL"
+    assert utils.active_scenario(escs[:1] + escs[2:], {})["name"] == "prueba nueva"
+    assert utils.active_scenario(escs[3:], {}) is None
+
+
+def test_marcar_plan_activo_en_el_simulador_y_compras_lo_usa(run_view, db):
+    db.create_debt({"creditor": "Sra China", "debt_type": "informal", "principal": 30000.0, "balance": 30000.0,
+                    "monthly_payment": 3000.0, "active": True})
+    viejo = db.create_sim_scenario({"name": "VF 2.0", "data": {"sim_compras": 75000.0}})
+    db.create_sim_scenario({"name": "prueba", "data": {"sim_compras": 90000.0}})
+    at = run_view("views/12_Simulador.py", role="admin")
+    sel = next(s for s in at.selectbox if s.key == "sim_esc_sel")
+    sel.set_value(next(o for o in sel.options if "VF 2.0" in o)).run()
+    at = next(b for b in at.button if "plan activo" in b.label).click().run()
+    assert not at.exception
+    assert db.settings["plan_activo_id"] == viejo["id"]
+    assert any("es ahora el plan activo" in s.value for s in at.success)
+
+    at = run_view(VIEW, role="admin")
+    assert not at.exception
+    metricas = {m.label: m.value for m in at.metric}
+    assert metricas["Meta del mes"] == "S/ 75,000.00"

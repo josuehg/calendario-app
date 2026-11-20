@@ -134,6 +134,16 @@ def _cargar_escenario(esc):
         )
 
 
+def _activar_escenario(esc):
+    try:
+        db.save_settings({"plan_activo_id": str(esc["id"])})
+        st.session_state["sim_msg"] = (
+            f"⭐ {esc['name']} es ahora el plan activo: lo usan Compras del día y el bot."
+        )
+    except Exception:
+        st.session_state["sim_msg"] = "No se pudo marcar: falta correr la migración del plan activo en Supabase."
+
+
 def _eliminar_escenario(esc):
     db.delete_sim_scenario(esc["id"])
     st.session_state["sim_msg"] = f"Escenario eliminado: {esc['name']}."
@@ -141,11 +151,22 @@ def _eliminar_escenario(esc):
 
 if escenarios:
     with st.expander(f"📂 Escenarios guardados ({len(escenarios)})"):
-        e1, e2, e3 = st.columns([3, 1, 1])
-        _por_nombre = {f"{e['name']} · {utils.fmt_time(e.get('created_at'))}": e for e in escenarios}
+        _activo = utils.active_scenario(escenarios, settings)
+        e1, e2, e4, e3 = st.columns([3, 1, 1.3, 1])
+        _por_nombre = {
+            ("⭐ " if _activo and e["id"] == _activo["id"] else "") + f"{e['name']} · {utils.fmt_time(e.get('created_at'))}": e
+            for e in escenarios
+        }
         _elegido = _por_nombre[e1.selectbox("Escenario", list(_por_nombre), label_visibility="collapsed", key="sim_esc_sel")]
         e2.button("Cargar", width="stretch", type="primary", on_click=_cargar_escenario, args=(_elegido,))
+        e4.button("⭐ Usar como plan activo", width="stretch", on_click=_activar_escenario, args=(_elegido,),
+                  disabled=bool(_activo and _elegido["id"] == _activo["id"]),
+                  help="El plan activo es el que usan Compras del día y el bot de las 7 am (meta, crédito y deudas).")
         e3.button("Eliminar", width="stretch", on_click=_eliminar_escenario, args=(_elegido,))
+        st.caption(
+            f"⭐ Plan activo: **{_activo['name']}** (lo usan Compras del día y el bot)." if _activo
+            else "Todavía no hay plan activo: guarda un escenario con meta de compras y márcalo con ⭐."
+        )
         st.checkbox(
             "Al cargar, usar la caja y la venta por día de hoy", value=True, key="sim_esc_hoy",
             help="Marcado: se carga todo el escenario, pero la caja y la venta por día se traen de lo registrado hoy "
