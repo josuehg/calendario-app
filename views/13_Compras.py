@@ -88,10 +88,12 @@ for e in escenarios:
         _datos[e["name"]] = d
 promedio = utils.average_monthly_purchases(invoices, today)
 opciones = list(_metas) + ["Escribirla a mano"]
-_def = next((i for i, n in enumerate(opciones) if "FINAL" in n.upper()), 0)
+_activo = utils.active_scenario(escenarios, settings)
+_def = opciones.index(_activo["name"]) if _activo and _activo["name"] in opciones else 0
 c1, c2 = st.columns([2, 1])
 origen = c1.selectbox("Meta de compras del mes, según", opciones, index=_def, key="cd_origen",
-                      help="Toma la meta de compras de un escenario guardado del Simulador, o escríbela.")
+                      format_func=lambda n: f"⭐ {n} (plan activo)" if _activo and n == _activo["name"] else n,
+                      help="Arranca con el plan activo (⭐, se marca en el Simulador). Puedes elegir otro para comparar.")
 _con_plan = not (origen == "Escribirla a mano" or not _metas)
 t1, t2 = st.columns([2, 1])
 segun_plan = t1.toggle(

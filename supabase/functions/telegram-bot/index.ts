@@ -105,6 +105,8 @@ interface Settings {
   /** Caja que no se toca al calcular cuánto se puede pedir (Compras del día). */
   compras_colchon: number;
   caja_saldo_inicial_fecha: string | null;
+  /** Escenario del Simulador marcado como plan activo (⭐). */
+  plan_activo_id: string | null;
 }
 
 /** Una sola lectura de app_settings por comando (antes cada handler la
@@ -119,6 +121,7 @@ async function loadSettings(supabase: any): Promise<Settings> {
     caja_saldo_inicial: Number(settingsRow?.caja_saldo_inicial ?? 0),
     caja_credito_incluido: Number(settingsRow?.caja_credito_incluido ?? 0),
     compras_colchon: Number(settingsRow?.compras_colchon ?? 0),
+    plan_activo_id: settingsRow?.plan_activo_id ?? null,
     caja_saldo_inicial_fecha: settingsRow?.caja_saldo_inicial_fecha ?? null,
   };
 }
@@ -754,15 +757,21 @@ function conPlan(evs: Evento[], plan: Record<string, { factor: number; cancel_me
 async function comprasDelDia(supabase: any, today: string, events?: Evento[]): Promise<string[]> {
   const evs = events ?? await buildEvents(supabase, today);
   const { data: escenarios } = await supabase
-    .from("sim_scenarios").select("name,data,created_at").order("created_at", { ascending: false });
+    .from("sim_scenarios").select("id,name,data,created_at").order("created_at", { ascending: false });
   const conMeta = (escenarios ?? []).filter((e: any) => Number(e?.data?.sim_compras) > 0);
-  const elegido = conMeta.find((e: any) => /final/i.test(e.name)) ?? conMeta[0];
+  // El plan activo (⭐ en el Simulador); si no hay, el que diga FINAL o el último guardado.
+  const ajustes = await loadSettings(supabase);
+  const elegido = (ajustes.plan_activo_id ? conMeta.find((e: any) => String(e.id) === String(ajustes.plan_activo_id)) : undefined)
+    ?? conMeta.find((e: any) => /final/i.test(e.name)) ?? conMeta[0];
+  const esActivo = !!elegido && String(elegido.id) === String(ajustes.plan_activo_id);
   const mes0 = today.slice(0, 7);
   const [y0, m0] = mes0.split("-").map(Number);
   const hace3 = toISO(new Date(Date.UTC(y0, m0 - 4, 1)));
   const { data: facturas } = await supabase.from("invoices").select("amount,issue_date").gte("issue_date", hace3);
   let meta = elegido ? Number(elegido.data.sim_compras) : 0;
-  const origen = elegido ? `del ${elegido.name}` : "promedio de los últimos 3 meses";
+  const origen = elegido
+    ? (esActivo ? `plan activo ⭐ ${elegido.name}` : `${elegido.name}, sin plan activo marcado`)
+    : "promedio de los últimos 3 meses";
   if (!meta) {
     const previas = (facturas ?? []).filter((f: any) => String(f.issue_date).slice(0, 7) < mes0);
     meta = Math.round(previas.reduce((a: number, f: any) => a + Number(f.amount), 0) / 3);
@@ -785,7 +794,6 @@ async function comprasDelDia(supabase: any, today: string, events?: Evento[]): P
   // meses anteriores.
   // cajaHoy es la caja REAL; del crédito del plan solo se suma lo que aún no está en ella.
   const cajaHoy = (await computeCaja(supabase, today))?.saldoActual ?? 0;
-  const ajustes = await loadSettings(supabase);
   const colchon = ajustes.compras_colchon;
   const credito = elegido
     ? Math.max(0, Number(elegido.data?.sim_credito ?? 0) - ajustes.caja_credito_incluido) : 0;
